@@ -1,0 +1,58 @@
+"""
+Configuration management for TPC-DI benchmark.
+Supports both Databricks (DBFS) and Dataproc (GCS) platforms.
+"""
+
+from dataclasses import dataclass
+from enum import Enum
+from typing import Optional
+
+
+class Platform(Enum):
+    """Supported platforms for benchmarking."""
+    DATABRICKS = "databricks"
+    DATAPROC = "dataproc"
+
+
+class LoadType(Enum):
+    """Type of data load."""
+    BATCH = "batch"
+    INCREMENTAL = "incremental"
+
+
+@dataclass
+class BenchmarkConfig:
+    """Configuration for TPC-DI benchmark run."""
+    platform: Platform
+    load_type: LoadType
+    scale_factor: int
+    raw_data_path: str  # DBFS path for Databricks, GCS path for Dataproc
+    target_database: str = "tpcdi_warehouse"
+    target_schema: str = "dw"
+    batch_id: Optional[int] = None  # For incremental loads
+    spark_master: Optional[str] = None  # For Dataproc
+    gcs_bucket: Optional[str] = None  # For Dataproc
+    project_id: Optional[str] = None  # For Dataproc
+    region: Optional[str] = None  # For Dataproc
+    enable_metrics: bool = True
+    metrics_output_path: Optional[str] = None
+    
+    def __post_init__(self):
+        """Validate configuration."""
+        if self.platform == Platform.DATAPROC:
+            if not self.gcs_bucket:
+                raise ValueError("gcs_bucket is required for Dataproc")
+            if not self.project_id:
+                raise ValueError("project_id is required for Dataproc")
+            if not self.region:
+                raise ValueError("region is required for Dataproc")
+        
+        if self.load_type == LoadType.INCREMENTAL and self.batch_id is None:
+            raise ValueError("batch_id is required for incremental loads")
+        
+        if self.enable_metrics and not self.metrics_output_path:
+            # Default metrics path
+            if self.platform == Platform.DATABRICKS:
+                self.metrics_output_path = f"dbfs:/mnt/tpcdi/metrics"
+            else:
+                self.metrics_output_path = f"gs://{self.gcs_bucket}/tpcdi/metrics"

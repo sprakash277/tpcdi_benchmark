@@ -1,7 +1,10 @@
-# TPC-DI Data Generation for Databricks
-# No extra deps required for the generator script when run on Databricks
-# (pyspark, dbutils come from the runtime).
+# TPC-DI Data Generation and Benchmark for Databricks/Dataproc
+# 
+# Core dependencies:
+pyspark>=3.0.0
+
+# For Databricks: pyspark and dbutils come from the runtime
+# For Dataproc: pyspark comes from the cluster, GCS connector should be installed on cluster
 #
-# For local CLI runs without Databricks, stdlib only is enough unless
-# you add features that need these:
-# pyspark>=3.0.0
+# Optional for local development:
+# google-cloud-storage>=2.0.0  # For GCS operations if needed
