@@ -9,7 +9,7 @@ via a Python wrapper. Designed to run on Databricks (driver node).
 Usage:
     # Databricks notebook: use widgets or set variables, then call main()
     # CLI (local or Databricks job):
-    python generate_tpcdi_data.py --scale-factor 10 --output dbfs:/mnt/tpcdi/sf10
+    python generate_tpcdi_data.py --scale-factor 10 --output dbfs:/mnt/tpcdi
 
 Prerequisites:
     - Java 7+ (available on Databricks runtime)
@@ -20,6 +20,7 @@ Prerequisites:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import os
 import shlex
 import shutil
@@ -52,6 +53,7 @@ except Exception:
 DRIVER_ROOT = "/local_disk0"  # Databricks driver local disk
 DEFAULT_SCALE_FACTOR = 10
 DEFAULT_DIGEN_PATH = "tools/datagen"
+DEFAULT_UPLOAD_THREADS = 8
 TPCDI_TMP = "tpcdi_tmp"
 
 
@@ -131,11 +133,21 @@ def _run_digen(digen_path: Path, scale_factor: int, output_path: Path) -> None:
         raise RuntimeError(f"DIGen exited with code {proc.returncode}")
 
 
-def _upload_to_dbfs(local_dir: Path, dbfs_path: str) -> None:
-    """Copy generated files from local_dir to DBFS. Uses /dbfs FUSE mount on Databricks."""
-    if not IN_DATABRICKS:
-        raise RuntimeError("Upload to DBFS requires Databricks.")
+def _copy_file_to_dbfs(src: Path, dest: Path) -> str:
+    """Copy a single file to DBFS destination."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dest)
+    return f"Copied {src} -> {dest}"
 
+
+def _upload_to_dbfs(local_dir: Path, dbfs_path: str, max_workers: int = DEFAULT_UPLOAD_THREADS) -> None:
+    """Copy generated files from local_dir to DBFS using parallel threads.
+    
+    Args:
+        local_dir: Source directory containing files to upload.
+        dbfs_path: DBFS destination path (dbfs:/... or /dbfs/...).
+        max_workers: Number of parallel threads for file uploads. Default: 8.
+    """
     # Normalize: dbfs:/path -> /dbfs/path
     if dbfs_path.startswith("dbfs:"):
         os_path = "/dbfs" + dbfs_path[5:]
@@ -146,16 +158,43 @@ def _upload_to_dbfs(local_dir: Path, dbfs_path: str) -> None:
 
     dest = Path(os_path)
     dest.mkdir(parents=True, exist_ok=True)
+    
+    # First, create all directories
     for root, dirs, files in os.walk(local_dir, topdown=True):
         for d in dirs:
             (dest / os.path.relpath(os.path.join(root, d), local_dir)).mkdir(
                 parents=True, exist_ok=True
             )
+    
+    # Collect all files to copy
+    file_pairs = []
+    for root, _, files in os.walk(local_dir):
         for f in files:
             src = Path(root) / f
             rel = os.path.relpath(src, local_dir)
-            (dest / rel).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest / rel)
+            dst = dest / rel
+            file_pairs.append((src, dst))
+    
+    # Copy files in parallel
+    if file_pairs:
+        print(f"Uploading {len(file_pairs)} files to DBFS using {max_workers} threads...")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(_copy_file_to_dbfs, src, dst)
+                for src, dst in file_pairs
+            ]
+            completed = 0
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    result = future.result()
+                    completed += 1
+                    if len(file_pairs) <= 20:  # Only print for small batches
+                        print(result)
+                    elif completed % 100 == 0:  # Progress update for large batches
+                        print(f"Progress: {completed}/{len(file_pairs)} files uploaded...")
+                except Exception as e:
+                    print(f"Error copying file: {e}")
+        print(f"Successfully uploaded {len(file_pairs)} files to {dbfs_path}")
 
 
 def _upload_to_volume(local_dir: Path, volume_path: str) -> None:
@@ -202,6 +241,7 @@ def generate_tpcdi_data(
     catalog: Optional[str] = None,
     schema: Optional[str] = None,
     skip_if_exists: bool = True,
+    upload_threads: int = DEFAULT_UPLOAD_THREADS,
 ) -> str:
     """
     Generate TPC-DI raw data and optionally upload to DBFS or a UC Volume.
@@ -215,6 +255,7 @@ def generate_tpcdi_data(
         catalog: Catalog name when use_volume=True. Default: tpcdi.
         schema: Schema name when use_volume=True. Default: tpcdi_raw_data.
         skip_if_exists: If output already exists, skip generation.
+        upload_threads: Number of parallel threads for DBFS file uploads. Default: 8.
 
     Returns:
         Final path where data was written (DBFS or Volume path).
@@ -284,7 +325,7 @@ def generate_tpcdi_data(
         _upload_to_volume(driver_out, final_dest)
     elif final_dest.startswith("dbfs:") or final_dest.startswith("/dbfs"):
         dbfs_arg = ("dbfs:" + final_dest[5:]) if final_dest.startswith("/dbfs") else final_dest
-        _upload_to_dbfs(driver_out, dbfs_arg)
+        _upload_to_dbfs(driver_out, dbfs_arg, max_workers=upload_threads)
     else:
         _upload_local(driver_out, final_dest)
 
@@ -345,6 +386,12 @@ def main() -> None:
         help="Schema name when --use-volume",
     )
     ap.add_argument(
+        "--upload-threads",
+        type=int,
+        default=DEFAULT_UPLOAD_THREADS,
+        help=f"Number of parallel threads for DBFS file uploads (default: {DEFAULT_UPLOAD_THREADS})",
+    )
+    ap.add_argument(
         "--no-skip-existing",
         action="store_true",
         help="Always regenerate even if output exists",
@@ -359,6 +406,7 @@ def main() -> None:
         catalog=args.catalog,
         schema=args.schema,
         skip_if_exists=not args.no_skip_existing,
+        upload_threads=args.upload_threads,
     )
 
 

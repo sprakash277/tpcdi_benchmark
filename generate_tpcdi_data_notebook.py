@@ -8,6 +8,7 @@
 # MAGIC - **Scale factor** controls data size (e.g. 10 ≈ 1GB, 100 ≈ 10GB).
 # MAGIC - Output can go to **DBFS** or a **Unity Catalog Volume**.
 # MAGIC - Generation runs on the **driver**; use a driver with sufficient local storage for large scale factors.
+# MAGIC - **Upload threads** controls parallel file upload speed to DBFS (more threads = faster uploads).
 
 # COMMAND ----------
 
@@ -36,12 +37,17 @@ try:
     dbutils.widgets.drop("schema")
 except Exception:
     pass
+try:
+    dbutils.widgets.drop("upload_threads")
+except Exception:
+    pass
 
 dbutils.widgets.text("scale_factor", "10", "Scale factor (e.g. 10 ~ 1GB)")
 dbutils.widgets.text("output_path", "dbfs:/mnt/tpcdi", "Output path (DBFS or base for Volume)")
 dbutils.widgets.dropdown("use_volume", "false", ["true", "false"], "Use Unity Catalog Volume")
 dbutils.widgets.text("catalog", "tpcdi", "Catalog (when use_volume=true)")
 dbutils.widgets.text("schema", "tpcdi_raw_data", "Schema (when use_volume=true)")
+dbutils.widgets.text("upload_threads", "8", "Upload threads for DBFS (parallel file uploads)")
 
 # COMMAND ----------
 
@@ -50,6 +56,7 @@ output_path = dbutils.widgets.get("output_path").strip()
 use_volume = dbutils.widgets.get("use_volume") == "true"
 catalog = dbutils.widgets.get("catalog").strip() or "tpcdi"
 schema = dbutils.widgets.get("schema").strip() or "tpcdi_raw_data"
+upload_threads = int(dbutils.widgets.get("upload_threads").strip() or "8")
 
 # COMMAND ----------
 
@@ -60,6 +67,7 @@ schema = dbutils.widgets.get("schema").strip() or "tpcdi_raw_data"
 
 import os
 import sys
+import importlib
 from pathlib import Path
 
 # Ensure project root (workspace path) is on path so we can import generate_tpcdi_data
@@ -69,6 +77,9 @@ except Exception:
     workspace_path = os.getcwd()
 sys.path.insert(0, str(Path(workspace_path).resolve()))
 
+# Import and reload to pick up any code changes
+import generate_tpcdi_data
+importlib.reload(generate_tpcdi_data)
 from generate_tpcdi_data import generate_tpcdi_data
 
 out = generate_tpcdi_data(
@@ -79,6 +90,7 @@ out = generate_tpcdi_data(
     catalog=catalog,
     schema=schema,
     skip_if_exists=True,
+    upload_threads=upload_threads,
 )
 print("Output location:", out)
 
