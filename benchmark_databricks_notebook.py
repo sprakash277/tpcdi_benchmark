@@ -70,7 +70,8 @@ sys.path.insert(0, str(Path(workspace_path).resolve()))
 from benchmark.config import BenchmarkConfig, Platform, LoadType
 from benchmark.runner import run_benchmark
 
-# Get widget values
+# Get parameters (from widgets or workflow parameters)
+# Workflow parameters override widget defaults
 load_type = dbutils.widgets.get("load_type")
 scale_factor = int(dbutils.widgets.get("scale_factor"))
 raw_data_base = dbutils.widgets.get("raw_data_path").strip()
@@ -78,6 +79,15 @@ target_database = dbutils.widgets.get("target_database").strip()
 target_schema = dbutils.widgets.get("target_schema").strip()
 batch_id_str = dbutils.widgets.get("batch_id").strip()
 metrics_output = dbutils.widgets.get("metrics_output").strip()
+
+print(f"Benchmark Parameters:")
+print(f"  Load Type: {load_type}")
+print(f"  Scale Factor: {scale_factor}")
+print(f"  Raw Data Path: {raw_data_base}")
+print(f"  Target Database: {target_database}")
+print(f"  Target Schema: {target_schema}")
+print(f"  Batch ID: {batch_id_str if batch_id_str else 'N/A (batch load)'}")
+print(f"  Metrics Output: {metrics_output}")
 
 # Construct full raw data path
 raw_data_path = f"{raw_data_base.rstrip('/')}/sf={scale_factor}"

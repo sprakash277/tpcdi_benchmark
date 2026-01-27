@@ -1,0 +1,86 @@
+# Quick Start: Databricks Workflow
+
+## Create Workflow (One-Time Setup)
+
+### Using Notebook (Easiest)
+1. Open `create_workflow_notebook.py` in Databricks
+2. Run all cells
+3. Copy the job ID from the output
+
+### Using Python Script
+```bash
+python create_databricks_workflow.py \
+  --job-name "TPC-DI-Benchmark" \
+  --databricks-host "https://your-workspace.cloud.databricks.com" \
+  --databricks-token "your-token"
+```
+
+## Run Workflow
+
+### Via UI
+1. Go to **Workflows** → **Jobs**
+2. Find "TPC-DI-Benchmark"
+3. Click **Run now**
+4. In **Parameters**, set:
+   - `scale_factor`: `10` (or 100, 1000, etc.)
+   - `load_type`: `batch` (or `incremental`)
+   - `batch_id`: `2` (only for incremental)
+5. Click **Run**
+
+### Via CLI
+```bash
+# Batch load
+databricks jobs run-now \
+  --job-id <job-id> \
+  --notebook-params '{
+    "scale_factor": "10",
+    "load_type": "batch"
+  }'
+
+# Incremental load
+databricks jobs run-now \
+  --job-id <job-id> \
+  --notebook-params '{
+    "scale_factor": "10",
+    "load_type": "incremental",
+    "batch_id": "2"
+  }'
+```
+
+### Via API
+```bash
+curl -X POST \
+  https://your-workspace.cloud.databricks.com/api/2.1/jobs/run-now \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "job_id": <job-id>,
+    "notebook_params": {
+      "scale_factor": "10",
+      "load_type": "batch"
+    }
+  }'
+```
+
+## Workflow Tasks
+
+1. **01_data_generation** - Generates TPC-DI raw data
+2. **02_benchmark_execution** - Runs ETL and collects metrics (depends on task 1)
+
+## Parameters
+
+All parameters have defaults. Override at runtime:
+
+- `scale_factor`: TPC-DI scale factor (default: `10`)
+- `raw_data_path`: Base path for raw data (default: `dbfs:/mnt/tpcdi`)
+- `load_type`: `batch` or `incremental` (default: `batch`)
+- `target_database`: Target database (default: `tpcdi_warehouse`)
+- `target_schema`: Target schema (default: `dw`)
+- `batch_id`: Batch ID for incremental (default: `""`)
+- `metrics_output`: Metrics output path (default: `dbfs:/mnt/tpcdi/metrics`)
+
+## View Results
+
+1. Go to **Workflows** → **Jobs** → Your job → Latest run
+2. Check task status (both should be green ✓)
+3. View metrics: `dbfs:/mnt/tpcdi/metrics/`
