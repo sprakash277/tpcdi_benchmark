@@ -63,8 +63,9 @@ import os
 import sys
 from pathlib import Path
 
-# Add benchmark module to path
-workspace_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().workspacePath().get()
+# Add benchmark module to path: derive from notebook path (parent of current notebook)
+notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+workspace_path = str(Path(notebook_path).parent)
 sys.path.insert(0, str(Path(workspace_path).resolve()))
 
 from benchmark.config import BenchmarkConfig, Platform, LoadType

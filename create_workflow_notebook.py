@@ -28,7 +28,7 @@ dbutils.widgets.text("existing_cluster_id", "", "Existing Cluster ID (optional)"
 # COMMAND ----------
 
 import json
-from dataclasses import dataclass
+from pathlib import Path
 
 job_name = dbutils.widgets.get("job_name")
 data_gen_notebook = dbutils.widgets.get("data_gen_notebook")
@@ -39,9 +39,10 @@ driver_node_type_id = dbutils.widgets.get("driver_node_type_id")
 num_workers = int(dbutils.widgets.get("num_workers"))
 existing_cluster_id = dbutils.widgets.get("existing_cluster_id").strip()
 
-# Get workspace path for notebooks
+# Get workspace path from current notebook path (parent directory)
 try:
-    workspace_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().workspacePath().get()
+    notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+    workspace_path = str(Path(notebook_path).parent)
 except Exception:
     workspace_path = "/Workspace/Repos"
 

@@ -82,9 +82,10 @@ import sys
 import importlib
 from pathlib import Path
 
-# Ensure project root (workspace path) is on path so we can import generate_tpcdi_data
+# Ensure project root is on path: derive from notebook path (parent of current notebook)
 try:
-    workspace_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().workspacePath().get()
+    notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+    workspace_path = str(Path(notebook_path).parent)
 except Exception:
     workspace_path = os.getcwd()
 sys.path.insert(0, str(Path(workspace_path).resolve()))
