@@ -1,0 +1,7 @@
+# TPC-DI Data Generation for Databricks
+# No extra deps required for the generator script when run on Databricks
+# (pyspark, dbutils come from the runtime).
+#
+# For local CLI runs without Databricks, stdlib only is enough unless
+# you add features that need these:
+# pyspark>=3.0.0

@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+.venv/
+venv/
+.env
+*.egg-info/
+dist/
+build/
+.idea/
+.vscode/
+.DS_Store
+
+# TPC-DI tools (user-downloaded; do not commit)
+tools/datagen/DIGen.jar
+tools/datagen/DIGen_Build.zip
+tools/datagen/pdgf/
+*.zip
