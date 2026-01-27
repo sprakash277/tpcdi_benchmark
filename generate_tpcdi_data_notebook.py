@@ -32,11 +32,16 @@ try:
     dbutils.widgets.drop("catalog")
 except Exception:
     pass
+try:
+    dbutils.widgets.drop("schema")
+except Exception:
+    pass
 
 dbutils.widgets.text("scale_factor", "10", "Scale factor (e.g. 10 ~ 1GB)")
 dbutils.widgets.text("output_path", "dbfs:/mnt/tpcdi", "Output path (DBFS or base for Volume)")
 dbutils.widgets.dropdown("use_volume", "false", ["true", "false"], "Use Unity Catalog Volume")
 dbutils.widgets.text("catalog", "tpcdi", "Catalog (when use_volume=true)")
+dbutils.widgets.text("schema", "tpcdi_raw_data", "Schema (when use_volume=true)")
 
 # COMMAND ----------
 
@@ -44,6 +49,7 @@ scale_factor = int(dbutils.widgets.get("scale_factor"))
 output_path = dbutils.widgets.get("output_path").strip()
 use_volume = dbutils.widgets.get("use_volume") == "true"
 catalog = dbutils.widgets.get("catalog").strip() or "tpcdi"
+schema = dbutils.widgets.get("schema").strip() or "tpcdi_raw_data"
 
 # COMMAND ----------
 
@@ -71,6 +77,7 @@ out = generate_tpcdi_data(
     digen_path=None,
     use_volume=use_volume,
     catalog=catalog,
+    schema=schema,
     skip_if_exists=True,
 )
 print("Output location:", out)

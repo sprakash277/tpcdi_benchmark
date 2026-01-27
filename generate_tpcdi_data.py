@@ -200,6 +200,7 @@ def generate_tpcdi_data(
     digen_path: Optional[str] = None,
     use_volume: bool = False,
     catalog: Optional[str] = None,
+    schema: Optional[str] = None,
     skip_if_exists: bool = True,
 ) -> str:
     """
@@ -210,8 +211,9 @@ def generate_tpcdi_data(
         output_path: DBFS path (dbfs:/...), UC Volume (/Volumes/...), or local dir.
         digen_path: Path to folder containing DIGen.jar and pdgf/. Default: tools/datagen.
         use_volume: If True, write to Unity Catalog Volume. Sets output_path to
-                    /Volumes/<catalog>/tpcdi_raw_data/tpcdi_volume/sf=<sf>.
+                    /Volumes/<catalog>/<schema>/tpcdi_volume/sf=<sf>.
         catalog: Catalog name when use_volume=True. Default: tpcdi.
+        schema: Schema name when use_volume=True. Default: tpcdi_raw_data.
         skip_if_exists: If output already exists, skip generation.
 
     Returns:
@@ -238,22 +240,23 @@ def generate_tpcdi_data(
     # Output destination
     if use_volume:
         cat = catalog or "tpcdi"
-        volume_path = f"/Volumes/{cat}/tpcdi_raw_data/tpcdi_volume/sf={scale_factor}"
+        sch = schema or "tpcdi_raw_data"
+        volume_path = f"/Volumes/{cat}/{sch}/tpcdi_volume/sf={scale_factor}"
         if skip_if_exists and IN_DATABRICKS and spark is not None:
             try:
                 existing = spark.sql(
                     f"SELECT 1 FROM system.information_schema.volumes "
-                    f"WHERE catalog_name = '{cat}' AND schema_name = 'tpcdi_raw_data' AND name = 'tpcdi_volume'"
+                    f"WHERE catalog_name = '{cat}' AND schema_name = '{sch}' AND name = 'tpcdi_volume'"
                 ).first()
                 if existing:
                     # Check sf folder
-                    vol_full = f"/Volumes/{cat}/tpcdi_raw_data/tpcdi_volume/sf={scale_factor}"
+                    vol_full = f"/Volumes/{cat}/{sch}/tpcdi_volume/sf={scale_factor}"
                     if Path(vol_full).exists():
                         print(f"Volume path {vol_full} already exists; skipping generation.")
                         return vol_full
             except Exception:
                 pass
-        create_volume_if_needed(cat, spark)
+        create_volume_if_needed(cat, sch, spark)
         final_dest = volume_path
     else:
         final_dest = (output_path.rstrip("/") + f"/sf={scale_factor}").replace("//", "/")
@@ -289,18 +292,18 @@ def generate_tpcdi_data(
     return final_dest
 
 
-def create_volume_if_needed(catalog: str, spark_session: Optional[SparkSession]) -> None:
+def create_volume_if_needed(catalog: str, schema: str, spark_session: Optional[SparkSession]) -> None:
     """Create catalog, schema, and volume if they do not exist."""
     if not IN_DATABRICKS or spark_session is None:
         return
     spark_session.sql(f"CREATE CATALOG IF NOT EXISTS {catalog}")
     spark_session.sql(f"GRANT ALL PRIVILEGES ON CATALOG {catalog} TO `account users`")
     spark_session.sql(
-        f"CREATE DATABASE IF NOT EXISTS {catalog}.tpcdi_raw_data "
+        f"CREATE DATABASE IF NOT EXISTS {catalog}.{schema} "
         "COMMENT 'Schema for TPC-DI Raw Files Volume'"
     )
     spark_session.sql(
-        f"CREATE VOLUME IF NOT EXISTS {catalog}.tpcdi_raw_data.tpcdi_volume "
+        f"CREATE VOLUME IF NOT EXISTS {catalog}.{schema}.tpcdi_volume "
         "COMMENT 'TPC-DI Raw Files'"
     )
 
@@ -337,6 +340,11 @@ def main() -> None:
         help="Catalog name when --use-volume",
     )
     ap.add_argument(
+        "--schema",
+        default="tpcdi_raw_data",
+        help="Schema name when --use-volume",
+    )
+    ap.add_argument(
         "--no-skip-existing",
         action="store_true",
         help="Always regenerate even if output exists",
@@ -349,6 +357,7 @@ def main() -> None:
         digen_path=args.digen_path,
         use_volume=args.use_volume,
         catalog=args.catalog,
+        schema=args.schema,
         skip_if_exists=not args.no_skip_existing,
     )
 
