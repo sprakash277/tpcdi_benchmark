@@ -224,10 +224,7 @@ class BatchETL:
         """
         logger.info("Starting full batch load process")
         
-        # Create database and schema
-        self.platform.create_database(target_database)
-        
-        # Load dimension tables (historical)
+        # Database/schema created by runner; load dimension tables (historical)
         self.load_dim_date(f"{target_database}.{target_schema}.DimDate")
         self.load_dim_time(f"{target_database}.{target_schema}.DimTime")
         self.load_dim_trade_type(f"{target_database}.{target_schema}.DimTradeType")

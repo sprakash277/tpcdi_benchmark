@@ -19,7 +19,21 @@
 dbutils.widgets.text("job_name", "TPC-DI-Benchmark", "Job Name")
 dbutils.widgets.text("data_gen_notebook", "generate_tpcdi_data_notebook", "Data Generation Notebook Path")
 dbutils.widgets.text("benchmark_notebook", "benchmark_databricks_notebook", "Benchmark Notebook Path")
-dbutils.widgets.text("spark_version", "13.3.x-scala2.12", "Spark Version")
+dbutils.widgets.dropdown(
+    "spark_version",
+    "14.3.x-scala2.12",
+    [
+        "13.3.x-scala2.12",
+        "13.3.x-photon-scala2.12",
+        "14.3.x-scala2.12",
+        "14.3.x-photon-scala2.12",
+        "15.4.x-scala2.12",
+        "15.4.x-photon-scala2.12",
+        "16.4.x-scala2.12",
+        "16.4.x-photon-scala2.12",
+    ],
+    "Cluster Spark Version (DBR)"
+)
 dbutils.widgets.text("node_type_id", "i3.xlarge", "Worker Node Type")
 dbutils.widgets.text("driver_node_type_id", "i3.xlarge", "Driver Node Type")
 dbutils.widgets.text("num_workers", "2", "Number of Workers")
@@ -117,6 +131,7 @@ workflow = {
                     "raw_data_path": "dbfs:/mnt/tpcdi",
                     "target_database": "tpcdi_warehouse",
                     "target_schema": "dw",
+                    "target_catalog": "",
                     "batch_id": "",
                     "metrics_output": "dbfs:/mnt/tpcdi/metrics"
                 }
@@ -136,9 +151,14 @@ workflow = {
             "description": "TPC-DI scale factor (e.g., 10, 100, 1000)"
         },
         {
+            "name": "output_path",
+            "default": "dbfs:/mnt/tpcdi",
+            "description": "Data generation output path (DBFS); raw data written here"
+        },
+        {
             "name": "raw_data_path",
             "default": "dbfs:/mnt/tpcdi",
-            "description": "Base path for raw TPC-DI data in DBFS"
+            "description": "Base path for raw TPC-DI data in DBFS (benchmark reads from here)"
         },
         {
             "name": "load_type",
@@ -154,6 +174,11 @@ workflow = {
             "name": "target_schema",
             "default": "dw",
             "description": "Target schema name"
+        },
+        {
+            "name": "target_catalog",
+            "default": "",
+            "description": "Unity Catalog name (optional); when set, create catalog + schema"
         },
         {
             "name": "batch_id",

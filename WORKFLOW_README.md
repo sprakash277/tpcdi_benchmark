@@ -19,7 +19,8 @@ All parameters are configurable via workflow parameters, allowing you to run the
    - **Job Name**: Name for your workflow
    - **Data Generation Notebook**: Path to `generate_tpcdi_data_notebook`
    - **Benchmark Notebook**: Path to `benchmark_databricks_notebook`
-   - **Cluster Settings**: Spark version, node types, worker count
+   - **Cluster Spark Version (DBR)**: Dropdown (13.3.x–16.4.x, standard and Photon)
+   - **Node types**, **Number of workers**
    - **Existing Cluster ID**: (Optional) Use existing cluster instead of creating new
 3. Run all cells
 4. The workflow will be created and you'll get a job ID
@@ -33,7 +34,8 @@ python create_databricks_workflow.py \
   --benchmark-notebook "benchmark_databricks_notebook" \
   --workspace-path "/Workspace/Repos/user/repo" \
   --default-scale-factor 10 \
-  --spark-version "13.3.x-scala2.12" \
+  --spark-version "14.3.x-scala2.12" \
+  --default-output-path "dbfs:/mnt/tpcdi" \
   --node-type-id "i3.xlarge" \
   --num-workers 2 \
   --databricks-host "https://workspace.cloud.databricks.com" \
@@ -68,7 +70,8 @@ The workflow supports the following parameters (all have defaults):
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `scale_factor` | `10` | TPC-DI scale factor (10, 100, 1000, etc.) |
-| `raw_data_path` | `dbfs:/mnt/tpcdi` | Base path for raw data in DBFS |
+| `output_path` | `dbfs:/mnt/tpcdi` | Data generation output path (where raw data is written) |
+| `raw_data_path` | `dbfs:/mnt/tpcdi` | Base path for raw data in DBFS (benchmark reads from here) |
 | `load_type` | `batch` | Load type: `batch` or `incremental` |
 | `target_database` | `tpcdi_warehouse` | Target database name |
 | `target_schema` | `dw` | Target schema name |

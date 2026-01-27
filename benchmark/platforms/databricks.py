@@ -105,11 +105,37 @@ class DatabricksPlatform:
         
         writer.saveAsTable(table_name)
     
-    def create_database(self, database_name: str, if_not_exists: bool = True):
-        """Create a database if it doesn't exist."""
+    def create_database(
+        self,
+        database_name: str,
+        if_not_exists: bool = True,
+        catalog: Optional[str] = None,
+        schema: Optional[str] = None,
+    ):
+        """
+        Create a database (and optionally catalog + schema for Unity Catalog).
+
+        When catalog and schema are provided (Unity Catalog):
+          - CREATE CATALOG IF NOT EXISTS catalog
+          - CREATE SCHEMA IF NOT EXISTS catalog.schema
+
+        Otherwise (Hive metastore):
+          - CREATE DATABASE IF NOT EXISTS database_name
+
+        Args:
+            database_name: Database name (used when catalog/schema not provided).
+            if_not_exists: If True, use IF NOT EXISTS.
+            catalog: Optional Unity Catalog name.
+            schema: Optional schema name (used with catalog).
+        """
         exists_clause = "IF NOT EXISTS" if if_not_exists else ""
-        self.spark.sql(f"CREATE DATABASE {exists_clause} {database_name}")
-        logger.info(f"Created database: {database_name}")
+        if catalog and schema:
+            self.spark.sql(f"CREATE CATALOG {exists_clause} {catalog}")
+            self.spark.sql(f"CREATE SCHEMA {exists_clause} {catalog}.{schema}")
+            logger.info(f"Created catalog {catalog} and schema {catalog}.{schema}")
+        else:
+            self.spark.sql(f"CREATE DATABASE {exists_clause} {database_name}")
+            logger.info(f"Created database: {database_name}")
     
     def get_spark(self) -> SparkSession:
         """Get the SparkSession."""

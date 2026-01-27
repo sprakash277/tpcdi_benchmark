@@ -28,6 +28,8 @@ if __name__ == "__main__":
                        help="Target database name (default: tpcdi_warehouse)")
     parser.add_argument("--target-schema", default="dw",
                        help="Target schema name (default: dw)")
+    parser.add_argument("--target-catalog",
+                       help="Unity Catalog name (optional); when set, create catalog + schema")
     parser.add_argument("--batch-id", type=int,
                        help="Batch ID for incremental loads (required for incremental)")
     parser.add_argument("--metrics-output", default="dbfs:/mnt/tpcdi/metrics",
@@ -45,6 +47,7 @@ if __name__ == "__main__":
         raw_data_path=raw_data_path,
         target_database=args.target_database,
         target_schema=args.target_schema,
+        target_catalog=args.target_catalog,
         batch_id=args.batch_id,
         metrics_output_path=args.metrics_output,
     )

@@ -36,6 +36,10 @@ try:
 except Exception:
     pass
 try:
+    dbutils.widgets.drop("target_catalog")
+except Exception:
+    pass
+try:
     dbutils.widgets.drop("batch_id")
 except Exception:
     pass
@@ -49,6 +53,7 @@ dbutils.widgets.text("scale_factor", "10", "Scale Factor")
 dbutils.widgets.text("raw_data_path", "dbfs:/mnt/tpcdi", "Raw Data Base Path (DBFS)")
 dbutils.widgets.text("target_database", "tpcdi_warehouse", "Target Database")
 dbutils.widgets.text("target_schema", "dw", "Target Schema")
+dbutils.widgets.text("target_catalog", "", "Target Catalog (Unity Catalog; optional)")
 dbutils.widgets.text("batch_id", "", "Batch ID (for incremental only)")
 dbutils.widgets.text("metrics_output", "dbfs:/mnt/tpcdi/metrics", "Metrics Output Path")
 
@@ -78,6 +83,7 @@ scale_factor = int(dbutils.widgets.get("scale_factor"))
 raw_data_base = dbutils.widgets.get("raw_data_path").strip()
 target_database = dbutils.widgets.get("target_database").strip()
 target_schema = dbutils.widgets.get("target_schema").strip()
+target_catalog = dbutils.widgets.get("target_catalog").strip() or None
 batch_id_str = dbutils.widgets.get("batch_id").strip()
 metrics_output = dbutils.widgets.get("metrics_output").strip()
 
@@ -87,6 +93,7 @@ print(f"  Scale Factor: {scale_factor}")
 print(f"  Raw Data Path: {raw_data_base}")
 print(f"  Target Database: {target_database}")
 print(f"  Target Schema: {target_schema}")
+print(f"  Target Catalog: {target_catalog or 'N/A (Hive metastore)'}")
 print(f"  Batch ID: {batch_id_str if batch_id_str else 'N/A (batch load)'}")
 print(f"  Metrics Output: {metrics_output}")
 
@@ -107,6 +114,7 @@ config = BenchmarkConfig(
     raw_data_path=raw_data_path,
     target_database=target_database,
     target_schema=target_schema,
+    target_catalog=target_catalog,
     batch_id=batch_id,
     metrics_output_path=metrics_output,
 )

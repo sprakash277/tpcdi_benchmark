@@ -4,8 +4,9 @@
 
 ### Using Notebook (Easiest)
 1. Open `create_workflow_notebook.py` in Databricks
-2. Run all cells
-3. Copy the job ID from the output
+2. Set **Cluster Spark Version (DBR)** via dropdown (e.g. 14.3.x, 15.4.x)
+3. Run all cells
+4. Copy the job ID from the output
 
 ### Using Python Script
 ```bash
@@ -23,6 +24,8 @@ python create_databricks_workflow.py \
 3. Click **Run now**
 4. In **Parameters**, set:
    - `scale_factor`: `10` (or 100, 1000, etc.)
+   - `output_path`: `dbfs:/mnt/tpcdi` (or your path; where raw data is written)
+   - `raw_data_path`: same as `output_path` (where benchmark reads raw data)
    - `load_type`: `batch` (or `incremental`)
    - `batch_id`: `2` (only for incremental)
 5. Click **Run**
@@ -72,7 +75,8 @@ curl -X POST \
 All parameters have defaults. Override at runtime:
 
 - `scale_factor`: TPC-DI scale factor (default: `10`)
-- `raw_data_path`: Base path for raw data (default: `dbfs:/mnt/tpcdi`)
+- `output_path`: Data generation output path (default: `dbfs:/mnt/tpcdi`)
+- `raw_data_path`: Base path for raw data / benchmark input (default: `dbfs:/mnt/tpcdi`)
 - `load_type`: `batch` or `incremental` (default: `batch`)
 - `target_database`: Target database (default: `tpcdi_warehouse`)
 - `target_schema`: Target schema (default: `dw`)

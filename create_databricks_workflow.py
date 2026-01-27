@@ -14,10 +14,12 @@ def create_workflow_definition(
     data_gen_notebook_path: str,
     benchmark_notebook_path: str,
     default_scale_factor: int = 10,
+    default_output_path: str = "dbfs:/mnt/tpcdi",
     default_raw_data_path: str = "dbfs:/mnt/tpcdi",
     default_load_type: str = "batch",
     default_target_database: str = "tpcdi_warehouse",
     default_target_schema: str = "dw",
+    default_target_catalog: str = "",
     default_metrics_output: str = "dbfs:/mnt/tpcdi/metrics",
     cluster_config: Dict[str, Any] = None,
 ) -> Dict[str, Any]:
@@ -29,10 +31,12 @@ def create_workflow_definition(
         data_gen_notebook_path: Path to data generation notebook
         benchmark_notebook_path: Path to benchmark notebook
         default_scale_factor: Default scale factor
-        default_raw_data_path: Default raw data path
+        default_output_path: Default data generation output path (workflow parameter)
+        default_raw_data_path: Default raw data path for benchmark
         default_load_type: Default load type (batch/incremental)
         default_target_database: Default target database
         default_target_schema: Default target schema
+        default_target_catalog: Default Unity Catalog (optional); when set, create catalog + schema
         default_metrics_output: Default metrics output path
         cluster_config: Cluster configuration dict
     
@@ -68,7 +72,7 @@ def create_workflow_definition(
                     "notebook_path": data_gen_notebook_path,
                     "base_parameters": {
                         "scale_factor": str(default_scale_factor),
-                        "output_path": default_raw_data_path,
+                        "output_path": default_output_path,
                         "use_volume": "false",
                         "catalog": "tpcdi",
                         "schema": "tpcdi_raw_data",
@@ -101,6 +105,7 @@ def create_workflow_definition(
                         "raw_data_path": default_raw_data_path,
                         "target_database": default_target_database,
                         "target_schema": default_target_schema,
+                        "target_catalog": default_target_catalog,
                         "batch_id": "",
                         "metrics_output": default_metrics_output
                     }
@@ -123,9 +128,14 @@ def create_workflow_definition(
                 "description": "TPC-DI scale factor (e.g., 10, 100, 1000)"
             },
             {
+                "name": "output_path",
+                "default": default_output_path,
+                "description": "Data generation output path (DBFS); raw data written here"
+            },
+            {
                 "name": "raw_data_path",
                 "default": default_raw_data_path,
-                "description": "Base path for raw TPC-DI data in DBFS"
+                "description": "Base path for raw TPC-DI data in DBFS (benchmark reads from here)"
             },
             {
                 "name": "load_type",
@@ -141,6 +151,11 @@ def create_workflow_definition(
                 "name": "target_schema",
                 "default": default_target_schema,
                 "description": "Target schema name"
+            },
+            {
+                "name": "target_catalog",
+                "default": default_target_catalog,
+                "description": "Unity Catalog name (optional); when set, create catalog + schema"
             },
             {
                 "name": "batch_id",
@@ -242,8 +257,10 @@ def main():
     # Default parameters
     parser.add_argument("--default-scale-factor", type=int, default=10,
                        help="Default scale factor")
+    parser.add_argument("--default-output-path", default="dbfs:/mnt/tpcdi",
+                       help="Default data generation output path (workflow parameter)")
     parser.add_argument("--default-raw-data-path", default="dbfs:/mnt/tpcdi",
-                       help="Default raw data path")
+                       help="Default raw data path for benchmark")
     parser.add_argument("--default-load-type", default="batch",
                        choices=["batch", "incremental"],
                        help="Default load type")
@@ -251,12 +268,25 @@ def main():
                        help="Default target database")
     parser.add_argument("--default-target-schema", default="dw",
                        help="Default target schema")
+    parser.add_argument("--default-target-catalog", default="",
+                       help="Default Unity Catalog (optional); when set, create catalog + schema")
     parser.add_argument("--default-metrics-output", default="dbfs:/mnt/tpcdi/metrics",
                        help="Default metrics output path")
     
     # Cluster configuration
-    parser.add_argument("--spark-version", default="13.3.x-scala2.12",
-                       help="Spark version")
+    SPARK_VERSIONS = [
+        "13.3.x-scala2.12",
+        "13.3.x-photon-scala2.12",
+        "14.3.x-scala2.12",
+        "14.3.x-photon-scala2.12",
+        "15.4.x-scala2.12",
+        "15.4.x-photon-scala2.12",
+        "16.4.x-scala2.12",
+        "16.4.x-photon-scala2.12",
+    ]
+    parser.add_argument("--spark-version", default="14.3.x-scala2.12",
+                       choices=SPARK_VERSIONS,
+                       help="Databricks Runtime (Spark) version")
     parser.add_argument("--node-type-id", default="i3.xlarge",
                        help="Worker node type")
     parser.add_argument("--driver-node-type-id", default="i3.xlarge",
@@ -290,10 +320,12 @@ def main():
         data_gen_notebook_path=args.data_gen_notebook,
         benchmark_notebook_path=args.benchmark_notebook,
         default_scale_factor=args.default_scale_factor,
+        default_output_path=args.default_output_path,
         default_raw_data_path=args.default_raw_data_path,
         default_load_type=args.default_load_type,
         default_target_database=args.default_target_database,
         default_target_schema=args.default_target_schema,
+        default_target_catalog=args.default_target_catalog,
         default_metrics_output=args.default_metrics_output,
         cluster_config=cluster_config,
     )

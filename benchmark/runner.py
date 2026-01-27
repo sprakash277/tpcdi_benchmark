@@ -108,23 +108,32 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
         platform = create_platform_adapter(config, spark)
         metrics.finish_step()
         
-        # Create target database
+        # Create target database (and catalog/schema for Databricks UC when configured)
         metrics.start_step("database_creation")
-        platform.create_database(config.target_database)
+        if config.platform == Platform.DATABRICKS and config.target_catalog:
+            platform.create_database(
+                config.target_database,
+                catalog=config.target_catalog,
+                schema=config.target_schema,
+            )
+            db_or_catalog = config.target_catalog
+        else:
+            platform.create_database(config.target_database)
+            db_or_catalog = config.target_database
         metrics.finish_step()
         
-        # Run ETL based on load type
+        # Run ETL based on load type (use catalog.schema or database.schema for table names)
         if config.load_type == LoadType.BATCH:
             metrics.start_step("batch_etl")
             etl = BatchETL(platform)
-            etl.run_full_batch_load(config.target_database, config.target_schema)
+            etl.run_full_batch_load(db_or_catalog, config.target_schema)
             
             # Collect metrics
             row_counts = {}
             table_sizes = {}
             for table in ["DimDate", "DimTime", "DimTradeType", "DimStatusType", 
                          "DimTaxRate", "DimIndustry", "DimAccount"]:
-                table_name = f"{config.target_database}.{config.target_schema}.{table}"
+                table_name = f"{db_or_catalog}.{config.target_schema}.{table}"
                 try:
                     row_counts[table] = platform.get_table_count(table_name)
                     table_sizes[table] = platform.get_table_size_mb(table_name)
@@ -139,12 +148,12 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
         elif config.load_type == LoadType.INCREMENTAL:
             metrics.start_step("incremental_etl")
             etl = IncrementalETL(platform)
-            etl.process_batch(config.batch_id, config.target_database, config.target_schema)
+            etl.process_batch(config.batch_id, db_or_catalog, config.target_schema)
             
             # Collect metrics
             row_counts = {}
             for table in ["DimAccount", "FactTrade", "DimCustomer"]:
-                table_name = f"{config.target_database}.{config.target_schema}.{table}"
+                table_name = f"{db_or_catalog}.{config.target_schema}.{table}"
                 try:
                     row_counts[table] = platform.get_table_count(table_name)
                 except Exception as e:
@@ -179,6 +188,7 @@ if __name__ == "__main__":
     parser.add_argument("--raw-data-path", required=True)
     parser.add_argument("--target-database", default="tpcdi_warehouse")
     parser.add_argument("--target-schema", default="dw")
+    parser.add_argument("--target-catalog", help="Unity Catalog (Databricks); when set, create catalog + schema")
     parser.add_argument("--batch-id", type=int, help="Required for incremental loads")
     parser.add_argument("--gcs-bucket", help="Required for Dataproc")
     parser.add_argument("--project-id", help="Required for Dataproc")
@@ -195,6 +205,7 @@ if __name__ == "__main__":
         raw_data_path=args.raw_data_path,
         target_database=args.target_database,
         target_schema=args.target_schema,
+        target_catalog=args.target_catalog,
         batch_id=args.batch_id,
         gcs_bucket=args.gcs_bucket,
         project_id=args.project_id,
