@@ -90,7 +90,7 @@ def _copy_directory(src: Path, dst: Path, overwrite: bool = True) -> None:
 
 
 def _run_digen(digen_path: Path, scale_factor: int, output_path: Path) -> None:
-    """Run DIGen.jar. DIGen may prompt for EULA; we send YES via stdin."""
+    """Run DIGen.jar. Sets PDG_AGREE=YES to accept EULA automatically."""
     jar = digen_path / "DIGen.jar"
     if not jar.exists():
         raise FileNotFoundError(
@@ -107,18 +107,19 @@ def _run_digen(digen_path: Path, scale_factor: int, output_path: Path) -> None:
     output_path.mkdir(parents=True, exist_ok=True)
     cmd = f"java -jar {jar} -sf {scale_factor} -o {output_path}"
     args = shlex.split(cmd)
+    
+    # Set PDG_AGREE=YES to automatically accept EULA
+    env = os.environ.copy()
+    env['PDG_AGREE'] = 'YES'
+    
     proc = subprocess.Popen(
         args,
         cwd=str(digen_path),
+        env=env,
         universal_newlines=True,
-        stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
-    proc.stdin.write("\n")
-    proc.stdin.write("YES\n")
-    proc.stdin.flush()
-    proc.stdin.close()
 
     if proc.stdout:
         for line in iter(proc.stdout.readline, ""):
