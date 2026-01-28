@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, when, trim, upper, regexp_replace, lit, current_timestamp, split, element_at, size
-from pyspark.sql.types import StringType
+from pyspark.sql.types import StringType, StructType, StructField
 from pyspark.sql.functions import udf
 
 if TYPE_CHECKING:
@@ -184,30 +184,37 @@ class BatchETL:
             format="text"
         )
         
-        # Manually split on pipe delimiter using a UDF
-        # This avoids Spark query context issues with array element access
+        # Manually split on pipe delimiter using a UDF that returns a struct
+        # This avoids Spark query context issues by doing all splitting in one UDF call
         # text format returns a column named 'value'
         
-        def split_line(line: str, index: int) -> str:
-            """Split a line on pipe delimiter and return the field at index."""
+        def split_line_to_struct(line: str, num_cols: int) -> tuple:
+            """Split a line on pipe delimiter and return all fields as a tuple."""
             if not line:
-                return ""
+                return tuple([""] * num_cols)
             parts = line.split("|")
-            if index < len(parts):
-                return parts[index].strip()
-            return ""
+            # Pad with empty strings if we have fewer parts than expected columns
+            result = []
+            for i in range(num_cols):
+                if i < len(parts):
+                    result.append(parts[i].strip())
+                else:
+                    result.append("")
+            return tuple(result)
         
-        # Create UDF for splitting
-        split_udf = udf(lambda line, idx: split_line(line, idx), StringType())
+        # Create struct schema for the return type
+        struct_fields = [StructField(f"_c{i}", StringType(), True) for i in range(expected_cols)]
+        struct_schema = StructType(struct_fields)
         
-        # Create columns incrementally using withColumn()
-        df = text_df
-        for i in range(expected_cols):
-            df = df.withColumn(f"_c{i}", trim(split_udf(col("value"), lit(i))))
+        # Create UDF that returns a struct with all columns
+        split_udf = udf(lambda line: split_line_to_struct(line, expected_cols), struct_schema)
         
-        # Select only the split columns
-        select_exprs = [col(f"_c{i}") for i in range(expected_cols)]
-        df = df.select(*select_exprs)
+        # Apply UDF once to get all columns as a struct
+        df_with_struct = text_df.withColumn("split_struct", split_udf(col("value")))
+        
+        # Extract individual columns from the struct
+        select_exprs = [trim(col(f"split_struct._c{i}")).alias(f"_c{i}") for i in range(expected_cols)]
+        df = df_with_struct.select(*select_exprs)
         
         logger.info(f"[DEBUG] Manually split {file_pattern} on pipe delimiter: got {len(df.columns)} columns")
         return df
