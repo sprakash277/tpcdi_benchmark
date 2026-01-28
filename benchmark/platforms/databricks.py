@@ -25,7 +25,24 @@ class DatabricksPlatform:
             use_volume: True if raw data is in a Unity Catalog Volume
         """
         self.spark = spark
-        self.raw_data_path = raw_data_path.rstrip("/")
+        # Normalize path: remove dbfs: prefix from Volume paths
+        normalized = raw_data_path.rstrip("/")
+        if normalized.startswith("dbfs:/Volumes/"):
+            # Volume path incorrectly prefixed with dbfs: - remove it
+            normalized = normalized[5:]  # Remove "dbfs:"
+            logger.warning(
+                f"Removed 'dbfs:' prefix from Volume path: {raw_data_path} -> {normalized}"
+            )
+        elif normalized.startswith("/Volumes/"):
+            # Volume path is correct
+            pass
+        elif use_volume and not normalized.startswith("/Volumes/"):
+            # use_volume=True but path doesn't start with /Volumes/
+            logger.warning(
+                f"use_volume=True but path doesn't start with /Volumes/: {normalized}"
+            )
+        
+        self.raw_data_path = normalized
         self.use_volume = use_volume
         logger.info(
             f"Initialized Databricks platform with raw_data_path: {self.raw_data_path} "
@@ -35,6 +52,9 @@ class DatabricksPlatform:
     def _resolve_path(self, relative_path: str) -> str:
         """Resolve full path for reading. Handles both DBFS and Volume."""
         full = f"{self.raw_data_path}/{relative_path}".replace("//", "/")
+        # Ensure Volume paths never get dbfs: prefix
+        if full.startswith("dbfs:/Volumes/"):
+            full = full[5:]  # Remove "dbfs:" prefix
         return full
     
     def read_raw_file(self, file_path: str, schema: Optional[StructType] = None, 

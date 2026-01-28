@@ -78,6 +78,10 @@ def create_platform_adapter(config: BenchmarkConfig, spark: SparkSession):
     if config.platform == Platform.DATABRICKS:
         # Use output_path as raw data input when provided (DBFS or Volume)
         base = (config.output_path or config.raw_data_path).rstrip("/")
+        # Remove dbfs: prefix from Volume paths if accidentally added
+        if base.startswith("dbfs:/Volumes/"):
+            base = base[5:]  # Remove "dbfs:" prefix
+            logger.warning(f"Removed 'dbfs:' prefix from Volume path: {base}")
         raw_root = f"{base}/sf={config.scale_factor}"
         return DatabricksPlatform(spark, raw_root, use_volume=config.use_volume)
     elif config.platform == Platform.DATAPROC:
