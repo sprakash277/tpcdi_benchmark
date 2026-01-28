@@ -74,7 +74,7 @@ Raw Source Files → Bronze (Raw) → Silver (Cleaned) → Gold (Business)
 
 **Purpose**: Business-ready dimensional model for analytics.
 
-**Note**: The Gold layer (DimXxx, FactXxx tables) from the original direct architecture is still available when using `architecture=direct`. The medallion architecture currently implements Bronze and Silver layers.
+**Note**: The benchmark uses medallion only (Bronze → Silver). The Gold layer (DimXxx, FactXxx) is not implemented in this flow.
 
 ## File Format Handling
 
@@ -167,11 +167,11 @@ Mixed record types with character position parsing:
 
 ## Usage
 
+The benchmark always runs the medallion pipeline (Bronze → Silver layers). No architecture selection is required.
+
 ### Databricks Notebook
 
-Select architecture in the widget dropdown:
-- **medallion** (recommended): Bronze → Silver layers
-- **direct**: Load directly to Gold/Dim tables (legacy)
+Run the benchmark notebook with the usual widgets (load type, scale factor, output path, etc.). Bronze and Silver ETL run automatically.
 
 ### CLI
 
@@ -179,13 +179,12 @@ Select architecture in the widget dropdown:
 python run_benchmark_databricks.py \
   --output-path /Volumes/catalog/schema/volume \
   --use-volume \
-  --architecture medallion \
   --scale-factor 10
 ```
 
 ### Workflow
 
-The architecture parameter is available in the Databricks workflow configuration.
+Use the Databricks workflow with the standard parameters (output_path, use_volume, load_type, etc.).
 
 ## SCD Type 2 Support
 

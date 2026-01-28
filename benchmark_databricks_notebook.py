@@ -34,10 +34,6 @@ try:
 except Exception:
     pass
 try:
-    dbutils.widgets.drop("architecture")
-except Exception:
-    pass
-try:
     dbutils.widgets.drop("target_database")
 except Exception:
     pass
@@ -62,7 +58,6 @@ dbutils.widgets.dropdown("load_type", "batch", ["batch", "incremental"], "Load T
 dbutils.widgets.text("scale_factor", "10", "Scale Factor")
 dbutils.widgets.text("output_path", "dbfs:/mnt/tpcdi", "Raw data location (DBFS or Volume base path)")
 dbutils.widgets.dropdown("use_volume", "false", ["true", "false"], "Raw data in Unity Catalog Volume")
-dbutils.widgets.dropdown("architecture", "medallion", ["medallion", "direct"], "Architecture (medallion = Bronze/Silver layers)")
 dbutils.widgets.text("target_database", "tpcdi_warehouse", "Target Database")
 dbutils.widgets.text("target_schema", "dw", "Target Schema")
 dbutils.widgets.text("target_catalog", "", "Target Catalog (Unity Catalog; optional)")
@@ -108,7 +103,6 @@ load_type = dbutils.widgets.get("load_type")
 scale_factor = int(dbutils.widgets.get("scale_factor"))
 output_path_raw = dbutils.widgets.get("output_path").strip()
 use_volume = dbutils.widgets.get("use_volume") == "true"
-architecture = dbutils.widgets.get("architecture")
 
 # Normalize output_path: remove dbfs: prefix from Volume paths
 output_path = output_path_raw
@@ -130,9 +124,6 @@ batch_id = int(batch_id_str) if batch_id_str and load_type == "incremental" else
 if load_type == "incremental" and batch_id is None:
     raise ValueError("batch_id is required for incremental loads")
 
-# Import Architecture enum
-from benchmark.config import Architecture
-
 config = BenchmarkConfig(
     platform=Platform.DATABRICKS,
     load_type=LoadType(load_type),
@@ -144,13 +135,8 @@ config = BenchmarkConfig(
     output_path=output_path,
     use_volume=use_volume,
     batch_id=batch_id,
-    architecture=Architecture(architecture),
     metrics_output_path=metrics_output,
 )
-
-print(f"Architecture: {architecture}")
-print(f"  - medallion: Raw -> Bronze -> Silver layers (recommended)")
-print(f"  - direct: Load directly to Gold/Dim tables (legacy)")
 
 result = run_benchmark(config)
 
