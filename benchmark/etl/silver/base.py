@@ -1,12 +1,14 @@
 """
 Base class for Silver layer ETL loaders.
 
-Provides common functionality for data cleaning and transformation.
+Provides common functionality for data cleaning and transformation,
+including CDC (Change Data Capture) and SCD Type 2 handling.
 """
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 from pyspark.sql import DataFrame
+from pyspark.sql.functions import col, lit, current_timestamp
 
 if TYPE_CHECKING:
     from benchmark.platforms.databricks import DatabricksPlatform
@@ -135,3 +137,156 @@ class SilverLoaderBase:
         
         logger.info(f"Loaded {target_table}: {df.count()} rows (mode={mode})")
         return df
+    
+    def _apply_scd_type2(self, incoming_df: DataFrame, target_table: str,
+                         key_column: str, effective_date_col: str = "effective_date") -> DataFrame:
+        """
+        Apply SCD Type 2 logic for incremental loads.
+        
+        This method:
+        1. Closes out existing current records that have updates (set is_current=False, end_date)
+        2. Inserts new versions of updated records
+        3. Inserts completely new records
+        
+        Args:
+            incoming_df: DataFrame with incoming changes
+            target_table: Target table name
+            key_column: Business key column (e.g., 'customer_id', 'account_id')
+            effective_date_col: Column containing the effective date
+            
+        Returns:
+            DataFrame with changes applied
+        """
+        logger.info(f"Applying SCD Type 2 to {target_table} on key {key_column}")
+        
+        # Check if target table exists
+        try:
+            existing_df = self.spark.table(target_table)
+            table_exists = True
+        except Exception:
+            logger.info(f"Table {target_table} does not exist, will create")
+            table_exists = False
+        
+        if not table_exists:
+            # First load - just write directly
+            self.platform.write_table(incoming_df, target_table, mode="overwrite")
+            logger.info(f"Created {target_table} with {incoming_df.count()} rows")
+            return incoming_df
+        
+        # Get business keys from incoming data
+        incoming_keys = incoming_df.select(key_column).distinct()
+        
+        # Create temp views for SQL
+        incoming_df.createOrReplaceTempView("incoming_changes")
+        incoming_keys.createOrReplaceTempView("incoming_keys")
+        
+        # Step 1: Close out existing current records that have updates
+        # Update is_current=False, end_date=incoming.effective_date for matching keys
+        close_sql = f"""
+        MERGE INTO {target_table} AS target
+        USING (
+            SELECT {key_column}, MIN({effective_date_col}) as new_effective_date
+            FROM incoming_changes
+            GROUP BY {key_column}
+        ) AS updates
+        ON target.{key_column} = updates.{key_column} AND target.is_current = true
+        WHEN MATCHED THEN UPDATE SET
+            target.is_current = false,
+            target.end_date = updates.new_effective_date
+        """
+        
+        try:
+            self.spark.sql(close_sql)
+            logger.info(f"Closed out existing records for updated keys in {target_table}")
+        except Exception as e:
+            logger.warning(f"MERGE failed (may not be Delta): {e}. Falling back to append-only.")
+            # Fallback: just append (works for non-Delta tables)
+            self.platform.write_table(incoming_df, target_table, mode="append")
+            return incoming_df
+        
+        # Step 2: Insert new versions
+        self.platform.write_table(incoming_df, target_table, mode="append")
+        
+        # Cleanup temp views
+        try:
+            self.spark.catalog.dropTempView("incoming_changes")
+            self.spark.catalog.dropTempView("incoming_keys")
+        except:
+            pass
+        
+        logger.info(f"SCD Type 2 applied to {target_table}: {incoming_df.count()} new versions inserted")
+        return incoming_df
+    
+    def _upsert_fact_table(self, incoming_df: DataFrame, target_table: str,
+                           key_column: str, update_columns: Optional[List[str]] = None) -> DataFrame:
+        """
+        Upsert fact table data using MERGE.
+        
+        For CDC on fact tables:
+        - If record exists (by key), update specified columns
+        - If record doesn't exist, insert new record
+        
+        Args:
+            incoming_df: DataFrame with incoming data
+            target_table: Target table name
+            key_column: Primary key column (e.g., 'trade_id')
+            update_columns: Columns to update on match (None = update all)
+            
+        Returns:
+            DataFrame with changes applied
+        """
+        logger.info(f"Upserting {target_table} on key {key_column}")
+        
+        # Check if target table exists
+        try:
+            existing_df = self.spark.table(target_table)
+            table_exists = True
+        except Exception:
+            logger.info(f"Table {target_table} does not exist, will create")
+            table_exists = False
+        
+        if not table_exists:
+            # First load - just write directly
+            self.platform.write_table(incoming_df, target_table, mode="overwrite")
+            logger.info(f"Created {target_table} with {incoming_df.count()} rows")
+            return incoming_df
+        
+        # Create temp view for incoming data
+        incoming_df.createOrReplaceTempView("incoming_data")
+        
+        # Build UPDATE SET clause
+        if update_columns is None:
+            # Update all columns except the key
+            update_columns = [c for c in incoming_df.columns if c != key_column]
+        
+        update_set = ", ".join([f"target.{c} = source.{c}" for c in update_columns])
+        
+        # Build INSERT columns
+        all_columns = incoming_df.columns
+        insert_cols = ", ".join(all_columns)
+        insert_vals = ", ".join([f"source.{c}" for c in all_columns])
+        
+        # MERGE statement
+        merge_sql = f"""
+        MERGE INTO {target_table} AS target
+        USING incoming_data AS source
+        ON target.{key_column} = source.{key_column}
+        WHEN MATCHED THEN UPDATE SET {update_set}
+        WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_vals})
+        """
+        
+        try:
+            self.spark.sql(merge_sql)
+            logger.info(f"MERGE completed for {target_table}")
+        except Exception as e:
+            logger.warning(f"MERGE failed (may not be Delta): {e}. Falling back to append-only.")
+            # Fallback: just append (works for non-Delta tables)
+            self.platform.write_table(incoming_df, target_table, mode="append")
+        
+        # Cleanup temp view
+        try:
+            self.spark.catalog.dropTempView("incoming_data")
+        except:
+            pass
+        
+        return incoming_df

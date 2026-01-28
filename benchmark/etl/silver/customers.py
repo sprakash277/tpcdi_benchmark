@@ -2,6 +2,7 @@
 Silver layer loader for Customers.
 
 Parses and cleans customer data from bronze_customer_mgmt.
+Implements SCD Type 2 for CDC (Change Data Capture) on incremental loads.
 """
 
 import logging
@@ -25,7 +26,12 @@ class SilverCustomers(SilverLoaderBase):
     - Customer.Name.C_L_NAME, C_F_NAME, C_M_NAME
     - Customer.Address.*, ContactInfo.*, TaxInfo.*
     
-    Handles SCD Type 2 versioning based on ActionType.
+    CDC/SCD Type 2 Handling:
+    - Batch 1 (Historical): Full load, overwrite
+    - Batch 2+ (Incremental): 
+      - NEW: Insert new customer
+      - UPDCUST: Close existing record, insert new version
+      - INACT: Close existing record, insert inactive version
     """
     
     def load(self, bronze_table: str, target_table: str, batch_id: int) -> DataFrame:
@@ -160,4 +166,17 @@ class SilverCustomers(SilverLoaderBase):
             col("load_timestamp"),
         )
         
-        return self._write_silver_table(silver_df, target_table, batch_id)
+        # Batch 1: Full historical load (overwrite)
+        # Batch 2+: Incremental CDC with SCD Type 2
+        if batch_id == 1:
+            return self._write_silver_table(silver_df, target_table, batch_id)
+        else:
+            # Incremental: Apply SCD Type 2 logic
+            # This closes out existing current records and inserts new versions
+            logger.info(f"Applying SCD Type 2 CDC for batch {batch_id}")
+            return self._apply_scd_type2(
+                incoming_df=silver_df,
+                target_table=target_table,
+                key_column="customer_id",
+                effective_date_col="effective_date"
+            )

@@ -2,6 +2,7 @@
 Silver layer loader for Trades.
 
 Parses and cleans trade data from bronze_trade.
+Implements UPSERT/MERGE for CDC (Change Data Capture) on incremental loads.
 """
 
 import logging
@@ -23,6 +24,12 @@ class SilverTrades(SilverLoaderBase):
     Trade.txt format (14 columns per TPC-DI spec):
     T_ID|T_DTS|T_ST_ID|T_TT_ID|T_IS_CASH|T_S_SYMB|T_QTY|T_BID_PRICE|
     T_CA_ID|T_EXEC_NAME|T_TRADE_PRICE|T_CHRG|T_COMM|T_TAX
+    
+    CDC Handling:
+    - Batch 1 (Historical): Full load, overwrite
+    - Batch 2+ (Incremental): UPSERT/MERGE on trade_id
+      - Trade records can have status updates (CMPT, CNCL, etc.)
+      - New trades are inserted, existing trades are updated
     """
     
     def load(self, bronze_table: str, target_table: str, batch_id: int) -> DataFrame:
@@ -65,4 +72,22 @@ class SilverTrades(SilverLoaderBase):
             col("_load_timestamp").alias("load_timestamp"),
         )
         
-        return self._write_silver_table(silver_df, target_table, batch_id)
+        # Batch 1: Full historical load (overwrite)
+        # Batch 2+: Incremental CDC with UPSERT
+        if batch_id == 1:
+            return self._write_silver_table(silver_df, target_table, batch_id)
+        else:
+            # Incremental: Apply UPSERT (MERGE) logic
+            # Updates existing trades (status changes) and inserts new trades
+            logger.info(f"Applying UPSERT/MERGE CDC for trades batch {batch_id}")
+            update_columns = [
+                "trade_dts", "status_id", "trade_type_id", "is_cash", "symbol",
+                "quantity", "bid_price", "account_id", "exec_name", "trade_price",
+                "charge", "commission", "tax", "batch_id", "load_timestamp"
+            ]
+            return self._upsert_fact_table(
+                incoming_df=silver_df,
+                target_table=target_table,
+                key_column="trade_id",
+                update_columns=update_columns
+            )

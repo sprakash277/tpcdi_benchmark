@@ -186,10 +186,33 @@ python run_benchmark_databricks.py \
 
 Use the Databricks workflow with the standard parameters (output_path, use_volume, load_type, etc.).
 
-## SCD Type 2 Support
+## CDC (Change Data Capture) & SCD Type 2
 
-The Silver layer includes columns for SCD Type 2 tracking:
+The Silver layer implements proper CDC handling for incremental loads (Batch2, Batch3).
 
+### SCD Type 2 for Dimensions (Customers, Accounts)
+
+When processing incremental batches, the Silver layer applies SCD Type 2 logic:
+
+1. **Close out existing records**: When a customer/account is updated or inactivated, the existing current record is closed:
+   - `is_current` → `false`
+   - `end_date` → effective date of the incoming change
+
+2. **Insert new version**: The new record is inserted with:
+   - `is_current` → `true` (or `false` for INACT)
+   - `effective_date` → action timestamp
+   - `end_date` → `NULL`
+
+**Action Types from CustomerMgmt.xml:**
+| ActionType | Description | CDC Action |
+|------------|-------------|------------|
+| `NEW` | New customer/account | Insert new record |
+| `ADDACCT` | Add account to existing customer | Insert new account |
+| `UPDCUST` | Update customer info | Close old + insert new version |
+| `UPDACCT` | Update account info | Close old + insert new version |
+| `INACT` | Inactivate customer/account | Close old + insert inactive version |
+
+**SCD Type 2 Columns:**
 | Column | Description |
 |--------|-------------|
 | `is_current` | Whether this is the current version |
@@ -197,23 +220,73 @@ The Silver layer includes columns for SCD Type 2 tracking:
 | `end_date` | When this version was superseded (NULL for current) |
 | `batch_id` | Which batch created/updated this record |
 
-## Incremental Processing
+### UPSERT/MERGE for Facts (Trades)
+
+Trade records use MERGE logic since trades can have status updates:
+
+- **Existing trade** (same trade_id): Update status, prices, etc.
+- **New trade**: Insert new record
+
+Trade status transitions: `PNDG` → `SBMT` → `CMPT` (or `CNCL`)
+
+### Daily Market (Append-Only)
+
+Daily market data is append-only since each (date, symbol) combination is a unique snapshot. Incremental batches simply add new trading days.
+
+## Incremental Processing Flow
 
 For incremental batches (Batch2, Batch3, etc.):
 
-1. **Bronze**: New data is appended to existing bronze tables with `batch_id` tracking
-2. **Silver**: New data is appended with proper SCD handling
+```
+Batch2/CustomerMgmt.xml → bronze_customer_mgmt (append)
+                              ↓
+                        silver_customers (SCD Type 2 MERGE)
+                        silver_accounts  (SCD Type 2 MERGE)
+
+Batch2/Trade.txt → bronze_trade (append)
+                       ↓
+                  silver_trades (UPSERT/MERGE)
+
+Batch2/DailyMarket.txt → bronze_daily_market (append)
+                              ↓
+                         silver_daily_market (append)
+```
 
 The `_batch_id` column in Bronze and `batch_id` in Silver allows you to trace data lineage back to the source batch.
+
+## Delta Lake MERGE Statements
+
+The CDC implementation uses Delta Lake MERGE for efficient upserts:
+
+**SCD Type 2 (Customers/Accounts):**
+```sql
+MERGE INTO silver_customers AS target
+USING (SELECT customer_id, MIN(effective_date) as new_effective_date FROM incoming GROUP BY customer_id) AS updates
+ON target.customer_id = updates.customer_id AND target.is_current = true
+WHEN MATCHED THEN UPDATE SET
+    target.is_current = false,
+    target.end_date = updates.new_effective_date
+```
+
+**UPSERT (Trades):**
+```sql
+MERGE INTO silver_trades AS target
+USING incoming_data AS source
+ON target.trade_id = source.trade_id
+WHEN MATCHED THEN UPDATE SET ...
+WHEN NOT MATCHED THEN INSERT ...
+```
 
 ## Best Practices
 
 1. **Always start fresh for Batch1**: The first batch (historical load) uses `mode="overwrite"` to create clean tables.
 
-2. **Incremental batches append**: Batch2+ uses `mode="append"` with schema merge enabled.
+2. **Run batches in order**: Process Batch1, then Batch2, then Batch3 to maintain proper CDC history.
 
 3. **Use Unity Catalog**: For production workloads, use Unity Catalog with proper catalog/schema organization.
 
 4. **Monitor Bronze for debugging**: If Silver transformations fail, check the Bronze tables to see the raw data.
 
 5. **Enable spark-xml**: The `CustomerMgmt.xml` parsing requires the spark-xml library (`com.databricks:spark-xml_2.12:0.15.0`).
+
+6. **Delta Lake required**: The CDC/MERGE operations require Delta Lake format (default on Databricks).

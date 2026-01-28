@@ -2,6 +2,7 @@
 Silver layer loader for Accounts.
 
 Parses and cleans account data from bronze_customer_mgmt.
+Implements SCD Type 2 for CDC (Change Data Capture) on incremental loads.
 """
 
 import logging
@@ -24,7 +25,13 @@ class SilverAccounts(SilverLoaderBase):
     - Customer.Account._CA_ID, _CA_TAX_ST
     - Customer.Account.CA_B_ID (broker), CA_NAME
     
-    Handles SCD Type 2 versioning based on ActionType.
+    CDC/SCD Type 2 Handling:
+    - Batch 1 (Historical): Full load, overwrite
+    - Batch 2+ (Incremental): 
+      - NEW: Insert new account
+      - ADDACCT: Insert new account for existing customer
+      - UPDACCT: Close existing record, insert new version
+      - INACT: Close existing record, insert inactive version
     """
     
     def load(self, bronze_table: str, target_table: str, batch_id: int) -> DataFrame:
@@ -115,4 +122,16 @@ class SilverAccounts(SilverLoaderBase):
             col("load_timestamp"),
         )
         
-        return self._write_silver_table(silver_df, target_table, batch_id)
+        # Batch 1: Full historical load (overwrite)
+        # Batch 2+: Incremental CDC with SCD Type 2
+        if batch_id == 1:
+            return self._write_silver_table(silver_df, target_table, batch_id)
+        else:
+            # Incremental: Apply SCD Type 2 logic
+            logger.info(f"Applying SCD Type 2 CDC for accounts batch {batch_id}")
+            return self._apply_scd_type2(
+                incoming_df=silver_df,
+                target_table=target_table,
+                key_column="account_id",
+                effective_date_col="effective_date"
+            )

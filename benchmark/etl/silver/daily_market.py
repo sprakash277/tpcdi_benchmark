@@ -2,11 +2,12 @@
 Silver layer loader for Daily Market.
 
 Parses and cleans daily market data from bronze_daily_market.
+Implements append-only CDC for incremental loads.
 """
 
 import logging
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, to_date
+from pyspark.sql.functions import col, to_date, concat_ws
 from pyspark.sql.types import LongType, DoubleType
 
 from benchmark.etl.silver.base import SilverLoaderBase
@@ -22,6 +23,12 @@ class SilverDailyMarket(SilverLoaderBase):
     
     DailyMarket.txt format (6 columns):
     DM_DATE|DM_S_SYMB|DM_CLOSE|DM_HIGH|DM_LOW|DM_VOL
+    
+    CDC Handling:
+    - Batch 1 (Historical): Full load, overwrite
+    - Batch 2+ (Incremental): Append new daily records
+      - Each (date, symbol) combination represents a unique market snapshot
+      - Incremental batches contain new trading days
     """
     
     def load(self, bronze_table: str, target_table: str, batch_id: int) -> DataFrame:
@@ -55,4 +62,13 @@ class SilverDailyMarket(SilverLoaderBase):
             col("_load_timestamp").alias("load_timestamp"),
         )
         
+        # Add composite key for potential upsert (date + symbol)
+        silver_df = silver_df.withColumn(
+            "dm_key",
+            concat_ws("_", col("dm_date").cast("string"), col("dm_s_symb"))
+        )
+        
+        # Batch 1: Full historical load
+        # Batch 2+: Append new daily market data
+        # (Daily market data is typically append-only, each batch adds new trading days)
         return self._write_silver_table(silver_df, target_table, batch_id)
