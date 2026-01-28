@@ -6,7 +6,9 @@ Handles historical load and initial batch processing.
 import logging
 from typing import TYPE_CHECKING
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, when, trim, upper, regexp_replace, lit, current_timestamp, split, element_at
+from pyspark.sql.functions import col, when, trim, upper, regexp_replace, lit, current_timestamp, split, element_at, size
+from pyspark.sql.types import StringType
+from pyspark.sql.functions import udf
 
 if TYPE_CHECKING:
     from benchmark.platforms.databricks import DatabricksPlatform
@@ -182,22 +184,30 @@ class BatchETL:
             format="text"
         )
         
-        # Manually split on pipe delimiter
+        # Manually split on pipe delimiter using a UDF
+        # This avoids Spark query context issues with array element access
         # text format returns a column named 'value'
-        # Use regex to split on pipe character
-        split_cols = split(text_df["value"], "\\|", -1)  # -1 to include trailing empty strings
         
-        # Create individual columns based on expected count
-        # Use element_at() function which is more reliable than getItem()
-        # element_at() uses 1-based indexing, so we add 1 to the index
-        select_exprs = []
+        def split_line(line: str, index: int) -> str:
+            """Split a line on pipe delimiter and return the field at index."""
+            if not line:
+                return ""
+            parts = line.split("|")
+            if index < len(parts):
+                return parts[index].strip()
+            return ""
+        
+        # Create UDF for splitting
+        split_udf = udf(lambda line, idx: split_line(line, idx), StringType())
+        
+        # Create columns incrementally using withColumn()
+        df = text_df
         for i in range(expected_cols):
-            # element_at(array, index) - uses 1-based indexing
-            array_element = element_at(split_cols, i + 1)
-            select_exprs.append(trim(array_element).alias(f"_c{i}"))
+            df = df.withColumn(f"_c{i}", trim(split_udf(col("value"), lit(i))))
         
-        # Create the DataFrame with split columns
-        df = text_df.select(*select_exprs)
+        # Select only the split columns
+        select_exprs = [col(f"_c{i}") for i in range(expected_cols)]
+        df = df.select(*select_exprs)
         
         logger.info(f"[DEBUG] Manually split {file_pattern} on pipe delimiter: got {len(df.columns)} columns")
         return df
