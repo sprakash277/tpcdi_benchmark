@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING
 
 # Import individual loaders
 from benchmark.etl.bronze.customer_mgmt import BronzeCustomerMgmt
+from benchmark.etl.bronze.customer import BronzeCustomer
+from benchmark.etl.bronze.account import BronzeAccount
 from benchmark.etl.bronze.finwire import BronzeFinwire
 from benchmark.etl.bronze.trade import BronzeTrade
 from benchmark.etl.bronze.daily_market import BronzeDailyMarket
@@ -37,6 +39,8 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "BronzeETL",
     "BronzeCustomerMgmt",
+    "BronzeCustomer",
+    "BronzeAccount",
     "BronzeFinwire",
     "BronzeTrade",
     "BronzeDailyMarket",
@@ -71,7 +75,9 @@ class BronzeETL:
         self.platform = platform
         
         # Initialize all loaders
-        self.customer_mgmt = BronzeCustomerMgmt(platform)
+        self.customer_mgmt = BronzeCustomerMgmt(platform)  # Batch 1 only (XML)
+        self.customer = BronzeCustomer(platform)  # Batch 2+ only (pipe-delimited)
+        self.account = BronzeAccount(platform)  # Batch 2+ only (pipe-delimited)
         self.finwire = BronzeFinwire(platform)
         self.trade = BronzeTrade(platform)
         self.daily_market = BronzeDailyMarket(platform)
@@ -112,8 +118,17 @@ class BronzeETL:
             self.industry.load(f"{prefix}.bronze_industry")
             self.hr.load(batch_id, f"{prefix}.bronze_hr")
         
-        # Data files (all batches)
-        self.customer_mgmt.load(batch_id, f"{prefix}.bronze_customer_mgmt")
+        # Customer/Account data: Different formats for Batch 1 vs Batch 2+
+        # Batch 1: CustomerMgmt.xml (XML event log)
+        # Batch 2+: Customer.txt and Account.txt (pipe-delimited state snapshots)
+        if batch_id == 1:
+            self.customer_mgmt.load(batch_id, f"{prefix}.bronze_customer_mgmt")
+        else:
+            # Incremental batches: pipe-delimited flat files
+            self.customer.load(batch_id, f"{prefix}.bronze_customer")
+            self.account.load(batch_id, f"{prefix}.bronze_account")
+        
+        # Other data files (all batches)
         self.trade.load(batch_id, f"{prefix}.bronze_trade")
         self.daily_market.load(batch_id, f"{prefix}.bronze_daily_market")
         self.prospect.load(batch_id, f"{prefix}.bronze_prospect")

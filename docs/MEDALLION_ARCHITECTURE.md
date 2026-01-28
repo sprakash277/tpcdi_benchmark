@@ -25,23 +25,29 @@ Raw Source Files → Bronze (Raw) → Silver (Cleaned) → Gold (Business)
 
 #### Bronze Tables
 
-| Table | Source File | Format | Description |
-|-------|-------------|--------|-------------|
-| `bronze_customer_mgmt` | CustomerMgmt.xml | XML as struct | Raw XML structure with nested Customer/Account elements |
-| `bronze_finwire` | FINWIRE* | Text (raw_line) | Fixed-width strings (not parsed) |
-| `bronze_trade` | Trade.txt | Text (raw_line) | Pipe-delimited raw lines |
-| `bronze_daily_market` | DailyMarket.txt | Text (raw_line) | Pipe-delimited raw lines |
-| `bronze_hr` | HR.csv | Text (raw_line) | CSV raw lines |
-| `bronze_prospect` | Prospect.csv | Text (raw_line) | CSV raw lines |
-| `bronze_date` | Date.txt | Text (raw_line) | Reference data |
-| `bronze_time` | Time.txt | Text (raw_line) | Reference data |
-| `bronze_status_type` | StatusType.txt | Text (raw_line) | Reference data |
-| `bronze_tax_rate` | TaxRate.txt | Text (raw_line) | Reference data |
-| `bronze_trade_type` | TradeType.txt | Text (raw_line) | Reference data |
-| `bronze_industry` | Industry.txt | Text (raw_line) | Reference data |
-| `bronze_cash_transaction` | CashTransaction.txt | Text (raw_line) | Transaction data |
-| `bronze_holding_history` | HoldingHistory.txt | Text (raw_line) | Holdings data |
-| `bronze_watch_history` | WatchHistory.txt | Text (raw_line) | Watch list data |
+| Table | Source File | Format | Batch | Description |
+|-------|-------------|--------|-------|-------------|
+| `bronze_customer_mgmt` | CustomerMgmt.xml | XML as struct | Batch 1 only | Raw XML structure with nested Customer/Account elements (event log) |
+| `bronze_customer` | Customer.txt | Text (raw_line) | Batch 2+ only | Pipe-delimited customer state snapshot |
+| `bronze_account` | Account.txt | Text (raw_line) | Batch 2+ only | Pipe-delimited account state snapshot |
+| `bronze_finwire` | FINWIRE* | Text (raw_line) | Batch 1 only | Fixed-width strings (not parsed) |
+| `bronze_trade` | Trade.txt | Text (raw_line) | All batches | Pipe-delimited raw lines |
+| `bronze_daily_market` | DailyMarket.txt | Text (raw_line) | All batches | Pipe-delimited raw lines |
+| `bronze_hr` | HR.csv | Text (raw_line) | Batch 1 only | CSV raw lines |
+| `bronze_prospect` | Prospect.csv | Text (raw_line) | All batches | CSV raw lines |
+| `bronze_date` | Date.txt | Text (raw_line) | Batch 1 only | Reference data |
+| `bronze_time` | Time.txt | Text (raw_line) | Batch 1 only | Reference data |
+| `bronze_status_type` | StatusType.txt | Text (raw_line) | Batch 1 only | Reference data |
+| `bronze_tax_rate` | TaxRate.txt | Text (raw_line) | Batch 1 only | Reference data |
+| `bronze_trade_type` | TradeType.txt | Text (raw_line) | Batch 1 only | Reference data |
+| `bronze_industry` | Industry.txt | Text (raw_line) | Batch 1 only | Reference data |
+| `bronze_cash_transaction` | CashTransaction.txt | Text (raw_line) | All batches | Transaction data |
+| `bronze_holding_history` | HoldingHistory.txt | Text (raw_line) | All batches | Holdings data |
+| `bronze_watch_history` | WatchHistory.txt | Text (raw_line) | All batches | Watch list data |
+
+**Important**: TPC-DI specification uses different formats for customer/account data:
+- **Batch 1**: `CustomerMgmt.xml` (XML event log containing all historical events)
+- **Batch 2+**: `Customer.txt` and `Account.txt` (pipe-delimited state snapshots of changed records)
 
 ### 2. Silver Layer (Cleaned / Refined)
 
@@ -56,10 +62,12 @@ Raw Source Files → Bronze (Raw) → Silver (Cleaned) → Gold (Business)
 
 #### Silver Tables
 
-| Table | Source Bronze Table | Key Transformations |
-|-------|---------------------|---------------------|
-| `silver_customers` | `bronze_customer_mgmt` | Extract Customer fields from XML, add SCD columns |
-| `silver_accounts` | `bronze_customer_mgmt` | Extract Account fields from XML, add SCD columns |
+| Table | Source Bronze Table | Batch | Key Transformations |
+|-------|---------------------|-------|---------------------|
+| `silver_customers` | `bronze_customer_mgmt` | Batch 1 | Extract Customer fields from XML, add SCD columns |
+| `silver_customers` | `bronze_customer` | Batch 2+ | Parse pipe-delimited Customer.txt, apply SCD Type 2 CDC |
+| `silver_accounts` | `bronze_customer_mgmt` | Batch 1 | Extract Account fields from XML, add SCD columns |
+| `silver_accounts` | `bronze_account` | Batch 2+ | Parse pipe-delimited Account.txt, apply SCD Type 2 CDC |
 | `silver_companies` | `bronze_finwire` | Parse CMP records (positions 16-18 = 'CMP') |
 | `silver_securities` | `bronze_finwire` | Parse SEC records (positions 16-18 = 'SEC') |
 | `silver_financials` | `bronze_finwire` | Parse FIN records (positions 16-18 = 'FIN') |
@@ -237,11 +245,23 @@ Daily market data is append-only since each (date, symbol) combination is a uniq
 
 For incremental batches (Batch2, Batch3, etc.):
 
+**Batch 1 (Historical):**
 ```
-Batch2/CustomerMgmt.xml → bronze_customer_mgmt (append)
+Batch1/CustomerMgmt.xml → bronze_customer_mgmt (overwrite)
                               ↓
-                        silver_customers (SCD Type 2 MERGE)
-                        silver_accounts  (SCD Type 2 MERGE)
+                        silver_customers (SCD Type 2, overwrite)
+                        silver_accounts  (SCD Type 2, overwrite)
+```
+
+**Batch 2+ (Incremental):**
+```
+Batch2/Customer.txt → bronze_customer (append)
+                          ↓
+                    silver_customers (SCD Type 2 MERGE - close old, insert new)
+
+Batch2/Account.txt → bronze_account (append)
+                         ↓
+                    silver_accounts (SCD Type 2 MERGE - close old, insert new)
 
 Batch2/Trade.txt → bronze_trade (append)
                        ↓
@@ -251,6 +271,8 @@ Batch2/DailyMarket.txt → bronze_daily_market (append)
                               ↓
                          silver_daily_market (append)
 ```
+
+**Key Difference**: Batch 1 uses XML event logs, while Batch 2+ uses pipe-delimited state snapshots. The Silver layer automatically detects the batch and uses the appropriate parser.
 
 The `_batch_id` column in Bronze and `batch_id` in Silver allows you to trace data lineage back to the source batch.
 

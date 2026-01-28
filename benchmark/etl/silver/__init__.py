@@ -110,9 +110,15 @@ class SilverETL:
             except Exception as e:
                 logger.warning(f"FINWIRE parsing skipped: {e}")
         
-        # Customer and Account data (all batches)
-        self.customers.load(f"{prefix}.bronze_customer_mgmt", f"{prefix}.silver_customers", batch_id)
-        self.accounts.load(f"{prefix}.bronze_customer_mgmt", f"{prefix}.silver_accounts", batch_id)
+        # Customer and Account data: Different sources for Batch 1 vs Batch 2+
+        # Batch 1: bronze_customer_mgmt (XML)
+        # Batch 2+: bronze_customer and bronze_account (pipe-delimited)
+        if batch_id == 1:
+            self.customers.load(f"{prefix}.bronze_customer_mgmt", f"{prefix}.silver_customers", batch_id)
+            self.accounts.load(f"{prefix}.bronze_customer_mgmt", f"{prefix}.silver_accounts", batch_id)
+        else:
+            self.customers.load(f"{prefix}.bronze_customer", f"{prefix}.silver_customers", batch_id)
+            self.accounts.load(f"{prefix}.bronze_account", f"{prefix}.silver_accounts", batch_id)
         
         # Trade and Market data (all batches)
         try:
