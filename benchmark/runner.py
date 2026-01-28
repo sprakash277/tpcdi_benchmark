@@ -7,7 +7,7 @@ import logging
 from typing import Optional
 from pyspark.sql import SparkSession
 
-from benchmark.config import BenchmarkConfig, Platform, LoadType
+from benchmark.config import BenchmarkConfig, Platform, LoadType, Architecture
 from benchmark.metrics import MetricsCollector
 from benchmark.platforms.databricks import DatabricksPlatform
 from benchmark.platforms.dataproc import DataprocPlatform
@@ -145,45 +145,116 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             db_or_catalog = config.target_database
         metrics.finish_step()
         
-        # Run ETL based on load type (use catalog.schema or database.schema for table names)
+        # Run ETL based on load type and architecture
+        etl = BatchETL(platform)
+        
         if config.load_type == LoadType.BATCH:
-            metrics.start_step("batch_etl")
-            etl = BatchETL(platform)
-            etl.run_full_batch_load(db_or_catalog, config.target_schema)
+            # Check architecture type
+            if config.architecture == Architecture.MEDALLION:
+                # Medallion Architecture: Bronze -> Silver layers
+                metrics.start_step("bronze_etl")
+                from benchmark.etl.bronze import BronzeETL
+                bronze_etl = BronzeETL(platform)
+                bronze_etl.run_bronze_batch_load(1, db_or_catalog, config.target_schema)
+                
+                # Collect bronze metrics
+                bronze_tables = ["bronze_customer_mgmt", "bronze_trade", "bronze_daily_market", 
+                                "bronze_date", "bronze_status_type", "bronze_trade_type",
+                                "bronze_industry", "bronze_finwire"]
+                bronze_row_counts = {}
+                for table in bronze_tables:
+                    table_name = f"{db_or_catalog}.{config.target_schema}.{table}"
+                    try:
+                        bronze_row_counts[table] = platform.get_table_count(table_name)
+                    except Exception as e:
+                        logger.warning(f"Could not get metrics for {table}: {e}")
+                metrics.finish_step(rows=sum(bronze_row_counts.values()), 
+                                   metadata={"table_counts": bronze_row_counts})
+                
+                metrics.start_step("silver_etl")
+                from benchmark.etl.silver import SilverETL
+                silver_etl = SilverETL(platform)
+                silver_etl.run_silver_batch_load(1, db_or_catalog, config.target_schema)
+                
+                # Collect silver metrics
+                silver_tables = ["silver_customers", "silver_accounts", "silver_trades",
+                                "silver_daily_market", "silver_date", "silver_status_type",
+                                "silver_trade_type", "silver_industry", "silver_companies",
+                                "silver_securities", "silver_financials"]
+                silver_row_counts = {}
+                for table in silver_tables:
+                    table_name = f"{db_or_catalog}.{config.target_schema}.{table}"
+                    try:
+                        silver_row_counts[table] = platform.get_table_count(table_name)
+                    except Exception as e:
+                        logger.warning(f"Could not get metrics for {table}: {e}")
+                metrics.finish_step(rows=sum(silver_row_counts.values()),
+                                   metadata={"table_counts": silver_row_counts})
             
-            # Collect metrics
-            row_counts = {}
-            table_sizes = {}
-            for table in ["DimDate", "DimTime", "DimTradeType", "DimStatusType", 
-                         "DimTaxRate", "DimIndustry", "DimAccount"]:
-                table_name = f"{db_or_catalog}.{config.target_schema}.{table}"
-                try:
-                    row_counts[table] = platform.get_table_count(table_name)
-                    table_sizes[table] = platform.get_table_size_mb(table_name)
-                except Exception as e:
-                    logger.warning(f"Could not get metrics for {table}: {e}")
-            
-            total_rows = sum(row_counts.values())
-            total_size_mb = sum(table_sizes.values())
-            metrics.finish_step(rows=total_rows, bytes=int(total_size_mb * 1024 * 1024),
-                              metadata={"table_counts": row_counts, "table_sizes_mb": table_sizes})
+            else:
+                # Direct Architecture: Load directly to Gold/Dim tables (legacy)
+                metrics.start_step("batch_etl")
+                etl.run_full_batch_load(db_or_catalog, config.target_schema)
+                
+                # Collect metrics
+                row_counts = {}
+                table_sizes = {}
+                for table in ["DimDate", "DimTime", "DimTradeType", "DimStatusType", 
+                             "DimTaxRate", "DimIndustry", "DimAccount"]:
+                    table_name = f"{db_or_catalog}.{config.target_schema}.{table}"
+                    try:
+                        row_counts[table] = platform.get_table_count(table_name)
+                        table_sizes[table] = platform.get_table_size_mb(table_name)
+                    except Exception as e:
+                        logger.warning(f"Could not get metrics for {table}: {e}")
+                
+                total_rows = sum(row_counts.values())
+                total_size_mb = sum(table_sizes.values())
+                metrics.finish_step(rows=total_rows, bytes=int(total_size_mb * 1024 * 1024),
+                                  metadata={"table_counts": row_counts, "table_sizes_mb": table_sizes})
         
         elif config.load_type == LoadType.INCREMENTAL:
-            metrics.start_step("incremental_etl")
-            etl = IncrementalETL(platform)
-            etl.process_batch(config.batch_id, db_or_catalog, config.target_schema)
+            if config.architecture == Architecture.MEDALLION:
+                # Medallion Architecture incremental: Bronze -> Silver for batch N
+                metrics.start_step(f"bronze_incremental_batch{config.batch_id}")
+                from benchmark.etl.bronze import BronzeETL
+                bronze_etl = BronzeETL(platform)
+                bronze_etl.run_bronze_batch_load(config.batch_id, db_or_catalog, config.target_schema)
+                metrics.finish_step()
+                
+                metrics.start_step(f"silver_incremental_batch{config.batch_id}")
+                from benchmark.etl.silver import SilverETL
+                silver_etl = SilverETL(platform)
+                silver_etl.run_silver_batch_load(config.batch_id, db_or_catalog, config.target_schema)
+                
+                # Collect metrics
+                silver_tables = ["silver_customers", "silver_accounts", "silver_trades"]
+                row_counts = {}
+                for table in silver_tables:
+                    table_name = f"{db_or_catalog}.{config.target_schema}.{table}"
+                    try:
+                        row_counts[table] = platform.get_table_count(table_name)
+                    except Exception as e:
+                        logger.warning(f"Could not get metrics for {table}: {e}")
+                metrics.finish_step(rows=sum(row_counts.values()), metadata={"table_counts": row_counts})
             
-            # Collect metrics
-            row_counts = {}
-            for table in ["DimAccount", "FactTrade", "DimCustomer"]:
-                table_name = f"{db_or_catalog}.{config.target_schema}.{table}"
-                try:
-                    row_counts[table] = platform.get_table_count(table_name)
-                except Exception as e:
-                    logger.warning(f"Could not get metrics for {table}: {e}")
-            
-            total_rows = sum(row_counts.values())
-            metrics.finish_step(rows=total_rows, metadata={"table_counts": row_counts})
+            else:
+                # Direct Architecture incremental
+                metrics.start_step("incremental_etl")
+                inc_etl = IncrementalETL(platform)
+                inc_etl.process_batch(config.batch_id, db_or_catalog, config.target_schema)
+                
+                # Collect metrics
+                row_counts = {}
+                for table in ["DimAccount", "FactTrade", "DimCustomer"]:
+                    table_name = f"{db_or_catalog}.{config.target_schema}.{table}"
+                    try:
+                        row_counts[table] = platform.get_table_count(table_name)
+                    except Exception as e:
+                        logger.warning(f"Could not get metrics for {table}: {e}")
+                
+                total_rows = sum(row_counts.values())
+                metrics.finish_step(rows=total_rows, metadata={"table_counts": row_counts})
         
         else:
             raise ValueError(f"Unsupported load type: {config.load_type}")

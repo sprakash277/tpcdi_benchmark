@@ -20,6 +20,12 @@ class LoadType(Enum):
     INCREMENTAL = "incremental"
 
 
+class Architecture(Enum):
+    """Data architecture pattern."""
+    DIRECT = "direct"  # Direct load to Gold/DimXxx tables (legacy)
+    MEDALLION = "medallion"  # Bronze -> Silver -> Gold layers
+
+
 @dataclass
 class BenchmarkConfig:
     """Configuration for TPC-DI benchmark run."""
@@ -33,6 +39,7 @@ class BenchmarkConfig:
     output_path: Optional[str] = None  # Databricks: raw data input location (DBFS or Volume base path)
     use_volume: bool = False  # Databricks: True if raw data is in Unity Catalog Volume
     batch_id: Optional[int] = None  # For incremental loads
+    architecture: Architecture = Architecture.DIRECT  # Architecture pattern (direct or medallion)
     spark_master: Optional[str] = None  # For Dataproc
     gcs_bucket: Optional[str] = None  # For Dataproc
     project_id: Optional[str] = None  # For Dataproc

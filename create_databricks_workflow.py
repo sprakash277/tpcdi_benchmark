@@ -104,6 +104,7 @@ def create_workflow_definition(
                         "scale_factor": str(default_scale_factor),
                         "output_path": default_output_path,
                         "use_volume": "false",
+                        "architecture": "medallion",
                         "target_database": default_target_database,
                         "target_schema": default_target_schema,
                         "target_catalog": default_target_catalog,
@@ -139,6 +140,11 @@ def create_workflow_definition(
                 "description": "Raw data in Unity Catalog Volume (use with output_path)"
             },
             {
+                "name": "architecture",
+                "default": "medallion",
+                "description": "Architecture: medallion (Bronze->Silver layers) or direct (legacy Gold)"
+            },
+            {
                 "name": "load_type",
                 "default": default_load_type,
                 "description": "Load type: batch or incremental"
@@ -172,11 +178,6 @@ def create_workflow_definition(
                 "name": "upload_threads",
                 "default": "8",
                 "description": "Number of parallel threads for DBFS uploads"
-            },
-            {
-                "name": "use_volume",
-                "default": "false",
-                "description": "Use Unity Catalog Volume for raw data storage"
             },
             {
                 "name": "catalog",

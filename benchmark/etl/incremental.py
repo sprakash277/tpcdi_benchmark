@@ -90,14 +90,17 @@ class IncrementalETL:
     
     def process_batch(self, batch_id: int, target_database: str, target_schema: str):
         """
-        Process a single incremental batch.
+        Process a single incremental batch (Direct/Gold architecture).
+        
+        This is the legacy/direct load method that writes to Gold layer tables directly.
+        For Medallion architecture, use process_medallion_batch() instead.
         
         Args:
             batch_id: Batch number to process
             target_database: Target database name
             target_schema: Target schema name
         """
-        logger.info(f"Processing incremental batch {batch_id}")
+        logger.info(f"Processing incremental batch {batch_id} (direct to Gold)")
         
         # Load new/updated accounts
         self.load_dim_account_incremental(
@@ -118,6 +121,36 @@ class IncrementalETL:
         )
         
         logger.info(f"Completed processing batch {batch_id}")
+    
+    def process_medallion_batch(self, batch_id: int, target_database: str, target_schema: str):
+        """
+        Process a single incremental batch using Medallion Architecture.
+        
+        This follows the medallion pattern:
+        1. Bronze: Raw data ingestion (appends to existing bronze tables)
+        2. Silver: Cleaned/parsed data with SCD handling (appends to existing silver tables)
+        
+        Args:
+            batch_id: Batch number to process (2+ for incremental)
+            target_database: Target database/catalog name
+            target_schema: Target schema name
+        """
+        from benchmark.etl.bronze import BronzeETL
+        from benchmark.etl.silver import SilverETL
+        
+        logger.info(f"Processing incremental batch {batch_id} with Medallion Architecture")
+        
+        # Bronze layer: Raw data ingestion (append to existing tables)
+        logger.info(f"=== BRONZE LAYER: Batch{batch_id} Raw Data Ingestion ===")
+        bronze_etl = BronzeETL(self.platform)
+        bronze_etl.run_bronze_batch_load(batch_id, target_database, target_schema)
+        
+        # Silver layer: Cleaned/parsed data (append to existing tables)
+        logger.info(f"=== SILVER LAYER: Batch{batch_id} Data Cleaning & Parsing ===")
+        silver_etl = SilverETL(self.platform)
+        silver_etl.run_silver_batch_load(batch_id, target_database, target_schema)
+        
+        logger.info(f"Completed medallion processing for batch {batch_id}")
     
     def load_dim_account_incremental(self, batch_id: int, target_table: str) -> DataFrame:
         """

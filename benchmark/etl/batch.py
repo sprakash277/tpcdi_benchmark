@@ -616,11 +616,14 @@ class BatchETL:
         """
         Run the full batch load process (historical load from Batch1).
         
+        This is the legacy/direct load method that writes to Gold layer tables directly.
+        For Medallion architecture, use run_medallion_batch_load() instead.
+        
         Args:
             target_database: Target database/catalog name
             target_schema: Target schema name
         """
-        logger.info("Starting full batch load process")
+        logger.info("Starting full batch load process (direct to Gold)")
         
         # Load dimension tables
         self.load_dim_date(f"{target_database}.{target_schema}.DimDate")
@@ -632,3 +635,34 @@ class BatchETL:
         self.load_dim_account(f"{target_database}.{target_schema}.DimAccount")
         
         logger.info("Full batch load completed")
+    
+    def run_medallion_batch_load(self, target_database: str, target_schema: str, 
+                                  batch_id: int = 1):
+        """
+        Run Medallion Architecture batch load: Bronze -> Silver layers.
+        
+        This follows the medallion pattern:
+        1. Bronze: Raw data ingestion (no transformations)
+        2. Silver: Cleaned/parsed data with SCD handling
+        
+        Args:
+            target_database: Target database/catalog name
+            target_schema: Target schema name
+            batch_id: Batch number (1 for historical, 2+ for incremental)
+        """
+        from benchmark.etl.bronze import BronzeETL
+        from benchmark.etl.silver import SilverETL
+        
+        logger.info(f"Starting Medallion batch load for Batch{batch_id}: Bronze -> Silver")
+        
+        # Bronze layer: Raw data ingestion
+        logger.info("=== BRONZE LAYER: Raw Data Ingestion ===")
+        bronze_etl = BronzeETL(self.platform)
+        bronze_etl.run_bronze_batch_load(batch_id, target_database, target_schema)
+        
+        # Silver layer: Cleaned/parsed data
+        logger.info("=== SILVER LAYER: Data Cleaning & Parsing ===")
+        silver_etl = SilverETL(self.platform)
+        silver_etl.run_silver_batch_load(batch_id, target_database, target_schema)
+        
+        logger.info(f"Medallion batch load completed for Batch{batch_id}")
