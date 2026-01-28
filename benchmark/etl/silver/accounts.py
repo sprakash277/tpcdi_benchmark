@@ -76,30 +76,30 @@ class SilverAccounts(SilverLoaderBase):
         bronze_df = self.spark.table(bronze_table)
         bronze_df = bronze_df.filter(col("_batch_id") == batch_id)
         
-        # Try multiple XML parsing strategies
+        # Bronze schema: Customer (Account, Name, Address, ...), _ActionType, _ActionTS. No Action array.
+        # Account fields per docs/CUSTOMERMGMT_STRUCTURE: Customer.Account._CA_ID, CA_B_ID, CA_NAME, _CA_TAX_ST
         extraction_errors = []
         account_df = None
+        temp_view = f"_temp_accountmgmt_xml_{id(bronze_df)}"
+        bronze_df.createOrReplaceTempView(temp_view)
         
-        # Strategy 1: TPCDI:Action with rootTag
+        # Strategy 1: Nested struct paths (Customer.Account.*, Customer._C_ID)
         try:
-            logger.info("Attempting XML parse with TPCDI:Action and rootTag")
-            temp_view = f"_temp_accountmgmt_xml_{id(bronze_df)}"
-            bronze_df.createOrReplaceTempView(temp_view)
-            
+            logger.info("Attempting XML parse with Customer.Account nested struct paths")
             sql_query = f"""
             SELECT 
                 _ActionType as action_type,
                 _ActionTS as action_ts,
-                _CA_ID as ca_id,
-                Customer.Account._CA_B_ID as ca_b_id,
+                Customer.Account._CA_ID as ca_id,
+                Customer.Account.CA_B_ID as ca_b_id,
                 Customer._C_ID as c_id,
                 Customer.Account.CA_NAME as ca_name,
                 Customer.Account._CA_TAX_ST as ca_tax_st,
-                Customer.Account._CA_ST_ID as ca_st_id,
+                CASE WHEN _ActionType = 'INACT' THEN 'INACT' ELSE 'ACTV' END as ca_st_id,
                 _batch_id as batch_id,
                 _load_timestamp as load_timestamp
             FROM {temp_view}
-            WHERE _ActionType IN ('ADDACCT', 'UPDACCT', 'INACT')
+            WHERE _ActionType IN ('ADDACCT', 'UPDACCT', 'INACT') AND Customer IS NOT NULL AND Customer.Account IS NOT NULL
             """
             
             account_df = self.spark.sql(sql_query)
@@ -109,54 +109,48 @@ class SilverAccounts(SilverLoaderBase):
                 raise ValueError("No records extracted")
         except Exception as e:
             extraction_errors.append(f"Strategy 1 failed: {e}")
-            logger.warning(f"XML parsing strategy 1 failed: {e}")
-            try:
-                self.spark.catalog.dropTempView(temp_view)
-            except:
-                pass
+            logger.warning(f"XML parse (Account nested) failed: {e}")
+            account_df = None
         
-        # Strategy 2: Try with explode if Action is an array
+        # Strategy 2: Same paths with COALESCE for optional structs
         if account_df is None or account_df.count() == 0:
             try:
-                logger.info("Attempting XML parse with explode")
-                temp_view = f"_temp_accountmgmt_xml2_{id(bronze_df)}"
-                bronze_df.createOrReplaceTempView(temp_view)
-                
+                self.spark.catalog.dropTempView(temp_view)
+            except Exception:
+                pass
+            temp_view = f"_temp_accountmgmt_xml2_{id(bronze_df)}"
+            bronze_df.createOrReplaceTempView(temp_view)
+            try:
+                logger.info("Attempting XML parse with COALESCE for Account struct")
                 sql_query = f"""
                 SELECT 
-                    explode(Action) as action_row
+                    _ActionType as action_type,
+                    _ActionTS as action_ts,
+                    Customer.Account._CA_ID as ca_id,
+                    Customer.Account.CA_B_ID as ca_b_id,
+                    Customer._C_ID as c_id,
+                    TRIM(COALESCE(Customer.Account.CA_NAME, '')) as ca_name,
+                    TRIM(COALESCE(CAST(Customer.Account._CA_TAX_ST AS STRING), '0')) as ca_tax_st,
+                    CASE WHEN _ActionType = 'INACT' THEN 'INACT' ELSE 'ACTV' END as ca_st_id,
+                    _batch_id as batch_id,
+                    _load_timestamp as load_timestamp
                 FROM {temp_view}
+                WHERE _ActionType IN ('ADDACCT', 'UPDACCT', 'INACT') AND Customer IS NOT NULL AND Customer.Account IS NOT NULL
                 """
-                exploded_df = self.spark.sql(sql_query)
-                exploded_df.createOrReplaceTempView("exploded_actions")
-                
-                sql_query2 = """
-                SELECT 
-                    action_row._ActionType as action_type,
-                    action_row._ActionTS as action_ts,
-                    action_row._CA_ID as ca_id,
-                    action_row.Customer.Account._CA_B_ID as ca_b_id,
-                    action_row.Customer._C_ID as c_id,
-                    action_row.Customer.Account.CA_NAME as ca_name,
-                    action_row.Customer.Account._CA_TAX_ST as ca_tax_st,
-                    action_row.Customer.Account._CA_ST_ID as ca_st_id
-                FROM exploded_actions
-                WHERE action_row._ActionType IN ('ADDACCT', 'UPDACCT', 'INACT')
-                """
-                
-                account_df = self.spark.sql(sql_query2)
+                account_df = self.spark.sql(sql_query)
                 if account_df.count() > 0:
-                    logger.info(f"Successfully parsed {account_df.count()} account records with explode")
+                    logger.info(f"Successfully parsed {account_df.count()} account records (COALESCE fallback)")
                 else:
                     raise ValueError("No records extracted")
             except Exception as e:
                 extraction_errors.append(f"Strategy 2 failed: {e}")
-                logger.warning(f"XML parsing strategy 2 failed: {e}")
-                try:
-                    self.spark.catalog.dropTempView(temp_view)
-                    self.spark.catalog.dropTempView("exploded_actions")
-                except:
-                    pass
+                logger.warning(f"XML parse (Account COALESCE) failed: {e}")
+                account_df = None
+        
+        try:
+            self.spark.catalog.dropTempView(temp_view)
+        except Exception:
+            pass
         
         if account_df is None or account_df.count() == 0:
             raise RuntimeError(f"Failed to extract accounts: {extraction_errors}")

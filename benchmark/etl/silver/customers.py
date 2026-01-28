@@ -77,110 +77,105 @@ class SilverCustomers(SilverLoaderBase):
         bronze_df = bronze_df.filter(col("_batch_id") == batch_id)
         
         # Try multiple XML parsing strategies
+        # Bronze schema: Customer (Name, Address, ContactInfo, TaxInfo, _C_*), _ActionType, _ActionTS
+        # No Action array - each row is one action. See docs/CUSTOMERMGMT_STRUCTURE.md.
         extraction_errors = []
         customer_df = None
+        temp_view = f"_temp_customermgmt_xml_{id(bronze_df)}"
+        bronze_df.createOrReplaceTempView(temp_view)
         
-        # Strategy 1: TPCDI:Action with rootTag
+        # Strategy 1: Nested structs per TPC-DI (Name, Address, ContactInfo, TaxInfo)
         try:
-            logger.info("Attempting XML parse with TPCDI:Action and rootTag")
-            temp_view = f"_temp_customermgmt_xml_{id(bronze_df)}"
-            bronze_df.createOrReplaceTempView(temp_view)
-            
+            logger.info("Attempting XML parse with nested struct paths (Name, Address, ContactInfo, TaxInfo)")
             sql_query = f"""
             SELECT 
                 _ActionType as action_type,
                 _ActionTS as action_ts,
-                _C_ID as c_id,
+                Customer._C_ID as c_id,
                 Customer._C_TAX_ID as c_tax_id,
-                Customer.C_L_NAME as c_l_name,
-                Customer.C_F_NAME as c_f_name,
-                Customer.C_M_NAME as c_m_name,
-                Customer.C_GNDR as c_gndr,
-                Customer.C_TIER as c_tier,
-                Customer.C_DOB as c_dob,
-                Customer.C_ADLINE1 as c_adline1,
-                Customer.C_ADLINE2 as c_adline2,
-                Customer.C_ZIPCODE as c_zipcode,
-                Customer.C_CITY as c_city,
-                Customer.C_STATE_PROV as c_state_prov,
-                Customer.C_CTRY as c_ctry,
-                Customer.C_PRIM_EMAIL as c_prim_email,
-                Customer.C_ALT_EMAIL as c_alt_email,
-                Customer.C_LCL_TX_ID as c_lcl_tx_id,
-                Customer.C_NAT_TX_ID as c_nat_tx_id,
+                Customer.Name.C_L_NAME as c_l_name,
+                Customer.Name.C_F_NAME as c_f_name,
+                Customer.Name.C_M_NAME as c_m_name,
+                Customer._C_GNDR as c_gndr,
+                Customer._C_TIER as c_tier,
+                Customer._C_DOB as c_dob,
+                Customer.Address.C_ADLINE1 as c_adline1,
+                Customer.Address.C_ADLINE2 as c_adline2,
+                Customer.Address.C_ZIPCODE as c_zipcode,
+                Customer.Address.C_CITY as c_city,
+                Customer.Address.C_STATE_PROV as c_state_prov,
+                Customer.Address.C_CTRY as c_ctry,
+                Customer.ContactInfo.C_PRIM_EMAIL as c_prim_email,
+                Customer.ContactInfo.C_ALT_EMAIL as c_alt_email,
+                Customer.TaxInfo.C_LCL_TX_ID as c_lcl_tx_id,
+                Customer.TaxInfo.C_NAT_TX_ID as c_nat_tx_id,
                 _batch_id as batch_id,
                 _load_timestamp as load_timestamp
             FROM {temp_view}
-            WHERE _ActionType IN ('NEW', 'UPDCUST', 'INACT')
+            WHERE _ActionType IN ('NEW', 'UPDCUST', 'INACT') AND Customer IS NOT NULL
             """
             
             customer_df = self.spark.sql(sql_query)
             if customer_df.count() > 0:
-                logger.info(f"Successfully parsed {customer_df.count()} customer records from XML")
+                logger.info(f"Successfully parsed {customer_df.count()} customer records from XML (nested structs)")
             else:
                 raise ValueError("No records extracted")
         except Exception as e:
-            extraction_errors.append(f"Strategy 1 failed: {e}")
-            logger.warning(f"XML parsing strategy 1 failed: {e}")
-            try:
-                self.spark.catalog.dropTempView(temp_view)
-            except:
-                pass
+            extraction_errors.append(f"Strategy 1 (nested structs) failed: {e}")
+            logger.warning(f"XML parse (nested structs) failed: {e}")
+            customer_df = None
         
-        # Strategy 2: Try with explode if Action is an array
+        # Strategy 2: Same nested paths with COALESCE for optional structs (Name/Address/ContactInfo/TaxInfo)
         if customer_df is None or customer_df.count() == 0:
             try:
-                logger.info("Attempting XML parse with explode")
-                temp_view = f"_temp_customermgmt_xml2_{id(bronze_df)}"
-                bronze_df.createOrReplaceTempView(temp_view)
-                
+                self.spark.catalog.dropTempView(temp_view)
+            except Exception:
+                pass
+            temp_view = f"_temp_customermgmt_xml2_{id(bronze_df)}"
+            bronze_df.createOrReplaceTempView(temp_view)
+            try:
+                logger.info("Attempting XML parse with COALESCE for optional nested structs")
                 sql_query = f"""
                 SELECT 
-                    explode(Action) as action_row
+                    _ActionType as action_type,
+                    _ActionTS as action_ts,
+                    Customer._C_ID as c_id,
+                    TRIM(COALESCE(Customer._C_TAX_ID, '')) as c_tax_id,
+                    TRIM(COALESCE(Customer.Name.C_L_NAME, '')) as c_l_name,
+                    TRIM(COALESCE(Customer.Name.C_F_NAME, '')) as c_f_name,
+                    TRIM(COALESCE(Customer.Name.C_M_NAME, '')) as c_m_name,
+                    TRIM(COALESCE(Customer._C_GNDR, '')) as c_gndr,
+                    TRIM(COALESCE(CAST(Customer._C_TIER AS STRING), '0')) as c_tier,
+                    TRIM(COALESCE(Customer._C_DOB, '')) as c_dob,
+                    TRIM(COALESCE(Customer.Address.C_ADLINE1, '')) as c_adline1,
+                    TRIM(COALESCE(Customer.Address.C_ADLINE2, '')) as c_adline2,
+                    TRIM(COALESCE(Customer.Address.C_ZIPCODE, '')) as c_zipcode,
+                    TRIM(COALESCE(Customer.Address.C_CITY, '')) as c_city,
+                    TRIM(COALESCE(Customer.Address.C_STATE_PROV, '')) as c_state_prov,
+                    TRIM(COALESCE(Customer.Address.C_CTRY, '')) as c_ctry,
+                    TRIM(COALESCE(Customer.ContactInfo.C_PRIM_EMAIL, '')) as c_prim_email,
+                    TRIM(COALESCE(Customer.ContactInfo.C_ALT_EMAIL, '')) as c_alt_email,
+                    TRIM(COALESCE(Customer.TaxInfo.C_LCL_TX_ID, '')) as c_lcl_tx_id,
+                    TRIM(COALESCE(Customer.TaxInfo.C_NAT_TX_ID, '')) as c_nat_tx_id,
+                    _batch_id as batch_id,
+                    _load_timestamp as load_timestamp
                 FROM {temp_view}
+                WHERE _ActionType IN ('NEW', 'UPDCUST', 'INACT') AND Customer IS NOT NULL
                 """
-                exploded_df = self.spark.sql(sql_query)
-                exploded_df.createOrReplaceTempView("exploded_actions")
-                
-                sql_query2 = """
-                SELECT 
-                    action_row._ActionType as action_type,
-                    action_row._ActionTS as action_ts,
-                    action_row._C_ID as c_id,
-                    action_row.Customer._C_TAX_ID as c_tax_id,
-                    action_row.Customer.C_L_NAME as c_l_name,
-                    action_row.Customer.C_F_NAME as c_f_name,
-                    action_row.Customer.C_M_NAME as c_m_name,
-                    action_row.Customer.C_GNDR as c_gndr,
-                    action_row.Customer.C_TIER as c_tier,
-                    action_row.Customer.C_DOB as c_dob,
-                    action_row.Customer.C_ADLINE1 as c_adline1,
-                    action_row.Customer.C_ADLINE2 as c_adline2,
-                    action_row.Customer.C_ZIPCODE as c_zipcode,
-                    action_row.Customer.C_CITY as c_city,
-                    action_row.Customer.C_STATE_PROV as c_state_prov,
-                    action_row.Customer.C_CTRY as c_ctry,
-                    action_row.Customer.C_PRIM_EMAIL as c_prim_email,
-                    action_row.Customer.C_ALT_EMAIL as c_alt_email,
-                    action_row.Customer.C_LCL_TX_ID as c_lcl_tx_id,
-                    action_row.Customer.C_NAT_TX_ID as c_nat_tx_id
-                FROM exploded_actions
-                WHERE action_row._ActionType IN ('NEW', 'UPDCUST', 'INACT')
-                """
-                
-                customer_df = self.spark.sql(sql_query2)
+                customer_df = self.spark.sql(sql_query)
                 if customer_df.count() > 0:
-                    logger.info(f"Successfully parsed {customer_df.count()} customer records with explode")
+                    logger.info(f"Successfully parsed {customer_df.count()} customer records (COALESCE fallback)")
                 else:
                     raise ValueError("No records extracted")
             except Exception as e:
-                extraction_errors.append(f"Strategy 2 failed: {e}")
-                logger.warning(f"XML parsing strategy 2 failed: {e}")
-                try:
-                    self.spark.catalog.dropTempView(temp_view)
-                    self.spark.catalog.dropTempView("exploded_actions")
-                except:
-                    pass
+                extraction_errors.append(f"Strategy 2 (COALESCE) failed: {e}")
+                logger.warning(f"XML parse (COALESCE) failed: {e}")
+                customer_df = None
+        
+        try:
+            self.spark.catalog.dropTempView(temp_view)
+        except Exception:
+            pass
         
         if customer_df is None or customer_df.count() == 0:
             raise RuntimeError(f"Failed to extract customers: {extraction_errors}")
