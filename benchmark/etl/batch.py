@@ -47,67 +47,37 @@ class BatchETL:
         Returns:
             DataFrame with columns _c0, _c1, _c2, etc.
         """
-        logger.info(f"[DEBUG] _read_pipe_delimited_txt: Reading {file_pattern} from Batch{batch_id}")
+        logger.info(f"Reading {file_pattern} as pipe-delimited text from Batch{batch_id}")
         
-        # Read file as text (single column 'value' with full line content)
         text_df = self.platform.read_batch_files(
             batch_id,
             file_pattern,
             format="text"
         )
         
-        # Show sample raw content for debugging
-        logger.info(f"[DEBUG] Raw content of {file_pattern} (first 3 lines):")
-        text_df.show(3, truncate=False)
-        
-        # Create temporary view for SQL execution
         temp_view_name = f"_temp_txt_{file_pattern.replace('.', '_').replace('/', '_')}_{batch_id}"
         text_df.createOrReplaceTempView(temp_view_name)
-        
-        # Build SQL SELECT with split() and element_at() - uses 1-based indexing
-        # Note: In Spark SQL, split() uses regex, so pipe needs to be escaped as '\\|'
-        # But in SQL string literals, we need '\\|' which becomes '|' after SQL parsing
-        # Actually, Spark SQL split() may treat '|' as literal, so try without escaping first
+
         select_parts = []
         for i in range(expected_cols):
-            # Try using '|' directly - Spark SQL split() might handle it as literal delimiter
-            # If that doesn't work, we can try '\\|' for regex escaping
             select_parts.append(f"TRIM(COALESCE(element_at(split(value, '|'), {i+1}), '')) AS _c{i}")
         
         sql_query = f"SELECT {', '.join(select_parts)} FROM {temp_view_name}"
-        logger.info(f"[DEBUG] Executing SQL: {sql_query[:150]}...")
         
-        # Execute SQL and get result
         try:
             df = self.spark.sql(sql_query)
         except Exception as sql_error:
-            logger.warning(f"[DEBUG] SQL query failed with '|', trying with escaped '\\|': {sql_error}")
-            # Retry with escaped pipe character
+            logger.warning(f"SQL query failed with '|', trying with escaped '\\|': {sql_error}")
             select_parts = []
             for i in range(expected_cols):
                 select_parts.append(f"TRIM(COALESCE(element_at(split(value, '\\\\|'), {i+1}), '')) AS _c{i}")
             sql_query = f"SELECT {', '.join(select_parts)} FROM {temp_view_name}"
             df = self.spark.sql(sql_query)
-        
-        # Drop temporary view
-        try:
-            self.spark.catalog.dropTempView(temp_view_name)
-        except Exception as e:
-            logger.warning(f"[DEBUG] Could not drop temp view {temp_view_name}: {e}")
-        
-        # Debug output - wrap in try-except to avoid errors during display
-        logger.info(f"[DEBUG] _read_pipe_delimited_txt: Got {len(df.columns)} columns: {df.columns}")
-        try:
-            logger.info(f"[DEBUG] Sample rows after split:")
-            df.show(3, truncate=50)
-        except Exception as show_error:
-            logger.warning(f"[DEBUG] Could not display sample rows: {show_error}")
-            # Try to get row count instead
+        finally:
             try:
-                row_count = df.count()
-                logger.info(f"[DEBUG] DataFrame has {row_count} rows")
-            except Exception as count_error:
-                logger.warning(f"[DEBUG] Could not count rows: {count_error}")
+                self.spark.catalog.dropTempView(temp_view_name)
+            except Exception:
+                pass
         
         return df
     
@@ -135,51 +105,18 @@ class BatchETL:
             DataFrame with the file data
         """
         # For .txt files (pipe-delimited per TPC-DI spec), use SQL-based split directly
-        # Spark's CSV reader has issues with pipe delimiter on some Databricks runtimes
         if file_pattern.endswith(".txt") and preferred_delimiter == "|":
-            logger.info(f"[DEBUG] Reading {file_pattern} as pipe-delimited .txt file using SQL split")
             return self._read_pipe_delimited_txt(batch_id, file_pattern, expected_cols)
-        
-        # First, read as raw text to inspect actual content
-        try:
-            # Read the file path to inspect raw content
-            file_path = f"Batch{batch_id}/{file_pattern}"
-            raw_df = self.platform.read_raw_file(
-                file_path,
-                format="text",  # Read as raw text first
-            )
-            logger.info(f"[DEBUG] Raw content of {file_pattern} (first 5 lines):")
-            raw_df.show(5, truncate=False)
-            
-            # Get first row to analyze
-            first_row = raw_df.first()
-            if first_row:
-                # text format returns a single column named 'value'
-                raw_line = first_row.value if hasattr(first_row, 'value') else (first_row[0] if len(first_row) > 0 else str(first_row))
-                logger.info(f"[DEBUG] First line content: '{raw_line}'")
-                logger.info(f"[DEBUG] First line length: {len(str(raw_line))}")
-                logger.info(f"[DEBUG] Contains '|': {str(raw_line).count('|')}")
-                logger.info(f"[DEBUG] Contains ',': {str(raw_line).count(',')}")
-                logger.info(f"[DEBUG] Contains tab: {str(raw_line).count(chr(9))}")
-                logger.info(f"[DEBUG] First 100 chars: '{str(raw_line)[:100]}'")
-        except Exception as e:
-            logger.warning(f"[DEBUG] Could not read raw text for inspection: {e}")
-            logger.info(f"[DEBUG] Will proceed with delimiter detection anyway")
         
         # Try preferred delimiter first (for .csv files)
         try:
-            # For pipe delimiter, use both sep and delimiter options
-            # Note: format is handled by read_batch_files, don't include it here
             read_options = {
                 "sep": preferred_delimiter,
-                "delimiter": preferred_delimiter,  # Set both sep and delimiter
+                "delimiter": preferred_delimiter,
                 "header": False,
                 "inferSchema": True,
                 **options
             }
-            
-            logger.info(f"[DEBUG] Reading {file_pattern} with delimiter '{preferred_delimiter}'")
-            logger.info(f"[DEBUG] Options: {read_options}")
             
             df = self.platform.read_batch_files(
                 batch_id,
@@ -188,28 +125,18 @@ class BatchETL:
                 **read_options
             )
             
-            logger.info(f"[DEBUG] Read {file_pattern} with delimiter '{preferred_delimiter}': got {len(df.columns)} columns")
-            
-            # Check if we got expected columns
             if len(df.columns) >= expected_cols:
-                logger.info(f"[DEBUG] Successfully read {file_pattern} with delimiter '{preferred_delimiter}' ({len(df.columns)} columns)")
                 return df
             else:
-                logger.warning(
-                    f"[DEBUG] {file_pattern} read with '{preferred_delimiter}' but only got {len(df.columns)} columns "
-                    f"(expected {expected_cols}). Sample data shows pipes are present. "
-                    f"Trying with multiLine=false and different quote settings..."
-                )
-                
-                # Try with multiLine=false (sometimes helps with delimiter recognition)
+                # Try with multiLine=false
                 read_options_fixed = {
                     "sep": preferred_delimiter,
                     "delimiter": preferred_delimiter,
                     "header": False,
                     "inferSchema": True,
                     "multiLine": False,
-                    "quote": "",  # No quote character
-                    "escape": "",  # No escape character
+                    "quote": "",
+                    "escape": "",
                     **options
                 }
                 df = self.platform.read_batch_files(
@@ -218,21 +145,14 @@ class BatchETL:
                     format="csv",
                     **read_options_fixed
                 )
-                logger.info(f"[DEBUG] Read with multiLine=false: got {len(df.columns)} columns")
                 
                 if len(df.columns) >= expected_cols:
                     return df
-                else:
-                    logger.warning(
-                        f"[DEBUG] multiLine=false attempt gave {len(df.columns)} columns "
-                        f"(expected {expected_cols}), continuing to try other methods..."
-                    )
         except Exception as e:
-            logger.warning(f"[DEBUG] Failed to read {file_pattern} with delimiter '{preferred_delimiter}': {e}")
+            logger.warning(f"Failed to read {file_pattern} with delimiter '{preferred_delimiter}': {e}")
         
         # Try alternative delimiter
         alt_delimiter = "," if preferred_delimiter == "|" else "|"
-        logger.info(f"[DEBUG] Trying alternative delimiter '{alt_delimiter}' for {file_pattern}")
         try:
             df = self.platform.read_batch_files(
                 batch_id,
@@ -245,23 +165,10 @@ class BatchETL:
                 **options
             )
             
-            logger.info(f"[DEBUG] Read with '{alt_delimiter}': got {len(df.columns)} columns")
             if len(df.columns) >= expected_cols:
-                logger.info(f"[DEBUG] Successfully read {file_pattern} with delimiter '{alt_delimiter}' ({len(df.columns)} columns)")
                 return df
-            else:
-                logger.warning(
-                    f"[DEBUG] Alternative delimiter '{alt_delimiter}' gave only {len(df.columns)} columns "
-                    f"(expected {expected_cols}), continuing to manual split..."
-                )
         except Exception as e:
-            logger.warning(f"[DEBUG] Failed with alternative delimiter '{alt_delimiter}': {e}")
-        
-        # If still failing, use the SQL-based split method
-        logger.warning(
-            f"[DEBUG] All delimiter attempts failed for {file_pattern}. "
-            f"Using SQL-based split on pipe delimiter..."
-        )
+            logger.warning(f"Failed with alternative delimiter '{alt_delimiter}': {e}")
         
         return self._read_pipe_delimited_txt(batch_id, file_pattern, expected_cols)
     
@@ -286,83 +193,24 @@ class BatchETL:
         try:
             file_path = f"Batch{batch_id}/CustomerMgmt.xml"
             
-            # First, verify file exists by reading as text
-            logger.info(f"[DEBUG] Verifying XML file exists: {file_path}")
-            try:
-                raw_xml_df = self.platform.read_raw_file(file_path, format="text")
-                raw_count = raw_xml_df.count()
-                logger.info(f"[DEBUG] Raw XML file has {raw_count} lines")
-                if raw_count == 0:
-                    raise RuntimeError(f"XML file {file_path} is empty!")
-                
-                # Show first few lines to verify structure
-                logger.info("[DEBUG] First 500 chars of XML file:")
-                first_row = raw_xml_df.first()
-                if first_row:
-                    raw_content = first_row.value if hasattr(first_row, 'value') else str(first_row)
-                    logger.info(f"[DEBUG] {raw_content[:500]}")
-            except Exception as e:
-                logger.error(f"[DEBUG] Could not verify XML file: {e}")
-                raise RuntimeError(f"Could not read XML file {file_path}: {e}") from e
-            
             # Try different rowTag options to handle namespace
-            # spark-xml typically ignores namespaces, so "Action" should work
             df = None
             for row_tag_option in ["Action", "TPCDI:Action"]:
                 try:
-                    logger.info(f"[DEBUG] Trying to read XML with rowTag='{row_tag_option}'")
                     df = self.platform.read_raw_file(
                         file_path,
                         format="xml",
                         rowTag=row_tag_option
                     )
                     
-                    # Check if we got data
-                    row_count = df.count()
-                    logger.info(f"[DEBUG] Read XML with rowTag='{row_tag_option}': {row_count} rows, {len(df.columns)} columns")
-                    
-                    if row_count > 0:
-                        logger.info(f"[DEBUG] Successfully read CustomerMgmt.xml with rowTag='{row_tag_option}'")
+                    if df.count() > 0:
                         break
-                    else:
-                        logger.warning(f"[DEBUG] rowTag='{row_tag_option}' returned 0 rows, trying next option...")
-                        df = None
-                except Exception as e:
-                    logger.warning(f"[DEBUG] Failed with rowTag='{row_tag_option}': {e}")
+                    df = None
+                except Exception:
                     df = None
             
-            # If still empty, try reading without rowTag to see raw structure
+            # Try with explicit rootTag if still empty
             if df is None or df.count() == 0:
-                logger.info("[DEBUG] Trying to read XML without rowTag to inspect structure...")
-                try:
-                    df_no_rowtag = self.platform.read_raw_file(
-                        file_path,
-                        format="xml"
-                    )
-                    logger.info(f"[DEBUG] XML without rowTag: {df_no_rowtag.count()} rows")
-                    logger.info("[DEBUG] Schema without rowTag:")
-                    df_no_rowtag.printSchema()
-                    logger.info("[DEBUG] Sample without rowTag:")
-                    df_no_rowtag.show(2, truncate=200, vertical=True)
-                    
-                    # If this has data, try to extract Actions array
-                    if df_no_rowtag.count() > 0:
-                        # Check if there's an Actions or Action column
-                        for col_name in df_no_rowtag.columns:
-                            logger.info(f"[DEBUG] Found column: {col_name}")
-                            try:
-                                # Try to access it as array
-                                test_val = df_no_rowtag.select(col(col_name)).limit(1).collect()
-                                if test_val:
-                                    logger.info(f"[DEBUG] Column '{col_name}' sample: {test_val[0][0]}")
-                            except:
-                                pass
-                except Exception as e:
-                    logger.warning(f"[DEBUG] Could not read without rowTag: {e}")
-            
-            # Try with explicit rootTag
-            if df is None or (df is not None and df.count() == 0):
-                logger.info("[DEBUG] Trying with rootTag='TPCDI:Actions'")
                 try:
                     df = self.platform.read_raw_file(
                         file_path,
@@ -370,46 +218,20 @@ class BatchETL:
                         rowTag="Action",
                         rootTag="TPCDI:Actions"
                     )
-                    row_count = df.count()
-                    logger.info(f"[DEBUG] Read with rootTag: {row_count} rows")
-                except Exception as e:
-                    logger.warning(f"[DEBUG] Failed with rootTag: {e}")
+                except Exception:
+                    pass
             
             if df is None or df.count() == 0:
                 raise RuntimeError(
                     f"Could not read XML file - all options returned 0 rows.\n"
-                    f"This suggests the XML structure doesn't match expected format.\n"
                     f"Expected: <TPCDI:Actions><Action ActionType=\"...\">...</Action></TPCDI:Actions>\n"
                     f"Please check:\n"
                     f"1. File exists and is not empty\n"
                     f"2. XML structure matches TPC-DI spec\n"
-                    f"3. spark-xml library is installed (com.databricks:spark-xml_2.12:0.15.0)\n"
-                    f"4. Check the raw XML content shown above"
+                    f"3. spark-xml library is installed (com.databricks:spark-xml_2.12:0.15.0)"
                 )
             
             logger.info(f"Successfully read CustomerMgmt.xml: {df.count()} rows, {len(df.columns)} columns")
-            logger.info(f"Columns: {df.columns}")
-            logger.info(f"[DEBUG] XML DataFrame schema:")
-            df.printSchema()
-            logger.info(f"[DEBUG] Sample XML structure:")
-            df.show(3, truncate=100, vertical=True)
-            
-            # Debug: Show ActionType distribution if available
-            try:
-                # Check for ActionType in various possible locations
-                action_type_col = None
-                for col_name in ["ActionType", "_ActionType", "Action.ActionType"]:
-                    if col_name in df.columns:
-                        action_type_col = col_name
-                        break
-                
-                if action_type_col:
-                    action_types = df.groupBy(action_type_col).count().orderBy("count", ascending=False)
-                    logger.info(f"[DEBUG] ActionType distribution:")
-                    action_types.show()
-            except Exception as e:
-                logger.debug(f"Could not show ActionType distribution: {e}")
-            
             return df
         except Exception as e:
             error_msg = str(e)
@@ -427,24 +249,12 @@ class BatchETL:
     
     def _validate_and_debug_df(self, df: DataFrame, file_name: str, 
                                expected_cols: int, expected_format: str):
-        """Validate DataFrame and log debug information."""
-        logger.info(f"[DEBUG] Validating {file_name}:")
-        logger.info(f"  Expected columns: {expected_cols}")
-        logger.info(f"  Expected format: {expected_format}")
-        logger.info(f"  Actual columns: {len(df.columns)}")
-        logger.info(f"  Column names: {df.columns}")
-        
+        """Validate DataFrame and log warnings if columns don't match."""
         if len(df.columns) < expected_cols:
             logger.warning(
                 f"{file_name} has {len(df.columns)} columns but expected at least {expected_cols}. "
                 f"Actual columns: {df.columns}. Expected format: {expected_format}"
             )
-        
-        try:
-            logger.info(f"[DEBUG] Sample rows from {file_name}:")
-            df.show(5, truncate=50)
-        except Exception as e:
-            logger.warning(f"[DEBUG] Could not show sample rows: {e}")
     
     def load_dim_date(self, target_table: str) -> DataFrame:
         """
@@ -652,51 +462,22 @@ class BatchETL:
         """
         logger.info("Loading DimAccount dimension table from CustomerMgmt.xml")
         
-        # Read XML file (per TPC-DI spec, CustomerMgmt is always XML)
         xml_df = self._read_customermgmt_xml(1)
         
-        # Show schema to understand the structure
-        logger.info("[DEBUG] XML DataFrame schema:")
-        xml_df.printSchema()
-        logger.info("[DEBUG] Sample XML rows:")
-        xml_df.show(2, truncate=200, vertical=True)
-        
-        # Extract Account data from XML using the correct SQL pattern
-        # Structure: Action -> Customer -> Account
-        # Attributes use underscore prefix: _ActionType, _ActionTS, _C_ID, _CA_ID, _CA_TAX_ST
-        # Elements don't use underscore: CA_NAME
-        # Note: Some XML readers may return Actions as an array, requiring explode()
-        logger.info("[DEBUG] Extracting Account data from XML using SQL pattern...")
-        
-        # Check the actual schema and columns
-        logger.info("[DEBUG] Checking XML schema structure...")
-        xml_df.printSchema()
-        logger.info(f"[DEBUG] XML DataFrame has {xml_df.count()} rows")
-        logger.info(f"[DEBUG] XML DataFrame columns: {xml_df.columns}")
-        
-        # If DataFrame is empty, we can't proceed
         if xml_df.count() == 0:
             raise RuntimeError(
-                f"XML file was read but contains 0 rows. This suggests:\n"
-                f"1. The XML file might be empty\n"
-                f"2. The rowTag='Action' is not matching (possibly due to namespace)\n"
-                f"3. The XML structure is different than expected\n\n"
+                f"XML file was read but contains 0 rows.\n"
                 f"Please check:\n"
                 f"- File exists at: Batch1/CustomerMgmt.xml\n"
                 f"- File is not empty\n"
-                f"- XML structure matches TPC-DI spec with <TPCDI:Actions><Action>...</Action></TPCDI:Actions>"
+                f"- XML structure matches TPC-DI spec"
             )
         
         account_df = None
         extraction_errors = []
         
         # Pattern 1: Try direct access (Actions not in array)
-        # First, let's see what columns we actually have
-        logger.info(f"[DEBUG] Available columns in XML DataFrame: {xml_df.columns}")
-        
         try:
-            logger.info("[DEBUG] Trying Pattern 1: Direct access (Actions not in array)")
-            # Try accessing fields based on actual column names
             account_df = xml_df.select(
                 col("_ActionType").alias("ActionType"),
                 col("_ActionTS").alias("ActionTS"),
@@ -705,48 +486,23 @@ class BatchETL:
                 col("Customer.Account._CA_TAX_ST").alias("TaxStatus"),
                 col("Customer.Account.CA_NAME").alias("AccountName")
             ).filter(col("Customer.Account._CA_ID").isNotNull())
-            
-            logger.info(f"[DEBUG] Pattern 1 succeeded: extracted {account_df.count()} accounts")
         except Exception as e1:
             extraction_errors.append(f"Pattern 1 (direct access): {e1}")
-            logger.warning(f"[DEBUG] Pattern 1 failed: {e1}")
-            
-            # Try to see what the actual structure is
-            logger.info("[DEBUG] Inspecting actual XML structure...")
-            try:
-                # Show all columns and their types
-                for col_name in xml_df.columns:
-                    logger.info(f"[DEBUG] Column '{col_name}': {xml_df.schema[col_name].dataType}")
-                    # Try to show sample values
-                    try:
-                        sample = xml_df.select(col_name).limit(1).collect()
-                        if sample:
-                            logger.info(f"[DEBUG] Sample value for '{col_name}': {sample[0][0]}")
-                    except:
-                        pass
-            except Exception as inspect_error:
-                logger.warning(f"[DEBUG] Could not inspect structure: {inspect_error}")
         
         # Pattern 2: Explode Actions if they're in an array
         if account_df is None:
             try:
-                logger.info("[DEBUG] Trying Pattern 2: Explode Actions (if in array)")
-                
-                # Check if we have an array column - try common names
                 action_col = None
                 for col_name in ["Action", "Actions", "value"]:
                     try:
                         test_df = xml_df.select(col(col_name))
                         if "array" in str(test_df.schema[0].dataType).lower():
                             action_col = col_name
-                            logger.info(f"[DEBUG] Found array column: {col_name}")
                             break
                     except:
                         continue
                 
                 if action_col:
-                    # Explode the array
-                    logger.info(f"[DEBUG] Exploding array column: {action_col}")
                     exploded_df = xml_df.select(explode(col(action_col)).alias("Action"))
                     account_df = exploded_df.select(
                         col("Action._ActionType").alias("ActionType"),
@@ -757,20 +513,14 @@ class BatchETL:
                         col("Action.Customer.Account.CA_NAME").alias("AccountName")
                     ).filter(col("Action.Customer.Account._CA_ID").isNotNull())
                 else:
-                    # Check schema to find array columns
-                    logger.info("[DEBUG] No array column found. Checking schema for array types...")
+                    # Check schema for array columns
                     array_cols = []
                     for field in xml_df.schema.fields:
-                        field_type_str = str(field.dataType)
-                        if "array" in field_type_str.lower():
+                        if "array" in str(field.dataType).lower():
                             array_cols.append(field.name)
-                            logger.info(f"[DEBUG] Found array column in schema: {field.name} ({field_type_str})")
                     
                     if array_cols:
-                        # Use the first array column found
-                        action_col_name = array_cols[0]
-                        logger.info(f"[DEBUG] Using array column: {action_col_name}")
-                        exploded_df = xml_df.select(explode(col(action_col_name)).alias("Action"))
+                        exploded_df = xml_df.select(explode(col(array_cols[0])).alias("Action"))
                         account_df = exploded_df.select(
                             col("Action._ActionType").alias("ActionType"),
                             col("Action._ActionTS").alias("ActionTS"),
@@ -779,33 +529,15 @@ class BatchETL:
                             col("Action.Customer.Account._CA_TAX_ST").alias("TaxStatus"),
                             col("Action.Customer.Account.CA_NAME").alias("AccountName")
                         ).filter(col("Action.Customer.Account._CA_ID").isNotNull())
-                    else:
-                        raise ValueError("No array columns found to explode")
-                
-                logger.info(f"[DEBUG] Pattern 2 succeeded: extracted {account_df.count()} accounts")
             except Exception as e2:
                 extraction_errors.append(f"Pattern 2 (explode Actions): {e2}")
-                logger.warning(f"[DEBUG] Pattern 2 failed: {e2}")
         
-        # Pattern 3: Try using SQL directly (as provided by user)
+        # Pattern 3: Try using SQL
         if account_df is None:
             try:
-                logger.info("[DEBUG] Trying Pattern 3: SQL direct access (no explode)")
-                
-                # Create temp view and use SQL
                 temp_view = "_temp_customermgmt_xml"
                 xml_df.createOrReplaceTempView(temp_view)
                 
-                # First, check what columns exist in the view
-                logger.info("[DEBUG] Checking columns in temp view...")
-                try:
-                    desc_df = self.spark.sql(f"DESCRIBE {temp_view}")
-                    logger.info("[DEBUG] Temp view columns:")
-                    desc_df.show(truncate=False)
-                except Exception as desc_e:
-                    logger.warning(f"[DEBUG] Could not describe view: {desc_e}")
-                
-                # Try SQL without explode first
                 sql_query_no_explode = f"""
                 SELECT
                   _ActionType as ActionType,
@@ -820,13 +552,7 @@ class BatchETL:
                 
                 try:
                     account_df = self.spark.sql(sql_query_no_explode)
-                    row_count = account_df.count()
-                    logger.info(f"[DEBUG] SQL without explode: {row_count} rows")
-                    if row_count > 0:
-                        logger.info(f"[DEBUG] Pattern 3 (no explode) succeeded")
-                except Exception as sql_e:
-                    logger.warning(f"[DEBUG] SQL without explode failed: {sql_e}")
-                    # Try with explode if Action is an array
+                except Exception:
                     sql_query_with_explode = f"""
                     SELECT
                       Action._ActionType as ActionType,
@@ -841,12 +567,13 @@ class BatchETL:
                     WHERE Action.Customer.Account._CA_ID IS NOT NULL
                     """
                     account_df = self.spark.sql(sql_query_with_explode)
-                    logger.info(f"[DEBUG] Pattern 3 (with explode) succeeded: extracted {account_df.count()} accounts")
-                
-                self.spark.catalog.dropTempView(temp_view)
+                finally:
+                    try:
+                        self.spark.catalog.dropTempView(temp_view)
+                    except:
+                        pass
             except Exception as e3:
                 extraction_errors.append(f"Pattern 3 (SQL): {e3}")
-                logger.warning(f"[DEBUG] Pattern 3 failed: {e3}")
                 try:
                     self.spark.catalog.dropTempView(temp_view)
                 except:
@@ -854,11 +581,6 @@ class BatchETL:
         
         if account_df is None:
             error_summary = "\n".join(extraction_errors)
-            logger.error(f"[DEBUG] All extraction patterns failed. Errors:\n{error_summary}")
-            logger.info("[DEBUG] XML DataFrame schema for debugging:")
-            xml_df.printSchema()
-            logger.info("[DEBUG] Sample XML rows:")
-            xml_df.show(2, truncate=200, vertical=True)
             raise RuntimeError(
                 f"Failed to extract Account data from CustomerMgmt.xml.\n"
                 f"Tried multiple patterns including explode().\n"
@@ -873,27 +595,13 @@ class BatchETL:
                 f"Please check:\n"
                 f"1. spark-xml library is installed (com.databricks:spark-xml_2.12:0.15.0)\n"
                 f"2. XML file structure matches TPC-DI spec\n"
-                f"3. Check the schema output above to see actual structure\n"
-                f"4. Actions may need to be exploded if they're in an array"
+                f"3. Actions may need to be exploded if they're in an array"
             )
         
-        # Show extracted data
-        logger.info(f"[DEBUG] Extracted Account data:")
-        account_df.show(5, truncate=50)
-        logger.info(f"[DEBUG] Extracted Account schema:")
-        account_df.printSchema()
-        
         # Transform to DimAccount schema
-        # Map TPC-DI XML fields to DimAccount columns:
-        # AccountID (from Customer.Account._CA_ID) -> SK_AccountID
-        # CustomerID (from Customer._C_ID) -> SK_CustomerID
-        # TaxStatus (from Customer.Account._CA_TAX_ST) -> TaxStatus
-        # AccountName (from Customer.Account.CA_NAME) -> AccountDesc
-        # ActionType (from _ActionType) -> Status
-        # ActionType == "INACT" -> IsActive = False
         dim_account = account_df.select(
             col("AccountID").alias("SK_AccountID"),
-            lit(None).cast("bigint").alias("SK_BrokerID"),  # May need to extract from elsewhere in XML
+            lit(None).cast("bigint").alias("SK_BrokerID"),
             col("CustomerID").alias("SK_CustomerID"),
             col("ActionType").alias("Status"),
             col("AccountName").alias("AccountDesc"),
@@ -902,10 +610,7 @@ class BatchETL:
             current_timestamp().alias("BatchID")
         )
         
-        logger.info(f"[DEBUG] Final DimAccount schema:")
-        dim_account.printSchema()
-        logger.info(f"[DEBUG] Final DimAccount row count: {dim_account.count()}")
-        dim_account.show(5, truncate=50)
+        logger.info(f"Loaded DimAccount: {dim_account.count()} rows")
         
         self.platform.write_table(dim_account, target_table, mode="overwrite")
         return dim_account
