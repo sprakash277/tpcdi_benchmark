@@ -80,15 +80,27 @@ class BatchETL:
         
         # Try preferred delimiter first
         try:
+            # For pipe delimiter, use both sep and delimiter options
+            # Note: format is handled by read_batch_files, don't include it here
+            read_options = {
+                "sep": preferred_delimiter,
+                "delimiter": preferred_delimiter,  # Set both sep and delimiter
+                "header": False,
+                "inferSchema": True,
+                **options
+            }
+            
+            logger.info(f"[DEBUG] Reading {file_pattern} with delimiter '{preferred_delimiter}'")
+            logger.info(f"[DEBUG] Options: {read_options}")
+            
             df = self.platform.read_batch_files(
                 batch_id,
                 file_pattern,
                 format="csv",
-                sep=preferred_delimiter,
-                header=False,
-                inferSchema=True,
-                **options
+                **read_options
             )
+            
+            logger.info(f"[DEBUG] Read {file_pattern} with delimiter '{preferred_delimiter}': got {len(df.columns)} columns")
             
             # Check if we got expected columns
             if len(df.columns) >= expected_cols:
@@ -97,8 +109,31 @@ class BatchETL:
             else:
                 logger.warning(
                     f"[DEBUG] {file_pattern} read with '{preferred_delimiter}' but only got {len(df.columns)} columns "
-                    f"(expected {expected_cols}). Trying alternative delimiter..."
+                    f"(expected {expected_cols}). Sample data shows pipes are present. "
+                    f"Trying with multiLine=false and different quote settings..."
                 )
+                
+                # Try with multiLine=false (sometimes helps with delimiter recognition)
+                read_options_fixed = {
+                    "sep": preferred_delimiter,
+                    "delimiter": preferred_delimiter,
+                    "header": False,
+                    "inferSchema": True,
+                    "multiLine": False,
+                    "quote": "",  # No quote character
+                    "escape": "",  # No escape character
+                    **options
+                }
+                df = self.platform.read_batch_files(
+                    batch_id,
+                    file_pattern,
+                    format="csv",
+                    **read_options_fixed
+                )
+                logger.info(f"[DEBUG] Read with multiLine=false: got {len(df.columns)} columns")
+                
+                if len(df.columns) >= expected_cols:
+                    return df
         except Exception as e:
             logger.warning(f"[DEBUG] Failed to read {file_pattern} with delimiter '{preferred_delimiter}': {e}")
         

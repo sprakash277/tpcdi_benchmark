@@ -103,18 +103,40 @@ class DatabricksPlatform:
             logger.warning(f"[DEBUG read_raw_file] Removed 'dbfs:' prefix in read_raw_file: {original_full_path} -> {full_path}")
         
         logger.info(f"[DEBUG read_raw_file] FINAL PATH TO READ: '{full_path}'")
+        logger.info(f"[DEBUG read_raw_file] Options: {options}")
         logger.info(f"[DEBUG read_raw_file] About to call spark.read.format('{format}').load('{full_path}')")
         
         reader = self.spark.read.format(format)
         if schema:
             reader = reader.schema(schema)
         
+        # Apply options - ensure delimiter/sep is properly set
         for key, value in options.items():
+            logger.debug(f"[DEBUG read_raw_file] Setting option: {key}={value} (type: {type(value).__name__})")
             reader = reader.option(key, value)
+        
+        # If sep is provided but delimiter is not, also set delimiter (some Spark versions need both)
+        if "sep" in options and "delimiter" not in options:
+            sep_value = options["sep"]
+            logger.info(f"[DEBUG read_raw_file] Also setting delimiter={sep_value} (same as sep)")
+            reader = reader.option("delimiter", sep_value)
+        elif "delimiter" in options and "sep" not in options:
+            # If delimiter is set but sep is not, also set sep
+            delim_value = options["delimiter"]
+            logger.info(f"[DEBUG read_raw_file] Also setting sep={delim_value} (same as delimiter)")
+            reader = reader.option("sep", delim_value)
         
         logger.info(f"[DEBUG read_raw_file] Calling reader.load('{full_path}')...")
         result = reader.load(full_path)
         logger.info(f"[DEBUG read_raw_file] Successfully loaded file: '{full_path}'")
+        logger.info(f"[DEBUG read_raw_file] Result has {len(result.columns)} columns: {result.columns}")
+        
+        # If we only got 1 column but delimiter was set, log a warning with sample data
+        if len(result.columns) == 1 and ("delimiter" in options or "sep" in options):
+            logger.warning(f"[DEBUG read_raw_file] WARNING: Only got 1 column despite delimiter being set!")
+            logger.warning(f"[DEBUG read_raw_file] Delimiter was: {options.get('delimiter', options.get('sep', 'NOT SET'))}")
+            logger.warning(f"[DEBUG read_raw_file] Sample row: {result.first()}")
+        
         return result
     
     def read_batch_files(self, batch_id: int, file_pattern: str, 
