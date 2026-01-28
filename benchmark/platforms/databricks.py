@@ -24,37 +24,54 @@ class DatabricksPlatform:
                           (e.g. dbfs:/mnt/tpcdi/sf=10 or /Volumes/cat/schema/vol/sf=10)
             use_volume: True if raw data is in a Unity Catalog Volume
         """
+        logger.info(f"[DEBUG DatabricksPlatform.__init__] Called with:")
+        logger.info(f"  raw_data_path='{raw_data_path}'")
+        logger.info(f"  use_volume={use_volume}")
+        
         self.spark = spark
         # Normalize path: remove dbfs: prefix from Volume paths
         normalized = raw_data_path.rstrip("/")
+        logger.info(f"[DEBUG DatabricksPlatform.__init__] normalized (before checks)='{normalized}'")
+        
         if normalized.startswith("dbfs:/Volumes/"):
             # Volume path incorrectly prefixed with dbfs: - remove it
+            original = normalized
             normalized = normalized[5:]  # Remove "dbfs:"
             logger.warning(
-                f"Removed 'dbfs:' prefix from Volume path: {raw_data_path} -> {normalized}"
+                f"[DEBUG DatabricksPlatform.__init__] Removed 'dbfs:' prefix from Volume path: {original} -> {normalized}"
             )
         elif normalized.startswith("/Volumes/"):
             # Volume path is correct
-            pass
+            logger.info(f"[DEBUG DatabricksPlatform.__init__] Volume path detected (starts with /Volumes/)")
         elif use_volume and not normalized.startswith("/Volumes/"):
             # use_volume=True but path doesn't start with /Volumes/
             logger.warning(
-                f"use_volume=True but path doesn't start with /Volumes/: {normalized}"
+                f"[DEBUG DatabricksPlatform.__init__] use_volume=True but path doesn't start with /Volumes/: {normalized}"
             )
         
         self.raw_data_path = normalized
         self.use_volume = use_volume
         logger.info(
-            f"Initialized Databricks platform with raw_data_path: {self.raw_data_path} "
-            f"(use_volume={use_volume})"
+            f"[DEBUG DatabricksPlatform.__init__] Final values:"
+        )
+        logger.info(
+            f"  self.raw_data_path='{self.raw_data_path}'"
+        )
+        logger.info(
+            f"  self.use_volume={self.use_volume}"
         )
     
     def _resolve_path(self, relative_path: str) -> str:
         """Resolve full path for reading. Handles both DBFS and Volume."""
+        logger.debug(f"[DEBUG _resolve_path] Input: relative_path='{relative_path}', self.raw_data_path='{self.raw_data_path}'")
         full = f"{self.raw_data_path}/{relative_path}".replace("//", "/")
+        logger.debug(f"[DEBUG _resolve_path] After concatenation: '{full}'")
         # Ensure Volume paths never get dbfs: prefix
         if full.startswith("dbfs:/Volumes/"):
+            original_full = full
             full = full[5:]  # Remove "dbfs:" prefix
+            logger.warning(f"[DEBUG _resolve_path] Removed 'dbfs:' prefix: {original_full} -> {full}")
+        logger.debug(f"[DEBUG _resolve_path] Final resolved path: '{full}'")
         return full
     
     def read_raw_file(self, file_path: str, schema: Optional[StructType] = None, 
@@ -71,13 +88,22 @@ class DatabricksPlatform:
         Returns:
             DataFrame with the data
         """
+        logger.info(f"[DEBUG read_raw_file] Called with:")
+        logger.info(f"  file_path='{file_path}'")
+        logger.info(f"  self.raw_data_path='{self.raw_data_path}'")
+        logger.info(f"  self.use_volume={self.use_volume}")
+        
         full_path = self._resolve_path(file_path)
+        logger.info(f"[DEBUG read_raw_file] After _resolve_path: '{full_path}'")
+        
         # Final safety check: ensure Volume paths never have dbfs: prefix
         if full_path.startswith("dbfs:/Volumes/"):
+            original_full_path = full_path
             full_path = full_path[5:]
-            logger.warning(f"Removed 'dbfs:' prefix in read_raw_file: {full_path}")
+            logger.warning(f"[DEBUG read_raw_file] Removed 'dbfs:' prefix in read_raw_file: {original_full_path} -> {full_path}")
         
-        logger.info(f"Reading file: {full_path} (volume={self.use_volume}, base={self.raw_data_path})")
+        logger.info(f"[DEBUG read_raw_file] FINAL PATH TO READ: '{full_path}'")
+        logger.info(f"[DEBUG read_raw_file] About to call spark.read.format('{format}').load('{full_path}')")
         
         reader = self.spark.read.format(format)
         if schema:
@@ -86,7 +112,10 @@ class DatabricksPlatform:
         for key, value in options.items():
             reader = reader.option(key, value)
         
-        return reader.load(full_path)
+        logger.info(f"[DEBUG read_raw_file] Calling reader.load('{full_path}')...")
+        result = reader.load(full_path)
+        logger.info(f"[DEBUG read_raw_file] Successfully loaded file: '{full_path}'")
+        return result
     
     def read_batch_files(self, batch_id: int, file_pattern: str, 
                         schema: Optional[StructType] = None, **options) -> DataFrame:
@@ -102,7 +131,13 @@ class DatabricksPlatform:
         Returns:
             DataFrame with the data
         """
+        logger.info(f"[DEBUG read_batch_files] Called with:")
+        logger.info(f"  batch_id={batch_id}")
+        logger.info(f"  file_pattern='{file_pattern}'")
+        logger.info(f"  self.raw_data_path='{self.raw_data_path}'")
         batch_path = f"Batch{batch_id}/{file_pattern}"
+        logger.info(f"[DEBUG read_batch_files] Constructed batch_path='{batch_path}'")
+        logger.info(f"[DEBUG read_batch_files] Calling read_raw_file('{batch_path}')...")
         return self.read_raw_file(batch_path, schema=schema, **options)
     
     def read_historical_files(self, file_pattern: str, 
@@ -118,7 +153,12 @@ class DatabricksPlatform:
         Returns:
             DataFrame with the data
         """
+        logger.info(f"[DEBUG read_historical_files] Called with:")
+        logger.info(f"  file_pattern='{file_pattern}'")
+        logger.info(f"  self.raw_data_path='{self.raw_data_path}'")
         hist_path = f"HistoricalLoad/{file_pattern}"
+        logger.info(f"[DEBUG read_historical_files] Constructed hist_path='{hist_path}'")
+        logger.info(f"[DEBUG read_historical_files] Calling read_raw_file('{hist_path}')...")
         return self.read_raw_file(hist_path, schema=schema, **options)
     
     def write_table(self, df: DataFrame, table_name: str, mode: str = "overwrite",

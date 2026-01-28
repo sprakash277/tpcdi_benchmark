@@ -73,7 +73,15 @@ dbutils.widgets.text("metrics_output", "dbfs:/mnt/tpcdi/metrics", "Metrics Outpu
 
 import os
 import sys
+import logging
 from pathlib import Path
+
+# Configure logging to show DEBUG messages in notebook output
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    force=True  # Override any existing configuration
+)
 
 # Add benchmark module to path: derive from notebook path (parent of current notebook)
 notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
@@ -83,32 +91,44 @@ sys.path.insert(0, str(Path(workspace_path).resolve()))
 from benchmark.config import BenchmarkConfig, Platform, LoadType
 from benchmark.runner import run_benchmark
 
+# Ensure benchmark modules also use DEBUG level
+logging.getLogger('benchmark').setLevel(logging.DEBUG)
+logging.getLogger('benchmark.runner').setLevel(logging.DEBUG)
+logging.getLogger('benchmark.platforms').setLevel(logging.DEBUG)
+logging.getLogger('benchmark.platforms.databricks').setLevel(logging.DEBUG)
+
 # Get parameters (from widgets or workflow parameters)
 # Workflow parameters override widget defaults
 load_type = dbutils.widgets.get("load_type")
 scale_factor = int(dbutils.widgets.get("scale_factor"))
-output_path = dbutils.widgets.get("output_path").strip()
+output_path_raw = dbutils.widgets.get("output_path").strip()
 use_volume = dbutils.widgets.get("use_volume") == "true"
 
+print(f"[DEBUG] Raw output_path from widget: '{output_path_raw}'")
+print(f"[DEBUG] use_volume from widget: {use_volume}")
+
 # Normalize output_path: remove dbfs: prefix from Volume paths
+output_path = output_path_raw
 if output_path.startswith("dbfs:/Volumes/"):
     output_path = output_path[5:]  # Remove "dbfs:" prefix
-    print(f"WARNING: Removed 'dbfs:' prefix from Volume path. Using: {output_path}")
+    print(f"[DEBUG] WARNING: Removed 'dbfs:' prefix from Volume path.")
+    print(f"[DEBUG]   Original: '{output_path_raw}'")
+    print(f"[DEBUG]   Normalized: '{output_path}'")
 elif output_path.startswith("/Volumes/"):
-    # Volume path is correct
-    pass
+    print(f"[DEBUG] Volume path detected (starts with /Volumes/): '{output_path}'")
 elif use_volume and not output_path.startswith("/Volumes/"):
-    print(f"WARNING: use_volume=True but path doesn't start with /Volumes/: {output_path}")
+    print(f"[DEBUG] WARNING: use_volume=True but path doesn't start with /Volumes/: '{output_path}'")
+
 target_database = dbutils.widgets.get("target_database").strip()
 target_schema = dbutils.widgets.get("target_schema").strip()
 target_catalog = dbutils.widgets.get("target_catalog").strip() or None
 batch_id_str = dbutils.widgets.get("batch_id").strip()
 metrics_output = dbutils.widgets.get("metrics_output").strip()
 
-print(f"Benchmark Parameters:")
+print(f"\n[DEBUG] Benchmark Parameters:")
 print(f"  Load Type: {load_type}")
 print(f"  Scale Factor: {scale_factor}")
-print(f"  Output Path (raw data): {output_path}")
+print(f"  Output Path (raw data, after normalization): '{output_path}'")
 print(f"  Use Volume: {use_volume}")
 print(f"  Target Database: {target_database}")
 print(f"  Target Schema: {target_schema}")
@@ -123,6 +143,11 @@ if load_type == "incremental" and batch_id is None:
     raise ValueError("batch_id is required for incremental loads")
 
 # Create configuration (output_path = raw data input; runner appends /sf={scale_factor})
+print(f"\n[DEBUG] Creating BenchmarkConfig:")
+print(f"  output_path: '{output_path}'")
+print(f"  raw_data_path: '{output_path}'")
+print(f"  use_volume: {use_volume}")
+
 config = BenchmarkConfig(
     platform=Platform.DATABRICKS,
     load_type=LoadType(load_type),
@@ -137,7 +162,10 @@ config = BenchmarkConfig(
     metrics_output_path=metrics_output,
 )
 
+print(f"[DEBUG] Config created. config.output_path='{config.output_path}', config.use_volume={config.use_volume}")
+
 # Run benchmark
+print(f"\n[DEBUG] Calling run_benchmark(config)...")
 result = run_benchmark(config)
 
 # COMMAND ----------
