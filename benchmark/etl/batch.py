@@ -30,11 +30,12 @@ class BatchETL:
         logger.info("Initialized BatchETL processor")
     
     def load_dim_date(self, target_table: str) -> DataFrame:
-        """Load Date dimension table from HistoricalLoad/Date.txt"""
+        """Load Date dimension table from Batch1/Date.txt (TPC-DI spec: historical data in Batch1)"""
         logger.info("Loading DimDate dimension table")
         
-        # Read Date.txt - format: DateValue|DayOfWeek|CalendarMonth|CalendarQuarter|CalendarYear|DayOfMonth
-        df = self.platform.read_historical_files(
+        # Read Date.txt from Batch1 - format: DateValue|DayOfWeek|CalendarMonth|CalendarQuarter|CalendarYear|DayOfMonth
+        df = self.platform.read_batch_files(
+            1,  # Batch1 contains historical load data
             "Date.txt",
             format="csv",
             sep="|",
@@ -61,11 +62,12 @@ class BatchETL:
         return dim_date
     
     def load_dim_time(self, target_table: str) -> DataFrame:
-        """Load Time dimension table from HistoricalLoad/Time.txt"""
+        """Load Time dimension table from Batch1/Time.txt (TPC-DI spec: historical data in Batch1)"""
         logger.info("Loading DimTime dimension table")
         
-        # Read Time.txt - format: Time|TimeID|Hour|Minute|Second|AM|PM
-        df = self.platform.read_historical_files(
+        # Read Time.txt from Batch1 - format: Time|TimeID|Hour|Minute|Second|AM|PM
+        df = self.platform.read_batch_files(
+            1,  # Batch1 contains historical load data
             "Time.txt",
             format="csv",
             sep="|",
@@ -92,10 +94,11 @@ class BatchETL:
         return dim_time
     
     def load_dim_trade_type(self, target_table: str) -> DataFrame:
-        """Load TradeType dimension from HistoricalLoad/TradeType.txt"""
+        """Load TradeType dimension from Batch1/TradeType.txt (TPC-DI spec: historical data in Batch1)"""
         logger.info("Loading DimTradeType dimension table")
         
-        df = self.platform.read_historical_files(
+        df = self.platform.read_batch_files(
+            1,  # Batch1 contains historical load data
             "TradeType.txt",
             format="csv",
             sep="|",
@@ -115,10 +118,11 @@ class BatchETL:
         return dim_trade_type
     
     def load_dim_status_type(self, target_table: str) -> DataFrame:
-        """Load StatusType dimension from HistoricalLoad/StatusType.txt"""
+        """Load StatusType dimension from Batch1/StatusType.txt (TPC-DI spec: historical data in Batch1)"""
         logger.info("Loading DimStatusType dimension table")
         
-        df = self.platform.read_historical_files(
+        df = self.platform.read_batch_files(
+            1,  # Batch1 contains historical load data
             "StatusType.txt",
             format="csv",
             sep="|",
@@ -136,10 +140,11 @@ class BatchETL:
         return dim_status_type
     
     def load_dim_tax_rate(self, target_table: str) -> DataFrame:
-        """Load TaxRate dimension from HistoricalLoad/TaxRate.txt"""
+        """Load TaxRate dimension from Batch1/TaxRate.txt (TPC-DI spec: historical data in Batch1)"""
         logger.info("Loading DimTaxRate dimension table")
         
-        df = self.platform.read_historical_files(
+        df = self.platform.read_batch_files(
+            1,  # Batch1 contains historical load data
             "TaxRate.txt",
             format="csv",
             sep="|",
@@ -158,10 +163,11 @@ class BatchETL:
         return dim_tax_rate
     
     def load_dim_industry(self, target_table: str) -> DataFrame:
-        """Load Industry dimension from HistoricalLoad/Industry.txt"""
+        """Load Industry dimension from Batch1/Industry.txt (TPC-DI spec: historical data in Batch1)"""
         logger.info("Loading DimIndustry dimension table")
         
-        df = self.platform.read_historical_files(
+        df = self.platform.read_batch_files(
+            1,  # Batch1 contains historical load data
             "Industry.txt",
             format="csv",
             sep="|",

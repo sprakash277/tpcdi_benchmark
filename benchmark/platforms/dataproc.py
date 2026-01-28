@@ -91,21 +91,24 @@ class DataprocPlatform:
         batch_path = f"Batch{batch_id}/{file_pattern}"
         return self.read_raw_file(batch_path, schema=schema, **options)
     
-    def read_historical_files(self, file_pattern: str,
-                            schema: Optional[StructType] = None, **options) -> DataFrame:
+    def read_historical_files(self, file_pattern: str, 
+                             schema: Optional[StructType] = None, **options) -> DataFrame:
         """
-        Read files from the HistoricalLoad directory.
+        Read files from Batch1 directory (TPC-DI spec: historical data is in Batch1).
+        
+        Note: This method is kept for backward compatibility. New code should use
+        read_batch_files(1, file_pattern, ...) directly.
         
         Args:
-            file_pattern: File pattern (e.g., "HR.csv")
+            file_pattern: File pattern (e.g., "Date.txt")
             schema: Optional schema
             **options: Reader options
         
         Returns:
             DataFrame with the data
         """
-        hist_path = f"HistoricalLoad/{file_pattern}"
-        return self.read_raw_file(hist_path, schema=schema, **options)
+        # TPC-DI spec: historical data is in Batch1, not HistoricalLoad
+        return self.read_batch_files(1, file_pattern, schema=schema, **options)
     
     def write_table(self, df: DataFrame, table_name: str, mode: str = "overwrite",
                    partition_by: Optional[list] = None, format: str = "parquet"):
