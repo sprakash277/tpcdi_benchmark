@@ -6,7 +6,7 @@ Handles historical load and initial batch processing.
 import logging
 from typing import TYPE_CHECKING
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, when, trim, upper, regexp_replace, lit, current_timestamp
+from pyspark.sql.functions import col, when, trim, upper, regexp_replace, lit, current_timestamp, split
 
 if TYPE_CHECKING:
     from benchmark.platforms.databricks import DatabricksPlatform
@@ -134,6 +134,11 @@ class BatchETL:
                 
                 if len(df.columns) >= expected_cols:
                     return df
+                else:
+                    logger.warning(
+                        f"[DEBUG] multiLine=false attempt gave {len(df.columns)} columns "
+                        f"(expected {expected_cols}), continuing to try other methods..."
+                    )
         except Exception as e:
             logger.warning(f"[DEBUG] Failed to read {file_pattern} with delimiter '{preferred_delimiter}': {e}")
         
@@ -146,32 +151,52 @@ class BatchETL:
                 file_pattern,
                 format="csv",
                 sep=alt_delimiter,
+                delimiter=alt_delimiter,
                 header=False,
                 inferSchema=True,
                 **options
             )
             
+            logger.info(f"[DEBUG] Read with '{alt_delimiter}': got {len(df.columns)} columns")
             if len(df.columns) >= expected_cols:
-                logger.info(f"[DEBUG] Read {file_pattern} with delimiter '{alt_delimiter}' ({len(df.columns)} columns)")
+                logger.info(f"[DEBUG] Successfully read {file_pattern} with delimiter '{alt_delimiter}' ({len(df.columns)} columns)")
                 return df
             else:
-                logger.warning(f"[DEBUG] Alternative delimiter '{alt_delimiter}' also gave only {len(df.columns)} columns")
+                logger.warning(
+                    f"[DEBUG] Alternative delimiter '{alt_delimiter}' gave only {len(df.columns)} columns "
+                    f"(expected {expected_cols}), continuing to manual split..."
+                )
         except Exception as e:
             logger.warning(f"[DEBUG] Failed with alternative delimiter '{alt_delimiter}': {e}")
         
-        # If still failing, try tab delimiter
-        logger.info(f"[DEBUG] Trying tab delimiter for {file_pattern}")
-        df = self.platform.read_batch_files(
-            batch_id,
-            file_pattern,
-            format="csv",
-            sep="\t",
-            header=False,
-            inferSchema=True,
-            **options
+        # If still failing, try reading as text and manually splitting
+        logger.warning(
+            f"[DEBUG] All delimiter attempts failed for {file_pattern}. "
+            f"Trying to read as text and manually split on pipe delimiter..."
         )
         
-        logger.info(f"[DEBUG] Read {file_pattern} with tab delimiter ({len(df.columns)} columns)")
+        # Read as text (single column with full line)
+        text_df = self.platform.read_batch_files(
+            batch_id,
+            file_pattern,
+            format="text"
+        )
+        
+        # Manually split on pipe delimiter
+        # text format returns a column named 'value'
+        # Use regex to split on pipe character
+        split_cols = split(text_df["value"], "\\|", -1)  # -1 to include trailing empty strings
+        
+        # Create individual columns based on expected count
+        # We'll create up to expected_cols columns
+        select_exprs = []
+        for i in range(expected_cols):
+            select_exprs.append(trim(split_cols[i]).alias(f"_c{i}"))
+        
+        # Create the DataFrame with split columns
+        df = text_df.select(*select_exprs)
+        
+        logger.info(f"[DEBUG] Manually split {file_pattern} on pipe delimiter: got {len(df.columns)} columns")
         return df
     
     def _validate_and_debug_df(self, df: DataFrame, file_name: str, expected_cols: int, expected_format: str):
