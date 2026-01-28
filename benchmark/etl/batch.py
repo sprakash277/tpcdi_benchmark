@@ -533,88 +533,107 @@ class BatchETL:
         
         TPC-DI XML structure:
         <TPCDI:Actions>
-          <Action>
-            <ActionType>NEW|UPD|INACT</ActionType>
-            <Account>
-              <AccountID>...</AccountID>
-              <SK_BrokerID>...</SK_BrokerID>
-              ...
-            </Account>
+          <Action ActionType="NEW" ActionTS="2024-05-20T12:00:00">
+            <Customer C_ID="123">
+              <Name>...</Name>
+              <Account CA_ID="987" CA_TAX_ST="1">
+                ...
+              </Account>
+            </Customer>
           </Action>
         </TPCDI:Actions>
         
         Note: CustomerMgmt.xml is ALWAYS XML format per TPC-DI spec. There is no .txt version.
+        Account data is nested inside Customer elements.
         """
         logger.info("Loading DimAccount dimension table from CustomerMgmt.xml")
         
         # Read XML file (per TPC-DI spec, CustomerMgmt is always XML)
         xml_df = self._read_customermgmt_xml(1)
         
+        # Show schema to understand the structure
+        logger.info("[DEBUG] XML DataFrame schema:")
+        xml_df.printSchema()
+        logger.info("[DEBUG] Sample XML rows:")
+        xml_df.show(2, truncate=200, vertical=True)
+        
         # Extract Account data from XML
-        # XML structure: Action -> Account -> AccountID, etc.
-        # Filter for actions that contain Account elements (not Customer elements)
+        # Structure: Action -> Customer -> Account
+        # Attributes: Action.ActionType, Action.ActionTS, Customer.C_ID, Account.CA_ID, Account.CA_TAX_ST
         logger.info("[DEBUG] Attempting to extract Account data from XML...")
         
-        # Try different field access patterns (Spark XML can vary)
         account_df = None
         extraction_errors = []
         
-        # Pattern 1: Direct nested access Account.AccountID
+        # Pattern 1: Access nested Customer.Account attributes
         try:
-            logger.info("[DEBUG] Trying Pattern 1: Account.AccountID (nested element)")
+            logger.info("[DEBUG] Trying Pattern 1: Customer.Account._CA_ID (nested with attributes)")
             account_df = xml_df.select(
-                col("Account.AccountID").alias("AccountID"),
-                col("Account.SK_BrokerID").alias("SK_BrokerID"),
-                col("Account.SK_CustomerID").alias("SK_CustomerID"),
-                col("Account.Status").alias("Status"),
-                col("Account.AccountDesc").alias("AccountDesc"),
-                col("Account.TaxStatus").alias("TaxStatus"),
-                col("Account.IsActive").alias("IsActive"),
-                col("ActionType").alias("ActionType")
-            ).filter(col("Account.AccountID").isNotNull())
+                col("Customer.Account._CA_ID").alias("CA_ID"),
+                col("Customer._C_ID").alias("C_ID"),
+                col("_ActionType").alias("ActionType"),
+                col("_ActionTS").alias("ActionTS"),
+                col("Customer.Account._CA_TAX_ST").alias("CA_TAX_ST")
+            ).filter(col("Customer.Account._CA_ID").isNotNull())
             logger.info(f"[DEBUG] Pattern 1 succeeded: extracted {account_df.count()} accounts")
         except Exception as e1:
-            extraction_errors.append(f"Pattern 1 (Account.AccountID): {e1}")
+            extraction_errors.append(f"Pattern 1 (Customer.Account._CA_ID): {e1}")
             logger.warning(f"[DEBUG] Pattern 1 failed: {e1}")
         
-        # Pattern 2: Attribute-style access Account._AccountID
+        # Pattern 2: Try without underscore prefix for attributes
         if account_df is None:
             try:
-                logger.info("[DEBUG] Trying Pattern 2: Account._AccountID (attribute-style)")
+                logger.info("[DEBUG] Trying Pattern 2: Customer.Account.CA_ID (without underscore)")
                 account_df = xml_df.select(
-                    col("Account._AccountID").alias("AccountID"),
-                    col("Account._SK_BrokerID").alias("SK_BrokerID"),
-                    col("Account._SK_CustomerID").alias("SK_CustomerID"),
-                    col("Account._Status").alias("Status"),
-                    col("Account._AccountDesc").alias("AccountDesc"),
-                    col("Account._TaxStatus").alias("TaxStatus"),
-                    col("Account._IsActive").alias("IsActive"),
-                    col("ActionType").alias("ActionType")
-                ).filter(col("Account._AccountID").isNotNull())
+                    col("Customer.Account.CA_ID").alias("CA_ID"),
+                    col("Customer.C_ID").alias("C_ID"),
+                    col("ActionType").alias("ActionType"),
+                    col("ActionTS").alias("ActionTS"),
+                    col("Customer.Account.CA_TAX_ST").alias("CA_TAX_ST")
+                ).filter(col("Customer.Account.CA_ID").isNotNull())
                 logger.info(f"[DEBUG] Pattern 2 succeeded: extracted {account_df.count()} accounts")
             except Exception as e2:
-                extraction_errors.append(f"Pattern 2 (Account._AccountID): {e2}")
+                extraction_errors.append(f"Pattern 2 (Customer.Account.CA_ID): {e2}")
                 logger.warning(f"[DEBUG] Pattern 2 failed: {e2}")
         
-        # Pattern 3: Try accessing Account as a struct and explode/flatten
+        # Pattern 3: Try accessing Customer as struct, then Account
         if account_df is None:
             try:
-                logger.info("[DEBUG] Trying Pattern 3: Account as struct")
-                # Show schema to understand structure
-                logger.info("[DEBUG] XML DataFrame schema:")
-                xml_df.printSchema()
-                logger.info("[DEBUG] Sample rows with all columns:")
-                xml_df.show(2, truncate=200, vertical=True)
-                
-                # Try to access Account struct directly
-                account_df = xml_df.select(
-                    col("Account.*"),
-                    col("ActionType")
-                ).filter(col("AccountID").isNotNull())
+                logger.info("[DEBUG] Trying Pattern 3: Explode Customer struct")
+                # First, check if Customer is an array
+                from pyspark.sql.functions import explode
+                customer_df = xml_df.select(
+                    col("_ActionType").alias("ActionType"),
+                    col("_ActionTS").alias("ActionTS"),
+                    explode(col("Customer")).alias("Customer")
+                )
+                account_df = customer_df.select(
+                    col("Customer.Account._CA_ID").alias("CA_ID"),
+                    col("Customer._C_ID").alias("C_ID"),
+                    col("ActionType"),
+                    col("ActionTS"),
+                    col("Customer.Account._CA_TAX_ST").alias("CA_TAX_ST")
+                ).filter(col("Customer.Account._CA_ID").isNotNull())
                 logger.info(f"[DEBUG] Pattern 3 succeeded: extracted {account_df.count()} accounts")
             except Exception as e3:
-                extraction_errors.append(f"Pattern 3 (Account.*): {e3}")
+                extraction_errors.append(f"Pattern 3 (explode Customer): {e3}")
                 logger.warning(f"[DEBUG] Pattern 3 failed: {e3}")
+        
+        # Pattern 4: Try using getItem if Customer is an array
+        if account_df is None:
+            try:
+                logger.info("[DEBUG] Trying Pattern 4: Customer[0].Account")
+                account_df = xml_df.select(
+                    col("Customer").getItem(0).getField("Account").getField("_CA_ID").alias("CA_ID"),
+                    col("Customer").getItem(0).getField("_C_ID").alias("C_ID"),
+                    col("_ActionType").alias("ActionType"),
+                    col("_ActionTS").alias("ActionTS"),
+                    col("Customer").getItem(0).getField("Account").getField("_CA_TAX_ST").alias("CA_TAX_ST")
+                ).filter(col("CA_ID").isNotNull())
+                logger.info(f"[DEBUG] Pattern 4 succeeded: extracted {account_df.count()} accounts")
+            except Exception as e4:
+                extraction_errors.append(f"Pattern 4 (Customer[0].Account): {e4}")
+                logger.warning(f"[DEBUG] Pattern 4 failed: {e4}")
         
         if account_df is None:
             error_summary = "\n".join(extraction_errors)
@@ -625,29 +644,37 @@ class BatchETL:
                 f"Please check:\n"
                 f"1. spark-xml library is installed (com.databricks:spark-xml_2.12:0.15.0)\n"
                 f"2. XML file structure matches TPC-DI spec\n"
-                f"3. Check the XML schema output above to see actual structure"
+                f"3. Check the XML schema output above to see actual structure\n"
+                f"4. The XML structure should be: Action -> Customer -> Account with attributes"
             )
         
         # Show extracted data
         logger.info(f"[DEBUG] Extracted Account data:")
         account_df.show(5, truncate=50)
+        logger.info(f"[DEBUG] Extracted Account schema:")
+        account_df.printSchema()
         
         # Transform to DimAccount schema
-        # Add BatchID (use current timestamp or extract from XML if available)
+        # Map TPC-DI XML fields to DimAccount columns
+        # CA_ID -> SK_AccountID
+        # C_ID -> SK_CustomerID (from Customer)
+        # CA_TAX_ST -> TaxStatus
+        # ActionType -> Status (NEW/UPD/INACT)
         dim_account = account_df.select(
-            col("AccountID").alias("SK_AccountID"),
-            col("SK_BrokerID"),
-            col("SK_CustomerID"),
-            col("Status"),
-            col("AccountDesc"),
-            col("TaxStatus"),
-            col("IsActive"),
+            col("CA_ID").alias("SK_AccountID"),
+            lit(None).cast("bigint").alias("SK_BrokerID"),  # May need to extract from elsewhere
+            col("C_ID").alias("SK_CustomerID"),
+            col("ActionType").alias("Status"),
+            lit(None).cast("string").alias("AccountDesc"),  # May need to extract from Customer.Name
+            col("CA_TAX_ST").alias("TaxStatus"),
+            when(col("ActionType") == "INACT", lit(False)).otherwise(lit(True)).alias("IsActive"),
             current_timestamp().alias("BatchID")
         )
         
         logger.info(f"[DEBUG] Final DimAccount schema:")
         dim_account.printSchema()
         logger.info(f"[DEBUG] Final DimAccount row count: {dim_account.count()}")
+        dim_account.show(5, truncate=50)
         
         self.platform.write_table(dim_account, target_table, mode="overwrite")
         return dim_account
