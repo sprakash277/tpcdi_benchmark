@@ -6,7 +6,7 @@ Handles historical load and initial batch processing.
 import logging
 from typing import TYPE_CHECKING
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, when, trim, upper, regexp_replace, lit, current_timestamp, split, element_at, size
+from pyspark.sql.functions import col, when, trim, upper, regexp_replace, lit, current_timestamp, split, element_at, size, explode
 from pyspark.sql.types import StringType, StructType, StructField
 from pyspark.sql.functions import udf
 
@@ -561,19 +561,20 @@ class BatchETL:
         # Structure: Action -> Customer -> Account
         # Attributes use underscore prefix: _ActionType, _ActionTS, _C_ID, _CA_ID, _CA_TAX_ST
         # Elements don't use underscore: CA_NAME
+        # Note: Some XML readers may return Actions as an array, requiring explode()
         logger.info("[DEBUG] Extracting Account data from XML using SQL pattern...")
         
-        # Use the exact SQL pattern provided:
-        # SELECT
-        #   _ActionType as ActionType,
-        #   _ActionTS as ActionTS,
-        #   Customer._C_ID as CustomerID,
-        #   Customer.Account._CA_ID as AccountID,
-        #   Customer.Account._CA_TAX_ST as TaxStatus,
-        #   Customer.Account.CA_NAME as AccountName
-        # FROM customer_mgmt_raw_xml
+        # Check if we need to explode Actions (if they're in an array)
+        # First, check the schema to see if Action is an array
+        logger.info("[DEBUG] Checking XML schema structure...")
+        xml_df.printSchema()
         
+        account_df = None
+        extraction_errors = []
+        
+        # Pattern 1: Try direct access (Actions not in array)
         try:
+            logger.info("[DEBUG] Trying Pattern 1: Direct access (Actions not in array)")
             account_df = xml_df.select(
                 col("_ActionType").alias("ActionType"),
                 col("_ActionTS").alias("ActionTS"),
@@ -583,16 +584,103 @@ class BatchETL:
                 col("Customer.Account.CA_NAME").alias("AccountName")
             ).filter(col("Customer.Account._CA_ID").isNotNull())
             
-            logger.info(f"[DEBUG] Successfully extracted {account_df.count()} accounts from XML")
-        except Exception as e:
-            logger.error(f"[DEBUG] Failed to extract Account data: {e}")
+            logger.info(f"[DEBUG] Pattern 1 succeeded: extracted {account_df.count()} accounts")
+        except Exception as e1:
+            extraction_errors.append(f"Pattern 1 (direct access): {e1}")
+            logger.warning(f"[DEBUG] Pattern 1 failed: {e1}")
+        
+        # Pattern 2: Explode Actions if they're in an array
+        if account_df is None:
+            try:
+                logger.info("[DEBUG] Trying Pattern 2: Explode Actions (if in array)")
+                
+                # Check if we have an array column - try common names
+                action_col = None
+                for col_name in ["Action", "Actions", "value"]:
+                    try:
+                        test_df = xml_df.select(col(col_name))
+                        if "array" in str(test_df.schema[0].dataType).lower():
+                            action_col = col_name
+                            logger.info(f"[DEBUG] Found array column: {col_name}")
+                            break
+                    except:
+                        continue
+                
+                if action_col:
+                    # Explode the array
+                    exploded_df = xml_df.select(explode(col(action_col)).alias("Action"))
+                    account_df = exploded_df.select(
+                        col("Action._ActionType").alias("ActionType"),
+                        col("Action._ActionTS").alias("ActionTS"),
+                        col("Action.Customer._C_ID").alias("CustomerID"),
+                        col("Action.Customer.Account._CA_ID").alias("AccountID"),
+                        col("Action.Customer.Account._CA_TAX_ST").alias("TaxStatus"),
+                        col("Action.Customer.Account.CA_NAME").alias("AccountName")
+                    ).filter(col("Action.Customer.Account._CA_ID").isNotNull())
+                else:
+                    # Try exploding the root if it's structured as an array
+                    exploded_df = xml_df.select(explode(col("*")).alias("Action"))
+                    account_df = exploded_df.select(
+                        col("Action._ActionType").alias("ActionType"),
+                        col("Action._ActionTS").alias("ActionTS"),
+                        col("Action.Customer._C_ID").alias("CustomerID"),
+                        col("Action.Customer.Account._CA_ID").alias("AccountID"),
+                        col("Action.Customer.Account._CA_TAX_ST").alias("TaxStatus"),
+                        col("Action.Customer.Account.CA_NAME").alias("AccountName")
+                    ).filter(col("Action.Customer.Account._CA_ID").isNotNull())
+                
+                logger.info(f"[DEBUG] Pattern 2 succeeded: extracted {account_df.count()} accounts")
+            except Exception as e2:
+                extraction_errors.append(f"Pattern 2 (explode Actions): {e2}")
+                logger.warning(f"[DEBUG] Pattern 2 failed: {e2}")
+        
+        # Pattern 3: Try using SQL with explode in a subquery
+        if account_df is None:
+            try:
+                logger.info("[DEBUG] Trying Pattern 3: SQL with explode")
+                
+                # Create temp view and use SQL
+                temp_view = "_temp_customermgmt_xml"
+                xml_df.createOrReplaceTempView(temp_view)
+                
+                # Use SQL to explode and extract
+                sql_query = f"""
+                SELECT
+                  Action._ActionType as ActionType,
+                  Action._ActionTS as ActionTS,
+                  Action.Customer._C_ID as CustomerID,
+                  Action.Customer.Account._CA_ID as AccountID,
+                  Action.Customer.Account._CA_TAX_ST as TaxStatus,
+                  Action.Customer.Account.CA_NAME as AccountName
+                FROM (
+                  SELECT explode(Action) as Action FROM {temp_view}
+                )
+                WHERE Action.Customer.Account._CA_ID IS NOT NULL
+                """
+                
+                account_df = self.spark.sql(sql_query)
+                self.spark.catalog.dropTempView(temp_view)
+                
+                logger.info(f"[DEBUG] Pattern 3 succeeded: extracted {account_df.count()} accounts")
+            except Exception as e3:
+                extraction_errors.append(f"Pattern 3 (SQL explode): {e3}")
+                logger.warning(f"[DEBUG] Pattern 3 failed: {e3}")
+                try:
+                    self.spark.catalog.dropTempView(temp_view)
+                except:
+                    pass
+        
+        if account_df is None:
+            error_summary = "\n".join(extraction_errors)
+            logger.error(f"[DEBUG] All extraction patterns failed. Errors:\n{error_summary}")
             logger.info("[DEBUG] XML DataFrame schema for debugging:")
             xml_df.printSchema()
             logger.info("[DEBUG] Sample XML rows:")
             xml_df.show(2, truncate=200, vertical=True)
             raise RuntimeError(
                 f"Failed to extract Account data from CustomerMgmt.xml.\n"
-                f"Error: {e}\n\n"
+                f"Tried multiple patterns including explode().\n"
+                f"Errors:\n{error_summary}\n\n"
                 f"Expected structure:\n"
                 f"  - _ActionType (attribute on Action)\n"
                 f"  - _ActionTS (attribute on Action)\n"
@@ -603,8 +691,9 @@ class BatchETL:
                 f"Please check:\n"
                 f"1. spark-xml library is installed (com.databricks:spark-xml_2.12:0.15.0)\n"
                 f"2. XML file structure matches TPC-DI spec\n"
-                f"3. Check the schema output above to see actual structure"
-            ) from e
+                f"3. Check the schema output above to see actual structure\n"
+                f"4. Actions may need to be exploded if they're in an array"
+            )
         
         # Show extracted data
         logger.info(f"[DEBUG] Extracted Account data:")
