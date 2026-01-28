@@ -29,18 +29,120 @@ class BatchETL:
         self.spark = platform.get_spark()
         logger.info("Initialized BatchETL processor")
     
+    def _read_file_with_delimiter_detection(self, batch_id: int, file_pattern: str, 
+                                           expected_cols: int, expected_format: str,
+                                           preferred_delimiter: str = "|", **options) -> DataFrame:
+        """
+        Read a file trying different delimiters if the preferred one doesn't work.
+        
+        TPC-DI file formats:
+        - Most .txt files: Pipe-delimited (|)
+        - HR.csv, Prospect.csv: Comma-delimited (,)
+        - FINWIRE files: Fixed-width (no delimiter)
+        - CustomerMgmt.xml: XML format
+        
+        Args:
+            batch_id: Batch number
+            file_pattern: File pattern to read
+            expected_cols: Expected minimum columns
+            expected_format: Expected format description
+            preferred_delimiter: Preferred delimiter (| or ,)
+            **options: Additional read options
+        
+        Returns:
+            DataFrame with the file data
+        """
+        # Try preferred delimiter first
+        try:
+            df = self.platform.read_batch_files(
+                batch_id,
+                file_pattern,
+                format="csv",
+                sep=preferred_delimiter,
+                header=False,
+                inferSchema=True,
+                **options
+            )
+            
+            # Check if we got expected columns
+            if len(df.columns) >= expected_cols:
+                logger.info(f"[DEBUG] Successfully read {file_pattern} with delimiter '{preferred_delimiter}' ({len(df.columns)} columns)")
+                return df
+            else:
+                logger.warning(
+                    f"[DEBUG] {file_pattern} read with '{preferred_delimiter}' but only got {len(df.columns)} columns "
+                    f"(expected {expected_cols}). Trying alternative delimiter..."
+                )
+        except Exception as e:
+            logger.warning(f"[DEBUG] Failed to read {file_pattern} with delimiter '{preferred_delimiter}': {e}")
+        
+        # Try alternative delimiter
+        alt_delimiter = "," if preferred_delimiter == "|" else "|"
+        logger.info(f"[DEBUG] Trying alternative delimiter '{alt_delimiter}' for {file_pattern}")
+        df = self.platform.read_batch_files(
+            batch_id,
+            file_pattern,
+            format="csv",
+            sep=alt_delimiter,
+            header=False,
+            inferSchema=True,
+            **options
+        )
+        
+        logger.info(f"[DEBUG] Read {file_pattern} with delimiter '{alt_delimiter}' ({len(df.columns)} columns)")
+        return df
+    
+    def _validate_and_debug_df(self, df: DataFrame, file_name: str, expected_cols: int, expected_format: str):
+        """
+        Validate DataFrame has expected columns and print debug info.
+        
+        Args:
+            df: DataFrame to validate
+            file_name: Name of the file being read (for error messages)
+            expected_cols: Minimum expected number of columns
+            expected_format: Expected format description
+        """
+        logger.info(f"[DEBUG] Reading {file_name}:")
+        logger.info(f"  Schema: {df.schema}")
+        logger.info(f"  Column count: {len(df.columns)}")
+        logger.info(f"  Columns: {df.columns}")
+        logger.info(f"  Sample rows (first 3):")
+        df.show(3, truncate=False)
+        
+        num_cols = len(df.columns)
+        if num_cols < expected_cols:
+            raise ValueError(
+                f"{file_name} has {num_cols} columns but expected at least {expected_cols}. "
+                f"Actual columns: {df.columns}. "
+                f"Expected format: {expected_format}. "
+                f"Note: TPC-DI files should be pipe-delimited (|) for .txt files, "
+                f"comma-delimited (,) for .csv files (HR.csv, Prospect.csv)."
+            )
+    
     def load_dim_date(self, target_table: str) -> DataFrame:
-        """Load Date dimension table from Batch1/Date.txt (TPC-DI spec: historical data in Batch1)"""
+        """
+        Load Date dimension table from Batch1/Date.txt (TPC-DI spec: historical data in Batch1)
+        
+        TPC-DI format: Pipe-delimited (.txt file)
+        Format: DateValue|DayOfWeek|CalendarMonth|CalendarQuarter|CalendarYear|DayOfMonth
+        """
         logger.info("Loading DimDate dimension table")
         
-        # Read Date.txt from Batch1 - format: DateValue|DayOfWeek|CalendarMonth|CalendarQuarter|CalendarYear|DayOfMonth
-        df = self.platform.read_batch_files(
+        # Read Date.txt from Batch1 - pipe-delimited per TPC-DI spec
+        df = self._read_file_with_delimiter_detection(
             1,  # Batch1 contains historical load data
             "Date.txt",
-            format="csv",
-            sep="|",
-            header=False,
-            inferSchema=True
+            expected_cols=6,
+            expected_format="DateValue|DayOfWeek|CalendarMonth|CalendarQuarter|CalendarYear|DayOfMonth",
+            preferred_delimiter="|"
+        )
+        
+        # Validate and debug
+        self._validate_and_debug_df(
+            df, 
+            "Date.txt", 
+            expected_cols=6,
+            expected_format="DateValue|DayOfWeek|CalendarMonth|CalendarQuarter|CalendarYear|DayOfMonth"
         )
         
         # Transform to DimDate schema
@@ -62,17 +164,29 @@ class BatchETL:
         return dim_date
     
     def load_dim_time(self, target_table: str) -> DataFrame:
-        """Load Time dimension table from Batch1/Time.txt (TPC-DI spec: historical data in Batch1)"""
+        """
+        Load Time dimension table from Batch1/Time.txt (TPC-DI spec: historical data in Batch1)
+        
+        TPC-DI format: Pipe-delimited (.txt file)
+        Format: Time|TimeID|Hour|Minute|Second|AM|PM
+        """
         logger.info("Loading DimTime dimension table")
         
-        # Read Time.txt from Batch1 - format: Time|TimeID|Hour|Minute|Second|AM|PM
-        df = self.platform.read_batch_files(
+        # Read Time.txt from Batch1 - pipe-delimited per TPC-DI spec
+        df = self._read_file_with_delimiter_detection(
             1,  # Batch1 contains historical load data
             "Time.txt",
-            format="csv",
-            sep="|",
-            header=False,
-            inferSchema=True
+            expected_cols=7,
+            expected_format="Time|TimeID|Hour|Minute|Second|AM|PM",
+            preferred_delimiter="|"
+        )
+        
+        # Validate and debug
+        self._validate_and_debug_df(
+            df,
+            "Time.txt",
+            expected_cols=7,
+            expected_format="Time|TimeID|Hour|Minute|Second|AM|PM"
         )
         
         # Transform to DimTime schema
@@ -94,16 +208,28 @@ class BatchETL:
         return dim_time
     
     def load_dim_trade_type(self, target_table: str) -> DataFrame:
-        """Load TradeType dimension from Batch1/TradeType.txt (TPC-DI spec: historical data in Batch1)"""
+        """
+        Load TradeType dimension from Batch1/TradeType.txt (TPC-DI spec: historical data in Batch1)
+        
+        TPC-DI format: Pipe-delimited (.txt file)
+        Format: TT_ID|TT_NAME|TT_IS_SELL|TT_IS_MRKT
+        """
         logger.info("Loading DimTradeType dimension table")
         
-        df = self.platform.read_batch_files(
+        df = self._read_file_with_delimiter_detection(
             1,  # Batch1 contains historical load data
             "TradeType.txt",
-            format="csv",
-            sep="|",
-            header=False,
-            inferSchema=True
+            expected_cols=4,
+            expected_format="TT_ID|TT_NAME|TT_IS_SELL|TT_IS_MRKT",
+            preferred_delimiter="|"
+        )
+        
+        # Validate and debug
+        self._validate_and_debug_df(
+            df,
+            "TradeType.txt",
+            expected_cols=4,
+            expected_format="TT_ID|TT_NAME|TT_IS_SELL|TT_IS_MRKT"
         )
         
         dim_trade_type = df.select(
@@ -118,16 +244,28 @@ class BatchETL:
         return dim_trade_type
     
     def load_dim_status_type(self, target_table: str) -> DataFrame:
-        """Load StatusType dimension from Batch1/StatusType.txt (TPC-DI spec: historical data in Batch1)"""
+        """
+        Load StatusType dimension from Batch1/StatusType.txt (TPC-DI spec: historical data in Batch1)
+        
+        TPC-DI format: Pipe-delimited (.txt file)
+        Format: ST_ID|ST_NAME
+        """
         logger.info("Loading DimStatusType dimension table")
         
-        df = self.platform.read_batch_files(
+        df = self._read_file_with_delimiter_detection(
             1,  # Batch1 contains historical load data
             "StatusType.txt",
-            format="csv",
-            sep="|",
-            header=False,
-            inferSchema=True
+            expected_cols=2,
+            expected_format="ST_ID|ST_NAME",
+            preferred_delimiter="|"
+        )
+        
+        # Validate and debug
+        self._validate_and_debug_df(
+            df,
+            "StatusType.txt",
+            expected_cols=2,
+            expected_format="ST_ID|ST_NAME"
         )
         
         dim_status_type = df.select(
@@ -140,16 +278,28 @@ class BatchETL:
         return dim_status_type
     
     def load_dim_tax_rate(self, target_table: str) -> DataFrame:
-        """Load TaxRate dimension from Batch1/TaxRate.txt (TPC-DI spec: historical data in Batch1)"""
+        """
+        Load TaxRate dimension from Batch1/TaxRate.txt (TPC-DI spec: historical data in Batch1)
+        
+        TPC-DI format: Pipe-delimited (.txt file)
+        Format: TX_ID|TX_NAME|TX_RATE
+        """
         logger.info("Loading DimTaxRate dimension table")
         
-        df = self.platform.read_batch_files(
+        df = self._read_file_with_delimiter_detection(
             1,  # Batch1 contains historical load data
             "TaxRate.txt",
-            format="csv",
-            sep="|",
-            header=False,
-            inferSchema=True
+            expected_cols=3,
+            expected_format="TX_ID|TX_NAME|TX_RATE",
+            preferred_delimiter="|"
+        )
+        
+        # Validate and debug
+        self._validate_and_debug_df(
+            df,
+            "TaxRate.txt",
+            expected_cols=3,
+            expected_format="TX_ID|TX_NAME|TX_RATE"
         )
         
         dim_tax_rate = df.select(
@@ -163,16 +313,28 @@ class BatchETL:
         return dim_tax_rate
     
     def load_dim_industry(self, target_table: str) -> DataFrame:
-        """Load Industry dimension from Batch1/Industry.txt (TPC-DI spec: historical data in Batch1)"""
+        """
+        Load Industry dimension from Batch1/Industry.txt (TPC-DI spec: historical data in Batch1)
+        
+        TPC-DI format: Pipe-delimited (.txt file)
+        Format: IN_ID|IN_NAME|IN_SC_ID|IN_SC_NAME
+        """
         logger.info("Loading DimIndustry dimension table")
         
-        df = self.platform.read_batch_files(
+        df = self._read_file_with_delimiter_detection(
             1,  # Batch1 contains historical load data
             "Industry.txt",
-            format="csv",
-            sep="|",
-            header=False,
-            inferSchema=True
+            expected_cols=4,
+            expected_format="IN_ID|IN_NAME|IN_SC_ID|IN_SC_NAME",
+            preferred_delimiter="|"
+        )
+        
+        # Validate and debug
+        self._validate_and_debug_df(
+            df,
+            "Industry.txt",
+            expected_cols=4,
+            expected_format="IN_ID|IN_NAME|IN_SC_ID|IN_SC_NAME"
         )
         
         dim_industry = df.select(
@@ -187,18 +349,33 @@ class BatchETL:
         return dim_industry
     
     def load_dim_account(self, target_table: str, batch_id: int = 1) -> DataFrame:
-        """Load Account dimension from Batch files (CustomerMgmt.txt)"""
+        """
+        Load Account dimension from Batch files.
+        
+        Note: TPC-DI spec says CustomerMgmt.xml is XML format, but some implementations
+        may provide CustomerMgmt.txt as pipe-delimited. This method handles pipe-delimited format.
+        For XML format, a separate method would be needed.
+        """
         logger.info(f"Loading DimAccount dimension table from batch {batch_id}")
         
-        # Read CustomerMgmt.txt - this is a complex file with multiple record types
-        df = self.platform.read_batch_files(
-            batch_id,
-            "CustomerMgmt.txt",
-            format="csv",
-            sep="|",
-            header=False,
-            inferSchema=True
-        )
+        # Try CustomerMgmt.txt first (pipe-delimited)
+        # Note: Per TPC-DI spec, CustomerMgmt.xml is XML, but some tools generate .txt version
+        try:
+            df = self._read_file_with_delimiter_detection(
+                batch_id,
+                "CustomerMgmt.txt",
+                expected_cols=8,
+                expected_format="ActionType|AccountID|... (pipe-delimited)",
+                preferred_delimiter="|"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to read CustomerMgmt.txt: {e}")
+            logger.info("Note: TPC-DI spec uses CustomerMgmt.xml (XML format). XML parsing not yet implemented.")
+            raise ValueError(
+                f"Could not read CustomerMgmt file. "
+                f"Expected CustomerMgmt.txt (pipe-delimited) or CustomerMgmt.xml (XML). "
+                f"Error: {e}"
+            )
         
         # Filter for Account records (record type 'A')
         account_records = df.filter(col("_c0") == "A")
