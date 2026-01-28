@@ -285,6 +285,8 @@ class BatchETL:
         
         try:
             file_path = f"Batch{batch_id}/CustomerMgmt.xml"
+            # Use rowTag="Action" to parse each Action element as a row
+            # The root tag TPCDI:Actions is handled automatically by spark-xml
             df = self.platform.read_raw_file(
                 file_path,
                 format="xml",
@@ -292,20 +294,31 @@ class BatchETL:
             )
             logger.info(f"Successfully read CustomerMgmt.xml: {len(df.columns)} columns")
             logger.info(f"Columns: {df.columns}")
-            df.show(3, truncate=50)
+            logger.info(f"[DEBUG] Sample XML structure:")
+            df.show(3, truncate=100)
+            
+            # Debug: Show ActionType distribution
+            try:
+                if "ActionType" in df.columns:
+                    action_types = df.groupBy("ActionType").count().orderBy("count", ascending=False)
+                    logger.info(f"[DEBUG] ActionType distribution:")
+                    action_types.show()
+            except Exception as e:
+                logger.debug(f"Could not show ActionType distribution: {e}")
+            
             return df
         except Exception as e:
             error_msg = str(e)
-            if "xml" in error_msg.lower() or "datasource" in error_msg.lower():
+            if "xml" in error_msg.lower() or "datasource" in error_msg.lower() or "format" in error_msg.lower():
                 logger.error(
                     f"Failed to read CustomerMgmt.xml. This requires the spark-xml library.\n"
                     f"Install it on your cluster:\n"
                     f"  Maven: com.databricks:spark-xml_2.12:0.15.0\n"
-                    f"  Or add to cluster libraries.\n"
+                    f"  Or add to cluster libraries via Cluster -> Libraries -> Install New -> Maven\n"
                     f"Original error: {error_msg}"
                 )
             else:
-                logger.warning(f"Failed to read CustomerMgmt.xml: {error_msg}")
+                logger.error(f"Failed to read CustomerMgmt.xml: {error_msg}")
             raise
     
     def _validate_and_debug_df(self, df: DataFrame, file_name: str, 
@@ -515,30 +528,59 @@ class BatchETL:
         return dim_industry
     
     def load_dim_account(self, target_table: str) -> DataFrame:
-        """Load Account dimension table from Batch1/CustomerMgmt.xml"""
-        logger.info("Loading DimAccount dimension table")
+        """
+        Load Account dimension table from Batch1/CustomerMgmt.xml
         
+        TPC-DI XML structure:
+        <TPCDI:Actions>
+          <Action>
+            <ActionType>NEW|UPD|INACT</ActionType>
+            <Account>
+              <AccountID>...</AccountID>
+              <SK_BrokerID>...</SK_BrokerID>
+              ...
+            </Account>
+          </Action>
+        </TPCDI:Actions>
+        
+        Note: CustomerMgmt.xml is ALWAYS XML format per TPC-DI spec. There is no .txt version.
+        """
+        logger.info("Loading DimAccount dimension table from CustomerMgmt.xml")
+        
+        # Read XML file (per TPC-DI spec, CustomerMgmt is always XML)
+        xml_df = self._read_customermgmt_xml(1)
+        
+        # Extract Account data from XML
+        # XML structure: Action -> Account -> AccountID, etc.
+        # Filter for actions that contain Account elements (not Customer elements)
+        logger.info("[DEBUG] Attempting to extract Account data from XML...")
+        
+        # Try different field access patterns (Spark XML can vary)
+        account_df = None
+        extraction_errors = []
+        
+        # Pattern 1: Direct nested access Account.AccountID
         try:
-            # Try reading as XML first (per TPC-DI spec)
-            xml_df = self._read_customermgmt_xml(1)
-            
-            # Extract Account data from XML
-            # XML structure: Action -> Account -> AccountID, etc.
+            logger.info("[DEBUG] Trying Pattern 1: Account.AccountID (nested element)")
+            account_df = xml_df.select(
+                col("Account.AccountID").alias("AccountID"),
+                col("Account.SK_BrokerID").alias("SK_BrokerID"),
+                col("Account.SK_CustomerID").alias("SK_CustomerID"),
+                col("Account.Status").alias("Status"),
+                col("Account.AccountDesc").alias("AccountDesc"),
+                col("Account.TaxStatus").alias("TaxStatus"),
+                col("Account.IsActive").alias("IsActive"),
+                col("ActionType").alias("ActionType")
+            ).filter(col("Account.AccountID").isNotNull())
+            logger.info(f"[DEBUG] Pattern 1 succeeded: extracted {account_df.count()} accounts")
+        except Exception as e1:
+            extraction_errors.append(f"Pattern 1 (Account.AccountID): {e1}")
+            logger.warning(f"[DEBUG] Pattern 1 failed: {e1}")
+        
+        # Pattern 2: Attribute-style access Account._AccountID
+        if account_df is None:
             try:
-                account_df = xml_df.select(
-                    col("Account.AccountID").alias("AccountID"),
-                    col("Account.SK_BrokerID").alias("SK_BrokerID"),
-                    col("Account.SK_CustomerID").alias("SK_CustomerID"),
-                    col("Account.Status").alias("Status"),
-                    col("Account.AccountDesc").alias("AccountDesc"),
-                    col("Account.TaxStatus").alias("TaxStatus"),
-                    col("Account.IsActive").alias("IsActive"),
-                    col("Account.BatchID").alias("BatchID")
-                ).filter(col("Account.AccountID").isNotNull())
-            except Exception as e:
-                logger.warning(f"Failed to extract Account fields with standard names: {e}")
-                logger.info("Trying with attribute-style names...")
-                # Try attribute-style access
+                logger.info("[DEBUG] Trying Pattern 2: Account._AccountID (attribute-style)")
                 account_df = xml_df.select(
                     col("Account._AccountID").alias("AccountID"),
                     col("Account._SK_BrokerID").alias("SK_BrokerID"),
@@ -547,59 +589,68 @@ class BatchETL:
                     col("Account._AccountDesc").alias("AccountDesc"),
                     col("Account._TaxStatus").alias("TaxStatus"),
                     col("Account._IsActive").alias("IsActive"),
-                    col("Account._BatchID").alias("BatchID")
+                    col("ActionType").alias("ActionType")
                 ).filter(col("Account._AccountID").isNotNull())
-            
-            logger.info(f"Extracted {account_df.count()} accounts from XML")
-            account_df.show(5, truncate=50)
-            
-            dim_account = account_df.select(
-                col("AccountID").alias("SK_AccountID"),
-                col("SK_BrokerID"),
-                col("SK_CustomerID"),
-                col("Status"),
-                col("AccountDesc"),
-                col("TaxStatus"),
-                col("IsActive"),
-                col("BatchID")
+                logger.info(f"[DEBUG] Pattern 2 succeeded: extracted {account_df.count()} accounts")
+            except Exception as e2:
+                extraction_errors.append(f"Pattern 2 (Account._AccountID): {e2}")
+                logger.warning(f"[DEBUG] Pattern 2 failed: {e2}")
+        
+        # Pattern 3: Try accessing Account as a struct and explode/flatten
+        if account_df is None:
+            try:
+                logger.info("[DEBUG] Trying Pattern 3: Account as struct")
+                # Show schema to understand structure
+                logger.info("[DEBUG] XML DataFrame schema:")
+                xml_df.printSchema()
+                logger.info("[DEBUG] Sample rows with all columns:")
+                xml_df.show(2, truncate=200, vertical=True)
+                
+                # Try to access Account struct directly
+                account_df = xml_df.select(
+                    col("Account.*"),
+                    col("ActionType")
+                ).filter(col("AccountID").isNotNull())
+                logger.info(f"[DEBUG] Pattern 3 succeeded: extracted {account_df.count()} accounts")
+            except Exception as e3:
+                extraction_errors.append(f"Pattern 3 (Account.*): {e3}")
+                logger.warning(f"[DEBUG] Pattern 3 failed: {e3}")
+        
+        if account_df is None:
+            error_summary = "\n".join(extraction_errors)
+            raise RuntimeError(
+                f"Failed to extract Account data from CustomerMgmt.xml. "
+                f"Tried multiple access patterns but all failed.\n"
+                f"Errors:\n{error_summary}\n\n"
+                f"Please check:\n"
+                f"1. spark-xml library is installed (com.databricks:spark-xml_2.12:0.15.0)\n"
+                f"2. XML file structure matches TPC-DI spec\n"
+                f"3. Check the XML schema output above to see actual structure"
             )
-            
-            self.platform.write_table(dim_account, target_table, mode="overwrite")
-            return dim_account
-            
-        except Exception as xml_error:
-            logger.warning(f"Failed to read CustomerMgmt.xml: {xml_error}")
-            logger.info("Falling back to CustomerMgmt.txt (if available)...")
-            
-            # Fallback to text format
-            df = self._read_file_with_delimiter_detection(
-                1,
-                "CustomerMgmt.txt",
-                expected_cols=8,
-                expected_format="AccountID|SK_BrokerID|SK_CustomerID|Status|AccountDesc|TaxStatus|IsActive|BatchID",
-                preferred_delimiter="|"
-            )
-            
-            self._validate_and_debug_df(
-                df, 
-                "CustomerMgmt.txt", 
-                expected_cols=8,
-                expected_format="AccountID|SK_BrokerID|SK_CustomerID|Status|AccountDesc|TaxStatus|IsActive|BatchID"
-            )
-            
-            dim_account = df.select(
-                col("_c0").alias("SK_AccountID"),
-                col("_c1").alias("SK_BrokerID"),
-                col("_c2").alias("SK_CustomerID"),
-                col("_c3").alias("Status"),
-                col("_c4").alias("AccountDesc"),
-                col("_c5").alias("TaxStatus"),
-                col("_c6").alias("IsActive"),
-                col("_c7").alias("BatchID")
-            )
-            
-            self.platform.write_table(dim_account, target_table, mode="overwrite")
-            return dim_account
+        
+        # Show extracted data
+        logger.info(f"[DEBUG] Extracted Account data:")
+        account_df.show(5, truncate=50)
+        
+        # Transform to DimAccount schema
+        # Add BatchID (use current timestamp or extract from XML if available)
+        dim_account = account_df.select(
+            col("AccountID").alias("SK_AccountID"),
+            col("SK_BrokerID"),
+            col("SK_CustomerID"),
+            col("Status"),
+            col("AccountDesc"),
+            col("TaxStatus"),
+            col("IsActive"),
+            current_timestamp().alias("BatchID")
+        )
+        
+        logger.info(f"[DEBUG] Final DimAccount schema:")
+        dim_account.printSchema()
+        logger.info(f"[DEBUG] Final DimAccount row count: {dim_account.count()}")
+        
+        self.platform.write_table(dim_account, target_table, mode="overwrite")
+        return dim_account
     
     def run_full_batch_load(self, target_database: str, target_schema: str):
         """
