@@ -52,6 +52,32 @@ class BatchETL:
         Returns:
             DataFrame with the file data
         """
+        # First, read as raw text to inspect actual content
+        try:
+            # Read the file path to inspect raw content
+            file_path = f"Batch{batch_id}/{file_pattern}"
+            raw_df = self.platform.read_raw_file(
+                file_path,
+                format="text",  # Read as raw text first
+            )
+            logger.info(f"[DEBUG] Raw content of {file_pattern} (first 5 lines):")
+            raw_df.show(5, truncate=False)
+            
+            # Get first row to analyze
+            first_row = raw_df.first()
+            if first_row:
+                # text format returns a single column named 'value'
+                raw_line = first_row.value if hasattr(first_row, 'value') else (first_row[0] if len(first_row) > 0 else str(first_row))
+                logger.info(f"[DEBUG] First line content: '{raw_line}'")
+                logger.info(f"[DEBUG] First line length: {len(str(raw_line))}")
+                logger.info(f"[DEBUG] Contains '|': {str(raw_line).count('|')}")
+                logger.info(f"[DEBUG] Contains ',': {str(raw_line).count(',')}")
+                logger.info(f"[DEBUG] Contains tab: {str(raw_line).count(chr(9))}")
+                logger.info(f"[DEBUG] First 100 chars: '{str(raw_line)[:100]}'")
+        except Exception as e:
+            logger.warning(f"[DEBUG] Could not read raw text for inspection: {e}")
+            logger.info(f"[DEBUG] Will proceed with delimiter detection anyway")
+        
         # Try preferred delimiter first
         try:
             df = self.platform.read_batch_files(
@@ -79,17 +105,38 @@ class BatchETL:
         # Try alternative delimiter
         alt_delimiter = "," if preferred_delimiter == "|" else "|"
         logger.info(f"[DEBUG] Trying alternative delimiter '{alt_delimiter}' for {file_pattern}")
+        try:
+            df = self.platform.read_batch_files(
+                batch_id,
+                file_pattern,
+                format="csv",
+                sep=alt_delimiter,
+                header=False,
+                inferSchema=True,
+                **options
+            )
+            
+            if len(df.columns) >= expected_cols:
+                logger.info(f"[DEBUG] Read {file_pattern} with delimiter '{alt_delimiter}' ({len(df.columns)} columns)")
+                return df
+            else:
+                logger.warning(f"[DEBUG] Alternative delimiter '{alt_delimiter}' also gave only {len(df.columns)} columns")
+        except Exception as e:
+            logger.warning(f"[DEBUG] Failed with alternative delimiter '{alt_delimiter}': {e}")
+        
+        # If still failing, try tab delimiter
+        logger.info(f"[DEBUG] Trying tab delimiter for {file_pattern}")
         df = self.platform.read_batch_files(
             batch_id,
             file_pattern,
             format="csv",
-            sep=alt_delimiter,
+            sep="\t",
             header=False,
             inferSchema=True,
             **options
         )
         
-        logger.info(f"[DEBUG] Read {file_pattern} with delimiter '{alt_delimiter}' ({len(df.columns)} columns)")
+        logger.info(f"[DEBUG] Read {file_pattern} with tab delimiter ({len(df.columns)} columns)")
         return df
     
     def _validate_and_debug_df(self, df: DataFrame, file_name: str, expected_cols: int, expected_format: str):
@@ -318,24 +365,39 @@ class BatchETL:
         
         TPC-DI format: Pipe-delimited (.txt file)
         Format: IN_ID|IN_NAME|IN_SC_ID|IN_SC_NAME
+        
+        Note: If file appears to be fixed-width or single-column, check the raw file content
+        in the debug logs to determine the actual format.
         """
         logger.info("Loading DimIndustry dimension table")
         
-        df = self._read_file_with_delimiter_detection(
-            1,  # Batch1 contains historical load data
-            "Industry.txt",
-            expected_cols=4,
-            expected_format="IN_ID|IN_NAME|IN_SC_ID|IN_SC_NAME",
-            preferred_delimiter="|"
-        )
-        
-        # Validate and debug
-        self._validate_and_debug_df(
-            df,
-            "Industry.txt",
-            expected_cols=4,
-            expected_format="IN_ID|IN_NAME|IN_SC_ID|IN_SC_NAME"
-        )
+        try:
+            df = self._read_file_with_delimiter_detection(
+                1,  # Batch1 contains historical load data
+                "Industry.txt",
+                expected_cols=4,
+                expected_format="IN_ID|IN_NAME|IN_SC_ID|IN_SC_NAME",
+                preferred_delimiter="|"
+            )
+            
+            # Validate and debug
+            self._validate_and_debug_df(
+                df,
+                "Industry.txt",
+                expected_cols=4,
+                expected_format="IN_ID|IN_NAME|IN_SC_ID|IN_SC_NAME"
+            )
+        except ValueError as e:
+            # If validation fails, provide more helpful error
+            logger.error(f"Failed to parse Industry.txt: {e}")
+            logger.error(
+                "Possible causes:\n"
+                "1. File might be fixed-width format (no delimiters)\n"
+                "2. File might use a different delimiter\n"
+                "3. File structure might differ from TPC-DI spec\n"
+                "Check the debug logs above for raw file content."
+            )
+            raise
         
         dim_industry = df.select(
             col("_c0").alias("IN_ID"),
