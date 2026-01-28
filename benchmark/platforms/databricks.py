@@ -239,18 +239,33 @@ class DatabricksPlatform:
         """
         logger.info(f"Writing table: {table_name} (mode={mode}, format={format})")
         
-        # For Delta Lake with overwrite mode, drop table first to avoid schema merge conflicts
-        if mode == "overwrite" and format == "delta":
-            try:
-                # Check if table exists
-                table_exists = self.spark.catalog.tableExists(table_name)
-                if table_exists:
-                    logger.info(f"Table {table_name} exists. Dropping it before overwrite to avoid schema conflicts.")
-                    self.spark.sql(f"DROP TABLE IF EXISTS {table_name}")
-            except Exception as e:
-                logger.warning(f"Could not check/drop table {table_name}: {e}. Proceeding with write.")
+        # Check if table exists
+        table_exists = False
+        try:
+            table_exists = self.spark.catalog.tableExists(table_name)
+        except Exception as e:
+            logger.warning(f"Could not check if table {table_name} exists: {e}")
         
-        writer = df.write.format(format).mode(mode)
+        # For Delta Lake with overwrite mode, drop table first to avoid schema merge conflicts
+        if mode == "overwrite" and format == "delta" and table_exists:
+            try:
+                logger.info(f"Table {table_name} exists. Dropping it before overwrite to avoid schema conflicts.")
+                self.spark.sql(f"DROP TABLE IF EXISTS {table_name}")
+            except Exception as e:
+                logger.warning(f"Could not drop table {table_name}: {e}. Proceeding with write.")
+        
+        # For append mode, if table doesn't exist, create it (treat as overwrite for first write)
+        actual_mode = mode
+        if mode == "append" and not table_exists:
+            logger.info(f"Table {table_name} does not exist. Creating it with first write.")
+            actual_mode = "overwrite"
+        
+        writer = df.write.format(format).mode(actual_mode)
+        
+        # For Delta append, enable schema merge in case of minor schema differences
+        if format == "delta" and mode == "append" and table_exists:
+            writer = writer.option("mergeSchema", "true")
+        
         if partition_by:
             writer = writer.partitionBy(*partition_by)
         

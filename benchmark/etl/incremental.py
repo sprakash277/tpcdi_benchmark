@@ -311,39 +311,79 @@ class IncrementalETL:
         self.platform.write_table(dim_account, target_table, mode="append")
         return dim_account
     
-    def load_fact_trade_incremental(self, batch_id: int, target_table: str) -> DataFrame:
-        """Load Trade fact table from batch files"""
-        logger.info(f"Loading FactTrade from batch {batch_id}")
+    def _read_pipe_delimited_txt(self, batch_id: int, file_pattern: str, expected_cols: int) -> DataFrame:
+        """
+        Read a pipe-delimited .txt file using pure SQL split.
         
-        # Read Trade.txt for this batch
-        df = self.platform.read_batch_files(
+        Returns:
+            DataFrame with columns _c0, _c1, _c2, etc.
+        """
+        logger.info(f"Reading {file_pattern} as pipe-delimited text from Batch{batch_id}")
+        
+        text_df = self.platform.read_batch_files(
             batch_id,
-            "Trade.txt",
-            format="csv",
-            sep="|",
-            header=False,
-            inferSchema=True
+            file_pattern,
+            format="text"
         )
         
-        # Transform to FactTrade schema (simplified)
+        temp_view_name = f"_temp_txt_{file_pattern.replace('.', '_').replace('/', '_')}_{batch_id}"
+        text_df.createOrReplaceTempView(temp_view_name)
+
+        select_parts = []
+        for i in range(expected_cols):
+            select_parts.append(f"TRIM(COALESCE(element_at(split(value, '|'), {i+1}), '')) AS _c{i}")
+        
+        sql_query = f"SELECT {', '.join(select_parts)} FROM {temp_view_name}"
+        
+        try:
+            df = self.spark.sql(sql_query)
+        except Exception as sql_error:
+            logger.warning(f"SQL query failed with '|', trying with escaped '\\|': {sql_error}")
+            select_parts = []
+            for i in range(expected_cols):
+                select_parts.append(f"TRIM(COALESCE(element_at(split(value, '\\\\|'), {i+1}), '')) AS _c{i}")
+            sql_query = f"SELECT {', '.join(select_parts)} FROM {temp_view_name}"
+            df = self.spark.sql(sql_query)
+        finally:
+            try:
+                self.spark.catalog.dropTempView(temp_view_name)
+            except Exception:
+                pass
+        
+        return df
+    
+    def load_fact_trade_incremental(self, batch_id: int, target_table: str) -> DataFrame:
+        """Load Trade fact table from batch files (pipe-delimited .txt)"""
+        logger.info(f"Loading FactTrade from batch {batch_id}")
+        
+        # Read Trade.txt for this batch (pipe-delimited per TPC-DI spec)
+        # Expected columns: T_ID|T_DTS|T_ST_ID|T_TT_ID|T_IS_CASH|T_S_SYMB|T_QTY|T_BID_PRICE|T_CA_ID|T_EXEC_NAME|T_TRADE_PRICE|T_CHRG|T_COMM|T_TAX
+        df = self._read_pipe_delimited_txt(batch_id, "Trade.txt", expected_cols=14)
+        
+        # Transform to FactTrade schema
         fact_trade = df.select(
             col("_c0").alias("TradeID"),
-            col("_c1").alias("SK_BrokerID"),
-            col("_c2").alias("SK_CreateDateID"),
-            col("_c3").alias("SK_CreateTimeID"),
-            col("_c4").alias("SK_CloseDateID"),
-            col("_c5").alias("SK_CloseTimeID"),
-            col("_c6").alias("Status"),
-            col("_c7").alias("Type"),
-            col("_c8").alias("CashFlag"),
-            col("_c9").alias("Quantity"),
-            col("_c10").alias("BidPrice"),
-            col("_c11").alias("Commission"),
-            col("_c12").alias("Charge"),
+            col("_c1").alias("SK_CreateDateID"),
+            col("_c2").alias("SK_CreateTimeID"),
+            col("_c3").alias("SK_CloseDateID"),
+            col("_c4").alias("SK_CloseTimeID"),
+            col("_c5").alias("Status"),
+            col("_c6").alias("Type"),
+            col("_c7").cast("boolean").alias("CashFlag"),
+            col("_c8").alias("SK_SecurityID"),
+            col("_c9").alias("SK_CompanyID"),
+            col("_c10").cast("int").alias("Quantity"),
+            col("_c11").cast("double").alias("BidPrice"),
+            col("_c12").alias("SK_CustomerID"),
+            col("_c13").alias("SK_AccountID"),
+            lit(None).cast("bigint").alias("SK_BrokerID"),
+            lit(None).cast("double").alias("Commission"),
+            lit(None).cast("double").alias("Charge"),
             lit(batch_id).alias("BatchID")
         )
         
         self.platform.write_table(fact_trade, target_table, mode="append")
+        logger.info(f"Loaded FactTrade: {fact_trade.count()} rows")
         return fact_trade
     
     def load_dim_customer_incremental(self, batch_id: int, target_table: str) -> DataFrame:

@@ -607,7 +607,9 @@ class BatchETL:
             col("AccountName").alias("AccountDesc"),
             col("TaxStatus"),
             when(col("ActionType") == "INACT", lit(False)).otherwise(lit(True)).alias("IsActive"),
-            current_timestamp().alias("BatchID")
+            lit(1).alias("BatchID"),  # Batch 1 for historical load
+            current_timestamp().alias("EffectiveDate"),
+            lit(None).cast("timestamp").alias("EndDate")  # NULL for current records
         )
         
         logger.info(f"Loaded DimAccount: {dim_account.count()} rows")
