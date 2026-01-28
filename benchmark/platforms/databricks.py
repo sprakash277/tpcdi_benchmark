@@ -104,8 +104,10 @@ class DatabricksPlatform:
         
         logger.info(f"[DEBUG read_raw_file] FINAL PATH TO READ: '{full_path}'")
         logger.info(f"[DEBUG read_raw_file] Options: {options}")
-        logger.info(f"[DEBUG read_raw_file] About to call spark.read.format('{format}').load('{full_path}')")
+        logger.info(f"[DEBUG read_raw_file] Format: {format}, use_volume: {self.use_volume}")
         
+        # For Unity Catalog Volumes, Spark needs the path as-is without dbfs: prefix
+        # Spark will automatically handle Volume paths when they start with /Volumes/
         reader = self.spark.read.format(format)
         if schema:
             reader = reader.schema(schema)
@@ -126,13 +128,51 @@ class DatabricksPlatform:
             logger.info(f"[DEBUG read_raw_file] Also setting sep={delim_value} (same as delimiter)")
             reader = reader.option("sep", delim_value)
         
+        # For Volume paths, ensure Spark doesn't add dbfs: prefix
+        # Spark should recognize /Volumes/ paths automatically
         logger.info(f"[DEBUG read_raw_file] Calling reader.load('{full_path}')...")
-        result = reader.load(full_path)
+        
+        # Verify file exists for Volume paths (helps debug path issues)
+        if self.use_volume and full_path.startswith("/Volumes/"):
+            try:
+                # Try to verify path exists using dbutils if available
+                import dbutils  # type: ignore
+                files = dbutils.fs.ls(full_path.rsplit("/", 1)[0])  # List parent directory
+                logger.info(f"[DEBUG read_raw_file] Verified Volume directory exists: {full_path.rsplit('/', 1)[0]}")
+            except Exception as verify_error:
+                logger.warning(f"[DEBUG read_raw_file] Could not verify Volume path: {verify_error}")
+        
+        try:
+            result = reader.load(full_path)
+        except Exception as e:
+            error_msg = str(e)
+            # Check if Spark added dbfs: prefix to Volume path
+            if "dbfs:/Volumes/" in error_msg and full_path.startswith("/Volumes/"):
+                logger.error(
+                    f"[DEBUG read_raw_file] Spark added 'dbfs:' prefix to Volume path! "
+                    f"Original path: '{full_path}', Error: {error_msg}"
+                )
+                logger.error(
+                    f"[DEBUG read_raw_file] This is a known issue with some Spark/Databricks versions. "
+                    f"Unity Catalog Volumes should be accessed directly with /Volumes/ paths."
+                )
+                # Provide helpful error message
+                raise RuntimeError(
+                    f"Spark is adding 'dbfs:' prefix to Volume path '{full_path}'. "
+                    f"This prevents reading from Unity Catalog Volumes. "
+                    f"Possible solutions:\n"
+                    f"1. Ensure your Databricks runtime supports Unity Catalog Volumes\n"
+                    f"2. Check Spark configuration for path resolution settings\n"
+                    f"3. Verify the file exists at: {full_path}\n"
+                    f"Original error: {error_msg}"
+                ) from e
+            raise
+        
         logger.info(f"[DEBUG read_raw_file] Successfully loaded file: '{full_path}'")
         logger.info(f"[DEBUG read_raw_file] Result has {len(result.columns)} columns: {result.columns}")
         
         # If we only got 1 column but delimiter was set, log a warning with sample data
-        if len(result.columns) == 1 and ("delimiter" in options or "sep" in options):
+        if len(result.columns) == 1 and ("delimiter" in options or "sep" in options) and format == "csv":
             logger.warning(f"[DEBUG read_raw_file] WARNING: Only got 1 column despite delimiter being set!")
             logger.warning(f"[DEBUG read_raw_file] Delimiter was: {options.get('delimiter', options.get('sep', 'NOT SET'))}")
             logger.warning(f"[DEBUG read_raw_file] Sample row: {result.first()}")

@@ -199,6 +199,53 @@ class BatchETL:
         logger.info(f"[DEBUG] Manually split {file_pattern} on pipe delimiter: got {len(df.columns)} columns")
         return df
     
+    def _read_customermgmt_xml(self, batch_id: int) -> DataFrame:
+        """
+        Read CustomerMgmt.xml file and parse XML structure.
+        
+        TPC-DI XML structure:
+        <TPCDI:Actions>
+          <Action>
+            <ActionType>NEW|UPD|INACT</ActionType>
+            <Customer>...</Customer> or <Account>...</Account>
+          </Action>
+        </TPCDI:Actions>
+        
+        Returns DataFrame with flattened structure.
+        
+        Note: Requires spark-xml library (com.databricks:spark-xml_2.12:0.15.0)
+        """
+        logger.info(f"Reading CustomerMgmt.xml from Batch{batch_id}")
+        
+        try:
+            # Read XML file using Spark XML format
+            # Spark XML format requires rowTag option to specify the repeating element
+            df = self.platform.read_batch_files(
+                batch_id,
+                "CustomerMgmt.xml",
+                format="xml",
+                rowTag="Action",  # Each <Action> becomes a row
+                excludeAttribute=False,  # Include XML attributes
+                treatEmptyValuesAsNulls=True,
+            )
+            
+            logger.info(f"[DEBUG] CustomerMgmt.xml read successfully: {len(df.columns)} columns")
+            logger.info(f"[DEBUG] Columns: {df.columns}")
+            logger.info(f"[DEBUG] Sample rows (first 2):")
+            df.show(2, truncate=False)
+            
+            return df
+        except Exception as e:
+            error_msg = str(e)
+            if "xml" in error_msg.lower() or "format" in error_msg.lower():
+                raise RuntimeError(
+                    f"Failed to read XML format. "
+                    f"Spark XML format requires 'spark-xml' library. "
+                    f"Install it in your cluster: com.databricks:spark-xml_2.12:0.15.0 "
+                    f"Original error: {error_msg}"
+                ) from e
+            raise
+    
     def _validate_and_debug_df(self, df: DataFrame, file_name: str, expected_cols: int, expected_format: str):
         """
         Validate DataFrame has expected columns and print debug info.
@@ -474,47 +521,93 @@ class BatchETL:
         """
         Load Account dimension from Batch files.
         
-        Note: TPC-DI spec says CustomerMgmt.xml is XML format, but some implementations
-        may provide CustomerMgmt.txt as pipe-delimited. This method handles pipe-delimited format.
-        For XML format, a separate method would be needed.
+        TPC-DI spec: CustomerMgmt.xml is XML format with nested structure:
+        - Root: <TPCDI:Actions>
+        - Elements: <Action> with ActionType (NEW, UPD, INACT, etc.)
+        - Contains: <Customer> or <Account> blocks
+        
+        Some implementations may provide CustomerMgmt.txt as pipe-delimited.
+        This method tries XML first, then falls back to pipe-delimited text.
         """
         logger.info(f"Loading DimAccount dimension table from batch {batch_id}")
         
-        # Try CustomerMgmt.txt first (pipe-delimited)
-        # Note: Per TPC-DI spec, CustomerMgmt.xml is XML, but some tools generate .txt version
+        # Try CustomerMgmt.xml first (XML format per TPC-DI spec)
+        xml_error = None
         try:
-            df = self._read_file_with_delimiter_detection(
-                batch_id,
-                "CustomerMgmt.txt",
-                expected_cols=8,
-                expected_format="ActionType|AccountID|... (pipe-delimited)",
-                preferred_delimiter="|"
-            )
+            logger.info("Attempting to read CustomerMgmt.xml (XML format)")
+            df = self._read_customermgmt_xml(batch_id)
+            logger.info("Successfully read CustomerMgmt.xml")
         except Exception as e:
-            logger.warning(f"Failed to read CustomerMgmt.txt: {e}")
-            logger.info("Note: TPC-DI spec uses CustomerMgmt.xml (XML format). XML parsing not yet implemented.")
-            raise ValueError(
-                f"Could not read CustomerMgmt file. "
-                f"Expected CustomerMgmt.txt (pipe-delimited) or CustomerMgmt.xml (XML). "
-                f"Error: {e}"
+            xml_error = e
+            logger.warning(f"Failed to read CustomerMgmt.xml: {e}")
+            # Check if it's a path not found error - might be .txt file instead
+            if "PATH_NOT_FOUND" in str(e) or "does not exist" in str(e).lower():
+                logger.info("CustomerMgmt.xml not found, will try CustomerMgmt.txt")
+            else:
+                logger.info("CustomerMgmt.xml exists but failed to parse, will try CustomerMgmt.txt")
+        
+        # Fallback to CustomerMgmt.txt (pipe-delimited) if XML failed
+        if xml_error:
+            logger.info("Falling back to CustomerMgmt.txt (pipe-delimited)")
+            try:
+                df = self._read_file_with_delimiter_detection(
+                    batch_id,
+                    "CustomerMgmt.txt",
+                    expected_cols=8,
+                    expected_format="ActionType|AccountID|... (pipe-delimited)",
+                    preferred_delimiter="|"
+                )
+                logger.info("Successfully read CustomerMgmt.txt")
+            except Exception as txt_error:
+                logger.error(f"Failed to read CustomerMgmt.txt: {txt_error}")
+                raise ValueError(
+                    f"Could not read CustomerMgmt file from Batch{batch_id}. "
+                    f"Tried CustomerMgmt.xml (XML format): {xml_error}. "
+                    f"Tried CustomerMgmt.txt (pipe-delimited): {txt_error}. "
+                    f"Please ensure one of these files exists in Batch{batch_id}/ directory."
+                ) from txt_error
+        
+        # Check if this is XML format (has ActionType column) or text format (has _c0)
+        if "ActionType" in df.columns:
+            # XML format: filter for Account actions and extract Account data
+            logger.info("Processing CustomerMgmt.xml (XML format)")
+            
+            # Filter for actions that have Account data
+            account_actions = df.filter(col("Account").isNotNull())
+            
+            # Extract Account fields from nested XML structure
+            # XML structure: Action -> Account -> fields
+            dim_account = account_actions.select(
+                col("Account._AccountID").alias("AccountID"),
+                col("Account._SK_BrokerID").alias("SK_BrokerID"),
+                col("Account._SK_CustomerID").alias("SK_CustomerID"),
+                col("Account._Status").alias("Status"),
+                col("Account._AccountDesc").alias("AccountDesc"),
+                col("Account._TaxStatus").alias("TaxStatus"),
+                col("Account._IsCurrent").alias("IsCurrent"),
+                col("ActionType"),
+                lit(batch_id).alias("BatchID"),
+                current_timestamp().alias("EffectiveDate"),
+                current_timestamp().alias("EndDate")
             )
-        
-        # Filter for Account records (record type 'A')
-        account_records = df.filter(col("_c0") == "A")
-        
-        # Transform to DimAccount schema (simplified - actual TPC-DI spec is more complex)
-        dim_account = account_records.select(
-            col("_c1").alias("AccountID"),
-            col("_c2").alias("SK_BrokerID"),
-            col("_c3").alias("SK_CustomerID"),
-            col("_c4").alias("Status"),
-            col("_c5").alias("AccountDesc"),
-            col("_c6").alias("TaxStatus"),
-            col("_c7").alias("IsCurrent"),
-            lit(batch_id).alias("BatchID"),
-            current_timestamp().alias("EffectiveDate"),
-            current_timestamp().alias("EndDate")
-        )
+        else:
+            # Text format: filter for Account records (record type 'A')
+            logger.info("Processing CustomerMgmt.txt (pipe-delimited format)")
+            account_records = df.filter(col("_c0") == "A")
+            
+            # Transform to DimAccount schema (simplified - actual TPC-DI spec is more complex)
+            dim_account = account_records.select(
+                col("_c1").alias("AccountID"),
+                col("_c2").alias("SK_BrokerID"),
+                col("_c3").alias("SK_CustomerID"),
+                col("_c4").alias("Status"),
+                col("_c5").alias("AccountDesc"),
+                col("_c6").alias("TaxStatus"),
+                col("_c7").alias("IsCurrent"),
+                lit(batch_id).alias("BatchID"),
+                current_timestamp().alias("EffectiveDate"),
+                current_timestamp().alias("EndDate")
+            )
         
         self.platform.write_table(dim_account, target_table, mode="append")
         return dim_account
