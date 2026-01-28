@@ -176,50 +176,43 @@ class BatchETL:
         """
         Read CustomerMgmt.xml file and parse XML structure.
         
-        TPC-DI XML structure:
-        <TPCDI:Actions>
-          <Action>
-            <ActionType>NEW|UPD|INACT</ActionType>
-            <Customer>...</Customer> or <Account>...</Account>
-          </Action>
+        TPC-DI structure (see docs/CUSTOMERMGMT_STRUCTURE.md):
+        <TPCDI:Actions xmlns:TPCDI="http://www.tpc.org/tpc-di">
+          <TPCDI:Action ActionType="NEW" ActionTS="2007-07-07T02:56:25">
+            <Customer C_ID="0" C_TAX_ID="..." ...>
+              <Name><C_L_NAME/>...</Name>
+              <Address>...</Address>
+              <ContactInfo>...</ContactInfo>
+              <TaxInfo>...</TaxInfo>
+              <Account CA_ID="0" CA_TAX_ST="1">
+                <CA_B_ID>17713</CA_B_ID>
+                <CA_NAME>...</CA_NAME>
+              </Account>
+            </Customer>
+          </TPCDI:Action>
         </TPCDI:Actions>
         
         Returns DataFrame with flattened structure.
-        
-        Note: Requires spark-xml library (com.databricks:spark-xml_2.12:0.15.0)
+        Requires spark-xml (com.databricks:spark-xml_2.12:0.15.0).
         """
         logger.info(f"Reading CustomerMgmt.xml from Batch{batch_id}")
         
         try:
             file_path = f"Batch{batch_id}/CustomerMgmt.xml"
             
-            # Try different rowTag options to handle namespace
+            # Try TPCDI:Action + rootTag first (matches actual DIGen output)
             df = None
-            for row_tag_option in ["Action", "TPCDI:Action"]:
+            for row_tag, root_tag in [("TPCDI:Action", "TPCDI:Actions"), ("Action", None)]:
                 try:
-                    df = self.platform.read_raw_file(
-                        file_path,
-                        format="xml",
-                        rowTag=row_tag_option
-                    )
-                    
+                    opts = {"format": "xml", "rowTag": row_tag}
+                    if root_tag:
+                        opts["rootTag"] = root_tag
+                    df = self.platform.read_raw_file(file_path, **opts)
                     if df.count() > 0:
                         break
                     df = None
                 except Exception:
                     df = None
-            
-            # Try with explicit rootTag if still empty
-            if df is None or df.count() == 0:
-                try:
-                    df = self.platform.read_raw_file(
-                        file_path,
-                        format="xml",
-                        rowTag="Action",
-                        rootTag="TPCDI:Actions"
-                    )
-                except Exception:
-                    pass
             
             if df is None or df.count() == 0:
                 raise RuntimeError(
@@ -484,7 +477,8 @@ class BatchETL:
                 col("Customer._C_ID").alias("CustomerID"),
                 col("Customer.Account._CA_ID").alias("AccountID"),
                 col("Customer.Account._CA_TAX_ST").alias("TaxStatus"),
-                col("Customer.Account.CA_NAME").alias("AccountName")
+                col("Customer.Account.CA_NAME").alias("AccountName"),
+                col("Customer.Account.CA_B_ID").alias("BrokerID"),
             ).filter(col("Customer.Account._CA_ID").isNotNull())
         except Exception as e1:
             extraction_errors.append(f"Pattern 1 (direct access): {e1}")
@@ -510,7 +504,8 @@ class BatchETL:
                         col("Action.Customer._C_ID").alias("CustomerID"),
                         col("Action.Customer.Account._CA_ID").alias("AccountID"),
                         col("Action.Customer.Account._CA_TAX_ST").alias("TaxStatus"),
-                        col("Action.Customer.Account.CA_NAME").alias("AccountName")
+                        col("Action.Customer.Account.CA_NAME").alias("AccountName"),
+                        col("Action.Customer.Account.CA_B_ID").alias("BrokerID"),
                     ).filter(col("Action.Customer.Account._CA_ID").isNotNull())
                 else:
                     # Check schema for array columns
@@ -527,7 +522,8 @@ class BatchETL:
                             col("Action.Customer._C_ID").alias("CustomerID"),
                             col("Action.Customer.Account._CA_ID").alias("AccountID"),
                             col("Action.Customer.Account._CA_TAX_ST").alias("TaxStatus"),
-                            col("Action.Customer.Account.CA_NAME").alias("AccountName")
+                            col("Action.Customer.Account.CA_NAME").alias("AccountName"),
+                            col("Action.Customer.Account.CA_B_ID").alias("BrokerID"),
                         ).filter(col("Action.Customer.Account._CA_ID").isNotNull())
             except Exception as e2:
                 extraction_errors.append(f"Pattern 2 (explode Actions): {e2}")
@@ -545,7 +541,8 @@ class BatchETL:
                   Customer._C_ID as CustomerID,
                   Customer.Account._CA_ID as AccountID,
                   Customer.Account._CA_TAX_ST as TaxStatus,
-                  Customer.Account.CA_NAME as AccountName
+                  Customer.Account.CA_NAME as AccountName,
+                  Customer.Account.CA_B_ID as BrokerID
                 FROM {temp_view}
                 WHERE Customer.Account._CA_ID IS NOT NULL
                 """
@@ -560,7 +557,8 @@ class BatchETL:
                       Action.Customer._C_ID as CustomerID,
                       Action.Customer.Account._CA_ID as AccountID,
                       Action.Customer.Account._CA_TAX_ST as TaxStatus,
-                      Action.Customer.Account.CA_NAME as AccountName
+                      Action.Customer.Account.CA_NAME as AccountName,
+                      Action.Customer.Account.CA_B_ID as BrokerID
                     FROM (
                       SELECT explode(Action) as Action FROM {temp_view}
                     )
@@ -585,23 +583,20 @@ class BatchETL:
                 f"Failed to extract Account data from CustomerMgmt.xml.\n"
                 f"Tried multiple patterns including explode().\n"
                 f"Errors:\n{error_summary}\n\n"
-                f"Expected structure:\n"
-                f"  - _ActionType (attribute on Action)\n"
-                f"  - _ActionTS (attribute on Action)\n"
-                f"  - Customer._C_ID (attribute on Customer)\n"
-                f"  - Customer.Account._CA_ID (attribute on Account)\n"
-                f"  - Customer.Account._CA_TAX_ST (attribute on Account)\n"
-                f"  - Customer.Account.CA_NAME (element on Account)\n\n"
+                f"Expected structure (see docs/CUSTOMERMGMT_STRUCTURE.md):\n"
+                f"  - _ActionType, _ActionTS (Action attributes)\n"
+                f"  - Customer._C_ID, Customer.Account._CA_ID, _CA_TAX_ST\n"
+                f"  - Customer.Account.CA_NAME, CA_B_ID (elements)\n\n"
                 f"Please check:\n"
-                f"1. spark-xml library is installed (com.databricks:spark-xml_2.12:0.15.0)\n"
-                f"2. XML file structure matches TPC-DI spec\n"
-                f"3. Actions may need to be exploded if they're in an array"
+                f"1. spark-xml library (com.databricks:spark-xml_2.12:0.15.0)\n"
+                f"2. XML matches TPC-DI spec\n"
+                f"3. rowTag=TPCDI:Action, rootTag=TPCDI:Actions"
             )
         
-        # Transform to DimAccount schema
+        # Transform to DimAccount schema (CA_B_ID -> SK_BrokerID per TPC-DI)
         dim_account = account_df.select(
             col("AccountID").alias("SK_AccountID"),
-            lit(None).cast("bigint").alias("SK_BrokerID"),
+            col("BrokerID").cast("bigint").alias("SK_BrokerID"),
             col("CustomerID").alias("SK_CustomerID"),
             col("ActionType").alias("Status"),
             col("AccountName").alias("AccountDesc"),
