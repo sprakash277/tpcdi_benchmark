@@ -12,7 +12,7 @@ TPC-DI Format Differences:
 import logging
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
-    col, lit, when, to_date, to_timestamp, explode, current_timestamp, coalesce
+    col, lit, when, to_date, to_timestamp, explode, current_timestamp, coalesce, trim
 )
 from pyspark.sql.types import LongType, IntegerType, StringType, DateType, TimestampType
 
@@ -170,156 +170,64 @@ class SilverAccounts(SilverLoaderBase):
         Load accounts from pipe-delimited format (Batch 2+).
         
         Account.txt format (pipe-delimited, state-at-time snapshot):
-        I|CA_ID|CA_B_ID|CA_C_ID|UNKNOWN_ID|CA_NAME|CA_TAX_ST|CA_ST_ID
-        
-        Actual column positions (0-indexed after parsing):
-        - _c0: Record type ('I'=Insert/Incremental, 'U'=Update, 'D'=Delete)
-          Used for SCD Type 2 identification: 'D' or CA_ST_ID='INACT' → INACT, otherwise UPDACCT.
-          NEW vs UPDACCT is determined during SCD2 MERGE by checking if account_id exists in target table.
-        - _c1: CA_ID
-        - _c2: CA_B_ID (broker ID)
-        - _c3: CA_C_ID (customer ID)
-        - _c4: UNKNOWN_ID (ignored, not used in account schema)
-        - _c5: CA_NAME
-        - _c6: CA_TAX_ST
-        - _c7: CA_ST_ID
-        
-        Args:
-            bronze_table: bronze_account table
-            target_table: Target silver table
-            batch_id: Batch number (should be 2+)
-            
-        Returns:
-            DataFrame with cleaned account data
+        record_type|CA_ID|CA_B_ID|CA_C_ID|UNKNOWN_ID|CA_NAME|CA_TAX_ST|CA_ST_ID
+        - _c0: record_type (I/U/D), _c1: CA_ID, _c2: CA_B_ID, _c3: C_ID, _c4: skip, _c5: CA_NAME,
+          _c6: CA_TAX_ST, _c7: CA_ST_ID. SCD2 driven by record_type: D = close only, no insert.
         """
         logger.info("Parsing accounts from pipe-delimited format (Batch 2+)")
         
         bronze_df = self.spark.table(bronze_table)
         bronze_df = bronze_df.filter(col("_batch_id") == batch_id)
         
-        # Parse pipe-delimited (parse up to 10 columns to be safe)
-        # TPC-DI Account.txt format based on actual sample records:
-        # I|CA_ID|CA_B_ID|CA_C_ID|UNKNOWN_ID|CA_NAME|CA_TAX_ST|CA_ST_ID
-        # Total: 8 columns (including record type 'I' at position 0)
-        parsed_df = self._parse_pipe_delimited(bronze_df, 10)
+        num_cols = 10
+        parsed_df = self._parse_pipe_delimited(bronze_df, num_cols)
+        record_type_expr, data_offset = self._extract_record_type(parsed_df, batch_id, 0)
         
-        # Check actual column count
-        actual_cols = [c for c in parsed_df.columns if c.startswith("_c")]
-        max_col_idx = max([int(c[2:]) for c in actual_cols]) if actual_cols else -1
-        logger.info(f"Account.txt parsed with {max_col_idx + 1} columns (indices 0-{max_col_idx})")
+        def c(i: int):
+            return coalesce(trim(col(f"_c{i}")), lit(""))
         
-        # Helper to check if column exists
-        def col_exists(idx: int) -> bool:
-            return f"_c{idx}" in parsed_df.columns
-        
-        # Map to account schema with safe column access
-        # Account.txt format based on actual sample records:
-        # I|CA_ID|CA_B_ID|CA_C_ID|UNKNOWN_ID|CA_NAME|CA_TAX_ST|CA_ST_ID
-        # Column mapping (0-indexed after parsing):
-        # _c0: Record type ('I'=Insert/Incremental, 'U'=Update, 'D'=Delete)
-        # _c1: CA_ID
-        # _c2: CA_B_ID (broker ID)
-        # _c3: CA_C_ID (customer ID)
-        # _c4: UNKNOWN_ID (ignored, not used in account schema)
-        # _c5: CA_NAME
-        # _c6: CA_TAX_ST
-        # _c7: CA_ST_ID
-        
-        # Build select list dynamically
-        select_cols = []
-        
-        # Capture record type (_c0) for CDC identification
-        if col_exists(0):
-            select_cols.append(coalesce(col("_c0"), lit("I")).alias("record_type"))
-        else:
-            select_cols.append(lit("I").alias("record_type"))  # Default to 'I' if missing
-        
-        # Required fields (mapped based on actual format)
-        field_mappings = [
-            (1, "ca_id", LongType, True),      # CA_ID
-            (2, "ca_b_id", LongType, True),    # CA_B_ID
-            (3, "c_id", LongType, True),       # CA_C_ID (customer ID)
-            (5, "ca_name", None, False),       # CA_NAME (skip _c4)
-            (6, "ca_tax_st", IntegerType, True), # CA_TAX_ST
-            (7, "ca_st_id", None, False),      # CA_ST_ID
-        ]
-        
-        for idx, alias_name, cast_type, is_numeric in field_mappings:
-            if col_exists(idx):
-                if cast_type:
-                    default_val = "0" if is_numeric else ""
-                    select_cols.append(coalesce(col(f"_c{idx}"), lit(default_val)).cast(cast_type()).alias(alias_name))
-                else:
-                    select_cols.append(coalesce(col(f"_c{idx}"), lit("")).alias(alias_name))
-            else:
-                # Column doesn't exist, use default
-                if cast_type:
-                    select_cols.append(lit("0").cast(cast_type()).alias(alias_name))
-                else:
-                    select_cols.append(lit("").alias(alias_name))
-        
-        # Add metadata columns
-        select_cols.extend([
+        # Map per sample: I|43490|30470|16206|15280|...|CA_NAME|CA_TAX_ST|CA_ST_ID
+        account_df = parsed_df.select(
+            record_type_expr,
+            c(0 + data_offset).cast(LongType()).alias("ca_id"),
+            c(1 + data_offset).cast(LongType()).alias("ca_b_id"),
+            c(2 + data_offset).cast(LongType()).alias("c_id"),
+            c(4 + data_offset).alias("ca_name"),   # skip _c(3+data_offset)
+            c(5 + data_offset).cast(IntegerType()).alias("ca_tax_st"),
+            c(6 + data_offset).alias("ca_st_id"),
             col("_batch_id").alias("batch_id"),
             col("_load_timestamp").alias("load_timestamp"),
-        ])
-        
-        account_df = parsed_df.select(*select_cols)
-        
-        # Determine action_type based on record type and status for SCD Type 2 identification
-        # 
-        # Record Type Meanings:
-        # - 'I' = Insert/Incremental (state snapshot - could be NEW or UPDACCT)
-        # - 'U' = Update (explicit update)
-        # - 'D' = Delete (inactivation)
-        #
-        # SCD Type 2 Logic:
-        # - NEW vs UPDACCT: Determined during MERGE by checking if account_id exists in target table
-        #   - If account_id doesn't exist → NEW (insert as new record)
-        #   - If account_id exists → UPDACCT (close existing record, insert new version)
-        # - INACT: Determined by record_type='D' OR ca_st_id='INACT' (close existing record)
-        #
-        # The record_type field is captured for audit/debugging but the SCD2 merge logic
-        # handles NEW vs UPDACCT automatically based on key existence.
-        account_df = account_df.withColumn(
-            "action_type",
-            when(
-                (col("record_type") == "D") | (col("ca_st_id") == "INACT"),
-                lit("INACT")
-            ).when(
-                col("record_type") == "U",
-                lit("UPDACCT")
-            ).when(
-                col("record_type") == "I",
-                # 'I' could be NEW or UPDACCT - will be determined during SCD2 merge
-                # Default to UPDACCT for now (SCD2 logic will handle correctly)
-                lit("UPDACCT")
-            ).otherwise(
-                lit("UPDACCT")  # Default fallback
-            )
-        ).withColumn(
-            "action_ts",
-            current_timestamp()  # Use current timestamp for state snapshot
         )
         
-        # Transform to silver schema
+        # action_type from record_type for SCD2: I=ADDACCT, U=UPDACCT, D=INACT
+        account_df = account_df.withColumn(
+            "action_type",
+            when(col("record_type") == "D", lit("INACT"))
+            .when(col("record_type") == "U", lit("UPDACCT"))
+            .when(col("record_type") == "I", lit("ADDACCT"))
+            .otherwise(lit("UPDACCT"))
+        ).withColumn("action_ts", current_timestamp())
+        
         silver_df = self._transform_to_silver_schema(
             account_df,
             has_action_type=True,
+            has_record_type=True,
             batch_id=batch_id
         )
         
-        # Batch 2+: Incremental CDC with SCD Type 2
-        logger.info(f"Applying SCD Type 2 CDC for batch {batch_id}")
+        logger.info(f"Applying SCD Type 2 CDC for batch {batch_id} (record_type I/U/D)")
         return self._apply_scd_type2(
             incoming_df=silver_df,
             target_table=target_table,
             key_column="account_id",
-            effective_date_col="effective_date"
+            effective_date_col="effective_date",
+            record_type_col="record_type",
+            exclude_record_types=["D"],
         )
     
     def _transform_to_silver_schema(self, account_df: DataFrame, 
-                                    has_action_type: bool, batch_id: int) -> DataFrame:
+                                    has_action_type: bool, batch_id: int,
+                                    has_record_type: bool = False) -> DataFrame:
         """
         Transform account DataFrame to silver schema.
         
@@ -327,55 +235,58 @@ class SilverAccounts(SilverLoaderBase):
             account_df: Input DataFrame with account fields
             has_action_type: Whether action_type/action_ts columns exist
             batch_id: Batch number
-            
-        Returns:
-            DataFrame with silver schema
+            has_record_type: Whether record_type (I/U/D) exists (incremental); used for SCD2
         """
-        # Build select columns dynamically based on whether action_type exists
         select_cols = []
         
-        # Core account fields
         select_cols.extend([
             col("ca_id").cast(LongType()).alias("account_id"),
-            coalesce(col("ca_b_id"), lit("0")).cast(LongType()).alias("broker_id"),
-            coalesce(col("c_id"), lit("0")).cast(LongType()).alias("customer_id"),
+            coalesce(col("ca_b_id"), lit(0)).cast(LongType()).alias("broker_id"),
+            coalesce(col("c_id"), lit(0)).cast(LongType()).alias("customer_id"),
             coalesce(col("ca_name"), lit("")).alias("account_name"),
-            coalesce(col("ca_tax_st"), lit("0")).cast(IntegerType()).alias("tax_status"),
+            coalesce(col("ca_tax_st"), lit(0)).cast(IntegerType()).alias("tax_status"),
             coalesce(col("ca_st_id"), lit("")).alias("status_id"),
         ])
         
-        # Action fields (conditional)
         if has_action_type:
             select_cols.extend([
                 col("action_type").alias("action_type"),
                 to_timestamp(col("action_ts")).alias("action_timestamp"),
             ])
         else:
-            # Default values if not present
             select_cols.extend([
                 lit("ADDACCT").alias("action_type"),
                 current_timestamp().alias("action_timestamp"),
             ])
         
-        # SCD Type 2 fields
         if has_action_type:
-            # Use action_ts as effective_date
             select_cols.append(
                 to_date(to_timestamp(col("action_ts"))).alias("effective_date")
             )
         else:
-            # Use current date
             select_cols.append(
                 to_date(current_timestamp()).alias("effective_date")
             )
         
         select_cols.extend([
             lit(None).cast(DateType()).alias("end_date"),
-            lit(True).alias("is_current"),
+        ])
+        
+        # is_current: D = false (close only, no insert); I/U = true
+        if has_record_type and "record_type" in account_df.columns:
+            select_cols.append(
+                when(col("record_type") == "D", lit(False)).otherwise(lit(True)).alias("is_current")
+            )
+        else:
+            select_cols.append(lit(True).alias("is_current"))
+        
+        select_cols.extend([
             col("batch_id").cast(IntegerType()).alias("batch_id"),
             col("load_timestamp").alias("load_timestamp"),
         ])
         
-        silver_df = account_df.select(*select_cols)
+        # Pass record_type through for SCD2 (exclude D from append)
+        if has_record_type and "record_type" in account_df.columns:
+            select_cols.append(col("record_type"))
         
-        return silver_df
+        return account_df.select(*select_cols)

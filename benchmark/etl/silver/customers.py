@@ -12,7 +12,7 @@ TPC-DI Format Differences:
 import logging
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
-    col, lit, when, to_date, to_timestamp, explode, current_timestamp
+    col, lit, when, to_date, to_timestamp, explode, current_timestamp, coalesce, trim
 )
 from pyspark.sql.types import LongType, IntegerType, TimestampType
 
@@ -174,84 +174,86 @@ class SilverCustomers(SilverLoaderBase):
         """
         Load customers from pipe-delimited format (Batch 2+).
         
-        Customer.txt format (pipe-delimited, state-at-time snapshot):
-        C_ID|C_TAX_ID|C_ST_ID|C_L_NAME|C_F_NAME|C_M_NAME|C_GNDR|C_TIER|C_DOB|
-        C_ADLINE1|C_ADLINE2|C_ZIPCODE|C_CITY|C_STATE_PROV|C_CTRY|
-        C_PRIM_EMAIL|C_ALT_EMAIL|C_PHONE_1|C_PHONE_2|C_PHONE_3|
-        C_LCL_TX_ID|C_NAT_TX_ID
-        
-        Args:
-            bronze_table: bronze_customer table
-            target_table: Target silver table
-            batch_id: Batch number (should be 2+)
-            
-        Returns:
-            DataFrame with cleaned customer data
+        Incremental Customer.txt format (pipe-delimited, state-at-time snapshot):
+        record_type|C_ID|...|C_NAT_TX_ID
+        - _c0: record_type (I=Insert, U=Update, D=Delete)
+        - _c1: C_ID, _c2: (e.g. CA_ID, unused), _c3: C_TAX_ID, _c4: C_ST_ID,
+        - _c5: C_L_NAME, _c6: C_F_NAME, _c7: C_M_NAME, _c8: C_GNDR, _c9: C_TIER,
+        - _c10: C_DOB, _c11–12: C_ADLINE1/2, _c13: C_ZIPCODE, _c14–16: C_CITY, C_STATE_PROV, C_CTRY,
+        - _c17–27: phones etc., _c28–29: C_PRIM_EMAIL, C_ALT_EMAIL, _c30–31: C_LCL_TX_ID, C_NAT_TX_ID
         """
         logger.info("Parsing customers from pipe-delimited format (Batch 2+)")
         
         bronze_df = self.spark.table(bronze_table)
         bronze_df = bronze_df.filter(col("_batch_id") == batch_id)
         
-        # Parse pipe-delimited (approximately 20 columns based on TPC-DI spec)
-        # Note: Exact column count may vary, but we'll parse common fields
-        parsed_df = self._parse_pipe_delimited(bronze_df, 20)
+        # Incremental: record_type in first column, then 34 data columns (35 total)
+        num_cols = 35
+        parsed_df = self._parse_pipe_delimited(bronze_df, num_cols)
+        record_type_expr, data_offset = self._extract_record_type(parsed_df, batch_id, 0)
+        # data_offset = 1 for incremental: _c0=record_type, _c1..=data
         
-        # Map to customer schema
-        # Customer.txt is a state snapshot, so all records are "current" updates
+        def c(i: int):
+            return coalesce(trim(col(f"_c{i}")), lit(""))
+        
+        # Map columns per sample: I|21790|15280|732-50-0322|ACTV|Keung|Mahmut|T||2|1946-02-17|...
+        # Data indices: 0=C_ID, 1=skip, 2=C_TAX_ID, 3=C_ST_ID, 4–10=name,dob,addr, 11–16=city..ctry, 27–30=emails,tax
         customer_df = parsed_df.select(
-            col("_c0").cast(LongType()).alias("c_id"),
-            col("_c1").alias("c_tax_id"),
-            col("_c2").alias("c_st_id"),  # Status ID (not in XML)
-            col("_c3").alias("c_l_name"),
-            col("_c4").alias("c_f_name"),
-            col("_c5").alias("c_m_name"),
-            col("_c6").alias("c_gndr"),
-            col("_c7").cast(IntegerType()).alias("c_tier"),
-            col("_c8").alias("c_dob"),
-            col("_c9").alias("c_adline1"),
-            col("_c10").alias("c_adline2"),
-            col("_c11").alias("c_zipcode"),
-            col("_c12").alias("c_city"),
-            col("_c13").alias("c_state_prov"),
-            col("_c14").alias("c_ctry"),
-            col("_c15").alias("c_prim_email"),
-            col("_c16").alias("c_alt_email"),
-            # Phone fields (_c17, _c18, _c19) - not used in silver schema
-            col("_c20").alias("c_lcl_tx_id"),  # Adjust indices if needed
-            col("_c21").alias("c_nat_tx_id"),
+            record_type_expr,
+            c(0 + data_offset).cast(LongType()).alias("c_id"),
+            c(2 + data_offset).alias("c_tax_id"),
+            c(3 + data_offset).alias("c_st_id"),
+            c(4 + data_offset).alias("c_l_name"),
+            c(5 + data_offset).alias("c_f_name"),
+            c(6 + data_offset).alias("c_m_name"),
+            c(7 + data_offset).alias("c_gndr"),
+            c(8 + data_offset).cast(IntegerType()).alias("c_tier"),
+            c(9 + data_offset).alias("c_dob"),
+            c(10 + data_offset).alias("c_adline1"),
+            c(11 + data_offset).alias("c_adline2"),
+            c(12 + data_offset).alias("c_zipcode"),
+            c(13 + data_offset).alias("c_city"),
+            c(14 + data_offset).alias("c_state_prov"),
+            c(15 + data_offset).alias("c_ctry"),
+            c(27 + data_offset).alias("c_prim_email"),
+            c(28 + data_offset).alias("c_alt_email"),
+            c(29 + data_offset).alias("c_lcl_tx_id"),
+            c(30 + data_offset).alias("c_nat_tx_id"),
             col("_batch_id").alias("batch_id"),
             col("_load_timestamp").alias("load_timestamp"),
         )
         
-        # Add action_type and action_ts for state snapshot
-        # State snapshots are treated as "UPDCUST" (update) unless status indicates inactive
+        # action_type from record_type for SCD2: I=NEW, U=UPDCUST, D=INACT
         customer_df = customer_df.withColumn(
             "action_type",
-            when(col("c_st_id") == "INACT", lit("INACT")).otherwise(lit("UPDCUST"))
-        ).withColumn(
-            "action_ts",
-            current_timestamp()  # Use current timestamp for state snapshot
-        )
+            when(col("record_type") == "D", lit("INACT"))
+            .when(col("record_type") == "U", lit("UPDCUST"))
+            .when(col("record_type") == "I", lit("NEW"))
+            .otherwise(lit("UPDCUST"))
+        ).withColumn("action_ts", current_timestamp())
         
-        # Transform to silver schema
+        # Transform to silver schema (pass record_type for SCD2)
         silver_df = self._transform_to_silver_schema(
             customer_df,
             has_action_type=True,
+            has_record_type=True,
             batch_id=batch_id
         )
         
-        # Batch 2+: Incremental CDC with SCD Type 2
-        logger.info(f"Applying SCD Type 2 CDC for batch {batch_id}")
+        # Batch 2+: SCD Type 2 driven by record_type. D = close only, no insert.
+        logger.info(f"Applying SCD Type 2 CDC for batch {batch_id} (record_type I/U/D)")
         return self._apply_scd_type2(
             incoming_df=silver_df,
             target_table=target_table,
             key_column="customer_id",
-            effective_date_col="effective_date"
+            effective_date_col="effective_date",
+            record_type_col="record_type",
+            exclude_record_types=["D"],
         )
     
     def _transform_to_silver_schema(self, customer_df: DataFrame, 
-                                    has_action_type: bool, batch_id: int) -> DataFrame:
+                                    has_action_type: bool, batch_id: int,
+                                    has_record_type: bool = False) -> DataFrame:
         """
         Transform customer data to silver schema.
         
@@ -259,9 +261,7 @@ class SilverCustomers(SilverLoaderBase):
             customer_df: Input DataFrame with customer fields
             has_action_type: Whether action_type/action_ts columns exist
             batch_id: Batch number
-            
-        Returns:
-            DataFrame with silver schema
+            has_record_type: Whether record_type (I/U/D) exists (incremental); used for SCD2
         """
         # Build select list conditionally
         select_cols = [
@@ -270,7 +270,7 @@ class SilverCustomers(SilverLoaderBase):
             col("c_tax_id").alias("tax_id"),
         ]
         
-        # Status column
+        # Status column: action_type (NEW/UPDCUST/INACT from record_type when has_record_type)
         if has_action_type:
             select_cols.append(col("action_type").alias("status"))
         else:
@@ -284,7 +284,7 @@ class SilverCustomers(SilverLoaderBase):
                 .when(col("c_gndr").isin("F", "f"), "Female")
                 .otherwise("Unknown").alias("gender"),
             col("c_tier").cast(IntegerType()).alias("tier"),
-            to_date(col("c_dob")).alias("dob"),
+            to_date(col("c_dob"), "yyyy-MM-dd").alias("dob"),
             col("c_adline1").alias("address_line1"),
             col("c_adline2").alias("address_line2"),
             col("c_zipcode").alias("postal_code"),
@@ -298,15 +298,19 @@ class SilverCustomers(SilverLoaderBase):
             col("batch_id"),
         ])
         
-        # is_current column
-        if has_action_type:
+        # is_current: D = false (close only, no insert); I/U = true
+        if has_record_type:
+            select_cols.append(
+                when(col("record_type") == "D", lit(False)).otherwise(lit(True)).alias("is_current")
+            )
+        elif has_action_type:
             select_cols.append(
                 when(col("action_type") == "INACT", lit(False)).otherwise(lit(True)).alias("is_current")
             )
         else:
             select_cols.append(lit(True).alias("is_current"))
         
-        # effective_date column
+        # effective_date
         if has_action_type:
             select_cols.append(to_timestamp(col("action_ts")).alias("effective_date"))
         else:
@@ -316,5 +320,9 @@ class SilverCustomers(SilverLoaderBase):
             lit(None).cast(TimestampType()).alias("end_date"),
             col("load_timestamp"),
         ])
+        
+        # Pass record_type through for SCD2 (exclude D from append)
+        if has_record_type and "record_type" in customer_df.columns:
+            select_cols.append(col("record_type"))
         
         return customer_df.select(*select_cols)

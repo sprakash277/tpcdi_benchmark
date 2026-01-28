@@ -163,20 +163,27 @@ class SilverLoaderBase:
         return df
     
     def _apply_scd_type2(self, incoming_df: DataFrame, target_table: str,
-                         key_column: str, effective_date_col: str = "effective_date") -> DataFrame:
+                         key_column: str, effective_date_col: str = "effective_date",
+                         record_type_col: Optional[str] = None,
+                         exclude_record_types: Optional[List[str]] = None) -> DataFrame:
         """
         Apply SCD Type 2 logic for incremental loads.
         
         This method:
         1. Closes out existing current records that have updates (set is_current=False, end_date)
-        2. Inserts new versions of updated records
-        3. Inserts completely new records
+        2. Inserts new versions of updated records (and new records)
+        3. When record_type_col/exclude_record_types are set (e.g. D=delete):
+           - Close step uses all incoming keys (including D)
+           - Append step inserts only rows whose record_type is NOT in exclude_record_types
+           So D = close current row only, no insert.
         
         Args:
             incoming_df: DataFrame with incoming changes
             target_table: Target table name
             key_column: Business key column (e.g., 'customer_id', 'account_id')
             effective_date_col: Column containing the effective date
+            record_type_col: Optional column name for record_type (I/U/D)
+            exclude_record_types: Optional list of record_type values to exclude from append (e.g. ["D"])
             
         Returns:
             DataFrame with changes applied
@@ -259,12 +266,19 @@ class SilverLoaderBase:
         except Exception as e:
             logger.warning(f"MERGE failed (may not be Delta): {e}. Falling back to append-only.")
             # Fallback: just append (works for non-Delta tables)
-            self.platform.write_table(incoming_df, target_table, mode="append")
+            append_df = incoming_df
+            if record_type_col and exclude_record_types:
+                append_df = incoming_df.filter(~col(record_type_col).isin(*exclude_record_types))
+            self.platform.write_table(append_df, target_table, mode="append")
             return incoming_df
         
-        # Step 2: Insert new versions
+        # Step 2: Insert new versions (exclude D: close-only, no insert)
+        append_df = incoming_df
+        if record_type_col and exclude_record_types:
+            append_df = incoming_df.filter(~col(record_type_col).isin(*exclude_record_types))
+            logger.info(f"Excluding record_type in {exclude_record_types} from append ({append_df.count()} rows to insert)")
         # Use mergeSchema=true for Delta append to handle schema evolution
-        self.platform.write_table(incoming_df, target_table, mode="append")
+        self.platform.write_table(append_df, target_table, mode="append")
         
         # Cleanup temp views
         try:
@@ -273,7 +287,7 @@ class SilverLoaderBase:
         except:
             pass
         
-        logger.info(f"SCD Type 2 applied to {target_table}: {incoming_df.count()} new versions inserted")
+        logger.info(f"SCD Type 2 applied to {target_table}: {append_df.count()} new versions inserted")
         return incoming_df
     
     def _upsert_fact_table(self, incoming_df: DataFrame, target_table: str,
