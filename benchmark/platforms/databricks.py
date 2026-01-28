@@ -12,24 +12,35 @@ logger = logging.getLogger(__name__)
 
 
 class DatabricksPlatform:
-    """Platform adapter for Databricks with DBFS storage."""
+    """Platform adapter for Databricks. Reads raw data from DBFS or Unity Catalog Volume."""
     
-    def __init__(self, spark: SparkSession, raw_data_path: str):
+    def __init__(self, spark: SparkSession, raw_data_path: str, use_volume: bool = False):
         """
         Initialize Databricks platform adapter.
         
         Args:
             spark: SparkSession (should already be configured)
-            raw_data_path: Base path to raw TPC-DI data in DBFS (e.g., dbfs:/mnt/tpcdi/sf=10)
+            raw_data_path: Base path to raw TPC-DI data including sf=X
+                          (e.g. dbfs:/mnt/tpcdi/sf=10 or /Volumes/cat/schema/vol/sf=10)
+            use_volume: True if raw data is in a Unity Catalog Volume
         """
         self.spark = spark
         self.raw_data_path = raw_data_path.rstrip("/")
-        logger.info(f"Initialized Databricks platform with raw_data_path: {self.raw_data_path}")
+        self.use_volume = use_volume
+        logger.info(
+            f"Initialized Databricks platform with raw_data_path: {self.raw_data_path} "
+            f"(use_volume={use_volume})"
+        )
+    
+    def _resolve_path(self, relative_path: str) -> str:
+        """Resolve full path for reading. Handles both DBFS and Volume."""
+        full = f"{self.raw_data_path}/{relative_path}".replace("//", "/")
+        return full
     
     def read_raw_file(self, file_path: str, schema: Optional[StructType] = None, 
                      format: str = "csv", **options) -> DataFrame:
         """
-        Read a raw data file from DBFS.
+        Read a raw data file from DBFS or Unity Catalog Volume.
         
         Args:
             file_path: Relative path from raw_data_path (e.g., "Batch1/CustomerMgmt.txt")
@@ -40,8 +51,8 @@ class DatabricksPlatform:
         Returns:
             DataFrame with the data
         """
-        full_path = f"{self.raw_data_path}/{file_path}"
-        logger.debug(f"Reading file: {full_path}")
+        full_path = self._resolve_path(file_path)
+        logger.debug(f"Reading file: {full_path} (volume={self.use_volume})")
         
         reader = self.spark.read.format(format)
         if schema:

@@ -102,7 +102,8 @@ def create_workflow_definition(
                     "base_parameters": {
                         "load_type": default_load_type,
                         "scale_factor": str(default_scale_factor),
-                        "raw_data_path": default_raw_data_path,
+                        "output_path": default_output_path,
+                        "use_volume": "false",
                         "target_database": default_target_database,
                         "target_schema": default_target_schema,
                         "target_catalog": default_target_catalog,
@@ -130,12 +131,12 @@ def create_workflow_definition(
             {
                 "name": "output_path",
                 "default": default_output_path,
-                "description": "Data generation output path (DBFS); raw data written here"
+                "description": "Data gen output & benchmark raw data input (DBFS or Volume base)"
             },
             {
-                "name": "raw_data_path",
-                "default": default_raw_data_path,
-                "description": "Base path for raw TPC-DI data in DBFS (benchmark reads from here)"
+                "name": "use_volume",
+                "default": "false",
+                "description": "Raw data in Unity Catalog Volume (use with output_path)"
             },
             {
                 "name": "load_type",

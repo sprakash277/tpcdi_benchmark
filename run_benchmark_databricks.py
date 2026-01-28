@@ -22,8 +22,10 @@ if __name__ == "__main__":
                        help="Type of load: batch or incremental")
     parser.add_argument("--scale-factor", type=int, required=True,
                        help="TPC-DI scale factor (e.g., 10, 100, 1000)")
-    parser.add_argument("--raw-data-path", default="dbfs:/mnt/tpcdi",
-                       help="Path to raw TPC-DI data in DBFS (default: dbfs:/mnt/tpcdi)")
+    parser.add_argument("--output-path", default="dbfs:/mnt/tpcdi",
+                       help="Raw data location: DBFS or Volume base path (default: dbfs:/mnt/tpcdi)")
+    parser.add_argument("--use-volume", action="store_true",
+                       help="Raw data is in Unity Catalog Volume")
     parser.add_argument("--target-database", default="tpcdi_warehouse",
                        help="Target database name (default: tpcdi_warehouse)")
     parser.add_argument("--target-schema", default="dw",
@@ -37,17 +39,17 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    # Construct raw data path with scale factor
-    raw_data_path = f"{args.raw_data_path.rstrip('/')}/sf={args.scale_factor}"
-    
+    # output_path = raw data base; runner appends /sf={scale_factor}
     config = BenchmarkConfig(
         platform=Platform.DATABRICKS,
         load_type=LoadType(args.load_type),
         scale_factor=args.scale_factor,
-        raw_data_path=raw_data_path,
+        raw_data_path=args.output_path,
         target_database=args.target_database,
         target_schema=args.target_schema,
         target_catalog=args.target_catalog,
+        output_path=args.output_path,
+        use_volume=args.use_volume,
         batch_id=args.batch_id,
         metrics_output_path=args.metrics_output,
     )

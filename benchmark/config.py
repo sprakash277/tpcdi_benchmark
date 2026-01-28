@@ -26,10 +26,12 @@ class BenchmarkConfig:
     platform: Platform
     load_type: LoadType
     scale_factor: int
-    raw_data_path: str  # DBFS path for Databricks, GCS path for Dataproc
+    raw_data_path: str  # GCS path for Dataproc; for Databricks use output_path when set
     target_database: str = "tpcdi_warehouse"
     target_schema: str = "dw"
     target_catalog: Optional[str] = None  # Unity Catalog (Databricks); when set, create catalog + schema
+    output_path: Optional[str] = None  # Databricks: raw data input location (DBFS or Volume base path)
+    use_volume: bool = False  # Databricks: True if raw data is in Unity Catalog Volume
     batch_id: Optional[int] = None  # For incremental loads
     spark_master: Optional[str] = None  # For Dataproc
     gcs_bucket: Optional[str] = None  # For Dataproc

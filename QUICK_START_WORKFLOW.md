@@ -24,8 +24,8 @@ python create_databricks_workflow.py \
 3. Click **Run now**
 4. In **Parameters**, set:
    - `scale_factor`: `10` (or 100, 1000, etc.)
-   - `output_path`: `dbfs:/mnt/tpcdi` (or your path; where raw data is written)
-   - `raw_data_path`: same as `output_path` (where benchmark reads raw data)
+   - `output_path`: `dbfs:/mnt/tpcdi` or `/Volumes/cat/schema/vol` (raw data location)
+   - `use_volume`: `true` if raw data is in a Volume
    - `load_type`: `batch` (or `incremental`)
    - `batch_id`: `2` (only for incremental)
 5. Click **Run**
@@ -75,8 +75,8 @@ curl -X POST \
 All parameters have defaults. Override at runtime:
 
 - `scale_factor`: TPC-DI scale factor (default: `10`)
-- `output_path`: Data generation output path (default: `dbfs:/mnt/tpcdi`)
-- `raw_data_path`: Base path for raw data / benchmark input (default: `dbfs:/mnt/tpcdi`)
+- `output_path`: Raw data location, DBFS or Volume base (default: `dbfs:/mnt/tpcdi`)
+- `use_volume`: Raw data in Volume (default: `false`)
 - `load_type`: `batch` or `incremental` (default: `batch`)
 - `target_database`: Target database (default: `tpcdi_warehouse`)
 - `target_schema`: Target schema (default: `dw`)

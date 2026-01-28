@@ -128,7 +128,8 @@ workflow = {
                 "base_parameters": {
                     "load_type": "batch",
                     "scale_factor": "10",
-                    "raw_data_path": "dbfs:/mnt/tpcdi",
+                    "output_path": "dbfs:/mnt/tpcdi",
+                    "use_volume": "false",
                     "target_database": "tpcdi_warehouse",
                     "target_schema": "dw",
                     "target_catalog": "",
@@ -153,12 +154,12 @@ workflow = {
         {
             "name": "output_path",
             "default": "dbfs:/mnt/tpcdi",
-            "description": "Data generation output path (DBFS); raw data written here"
+            "description": "Data gen output & benchmark raw data input (DBFS or Volume base)"
         },
         {
-            "name": "raw_data_path",
-            "default": "dbfs:/mnt/tpcdi",
-            "description": "Base path for raw TPC-DI data in DBFS (benchmark reads from here)"
+            "name": "use_volume",
+            "default": "false",
+            "description": "Raw data in Unity Catalog Volume (use with output_path)"
         },
         {
             "name": "load_type",
@@ -194,11 +195,6 @@ workflow = {
             "name": "upload_threads",
             "default": "8",
             "description": "Number of parallel threads for DBFS uploads"
-        },
-        {
-            "name": "use_volume",
-            "default": "false",
-            "description": "Use Unity Catalog Volume for raw data storage"
         },
         {
             "name": "catalog",

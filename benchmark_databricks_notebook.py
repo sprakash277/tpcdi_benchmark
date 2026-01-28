@@ -5,8 +5,10 @@
 # MAGIC Run TPC-DI ETL benchmark on Databricks with performance metrics.
 # MAGIC
 # MAGIC **Prerequisites:**
-# MAGIC - TPC-DI raw data generated and stored in DBFS (use `generate_tpcdi_data.py`)
-# MAGIC - Data should be at: `dbfs:/mnt/tpcdi/sf=<scale_factor>/`
+# MAGIC - TPC-DI raw data generated (use `generate_tpcdi_data.py`)
+# MAGIC - **Output path** = where raw data lives (DBFS or Unity Catalog Volume base):
+# MAGIC   - DBFS: `dbfs:/mnt/tpcdi` → data at `dbfs:/mnt/tpcdi/sf=<scale_factor>/`
+# MAGIC   - Volume: `/Volumes/<catalog>/<schema>/<volume>` → data at `.../volume/sf=<scale_factor>/`
 
 # COMMAND ----------
 
@@ -24,7 +26,11 @@ try:
 except Exception:
     pass
 try:
-    dbutils.widgets.drop("raw_data_path")
+    dbutils.widgets.drop("output_path")
+except Exception:
+    pass
+try:
+    dbutils.widgets.drop("use_volume")
 except Exception:
     pass
 try:
@@ -50,7 +56,8 @@ except Exception:
 
 dbutils.widgets.dropdown("load_type", "batch", ["batch", "incremental"], "Load Type")
 dbutils.widgets.text("scale_factor", "10", "Scale Factor")
-dbutils.widgets.text("raw_data_path", "dbfs:/mnt/tpcdi", "Raw Data Base Path (DBFS)")
+dbutils.widgets.text("output_path", "dbfs:/mnt/tpcdi", "Raw data location (DBFS or Volume base path)")
+dbutils.widgets.dropdown("use_volume", "false", ["true", "false"], "Raw data in Unity Catalog Volume")
 dbutils.widgets.text("target_database", "tpcdi_warehouse", "Target Database")
 dbutils.widgets.text("target_schema", "dw", "Target Schema")
 dbutils.widgets.text("target_catalog", "", "Target Catalog (Unity Catalog; optional)")
@@ -80,7 +87,8 @@ from benchmark.runner import run_benchmark
 # Workflow parameters override widget defaults
 load_type = dbutils.widgets.get("load_type")
 scale_factor = int(dbutils.widgets.get("scale_factor"))
-raw_data_base = dbutils.widgets.get("raw_data_path").strip()
+output_path = dbutils.widgets.get("output_path").strip()
+use_volume = dbutils.widgets.get("use_volume") == "true"
 target_database = dbutils.widgets.get("target_database").strip()
 target_schema = dbutils.widgets.get("target_schema").strip()
 target_catalog = dbutils.widgets.get("target_catalog").strip() or None
@@ -90,15 +98,13 @@ metrics_output = dbutils.widgets.get("metrics_output").strip()
 print(f"Benchmark Parameters:")
 print(f"  Load Type: {load_type}")
 print(f"  Scale Factor: {scale_factor}")
-print(f"  Raw Data Path: {raw_data_base}")
+print(f"  Output Path (raw data): {output_path}")
+print(f"  Use Volume: {use_volume}")
 print(f"  Target Database: {target_database}")
 print(f"  Target Schema: {target_schema}")
 print(f"  Target Catalog: {target_catalog or 'N/A (Hive metastore)'}")
 print(f"  Batch ID: {batch_id_str if batch_id_str else 'N/A (batch load)'}")
 print(f"  Metrics Output: {metrics_output}")
-
-# Construct full raw data path
-raw_data_path = f"{raw_data_base.rstrip('/')}/sf={scale_factor}"
 
 # Parse batch_id for incremental loads
 batch_id = int(batch_id_str) if batch_id_str and load_type == "incremental" else None
@@ -106,15 +112,17 @@ batch_id = int(batch_id_str) if batch_id_str and load_type == "incremental" else
 if load_type == "incremental" and batch_id is None:
     raise ValueError("batch_id is required for incremental loads")
 
-# Create configuration
+# Create configuration (output_path = raw data input; runner appends /sf={scale_factor})
 config = BenchmarkConfig(
     platform=Platform.DATABRICKS,
     load_type=LoadType(load_type),
     scale_factor=scale_factor,
-    raw_data_path=raw_data_path,
+    raw_data_path=output_path,
     target_database=target_database,
     target_schema=target_schema,
     target_catalog=target_catalog,
+    output_path=output_path,
+    use_volume=use_volume,
     batch_id=batch_id,
     metrics_output_path=metrics_output,
 )

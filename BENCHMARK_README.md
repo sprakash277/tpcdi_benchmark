@@ -29,8 +29,10 @@ benchmark/
 
 ### Databricks
 1. Databricks workspace with cluster
-2. TPC-DI raw data in DBFS (generated using `generate_tpcdi_data.py`)
-3. Data path: `dbfs:/mnt/tpcdi/sf=<scale_factor>/`
+2. TPC-DI raw data (generated using `generate_tpcdi_data.py`)
+3. **Output path** = raw data location (benchmark input):
+   - **DBFS**: `dbfs:/mnt/tpcdi` → data at `dbfs:/mnt/tpcdi/sf=<scale_factor>/`
+   - **Volume**: `/Volumes/<catalog>/<schema>/<volume>` → data at `.../volume/sf=<scale_factor>/`
 
 ### Dataproc
 1. Dataproc cluster with GCS connector installed
@@ -47,7 +49,8 @@ benchmark/
 2. Configure widgets:
    - **Load Type**: batch or incremental
    - **Scale Factor**: e.g., 10, 100, 1000
-   - **Raw Data Path**: Base path to raw data (e.g., `dbfs:/mnt/tpcdi`)
+   - **Output Path**: Raw data location (DBFS or Volume base, e.g. `dbfs:/mnt/tpcdi`)
+   - **Use Volume**: `true` if raw data is in a Unity Catalog Volume
    - **Target Database/Schema**: Where to write results
    - **Batch ID**: Required for incremental loads
    - **Metrics Output**: Where to save metrics JSON
@@ -55,13 +58,23 @@ benchmark/
 
 #### Option 2: Python Script
 ```bash
+# DBFS
 python run_benchmark_databricks.py \
   --load-type batch \
   --scale-factor 10 \
-  --raw-data-path dbfs:/mnt/tpcdi \
+  --output-path dbfs:/mnt/tpcdi \
   --target-database tpcdi_warehouse \
   --target-schema dw \
   --metrics-output dbfs:/mnt/tpcdi/metrics
+
+# Unity Catalog Volume
+python run_benchmark_databricks.py \
+  --load-type batch \
+  --scale-factor 10 \
+  --output-path /Volumes/tpcdi/tpcdi_raw_data/tpcdi_volume \
+  --use-volume \
+  --target-database tpcdi_warehouse \
+  --target-schema dw
 ```
 
 For incremental:
@@ -70,7 +83,7 @@ python run_benchmark_databricks.py \
   --load-type incremental \
   --scale-factor 10 \
   --batch-id 2 \
-  --raw-data-path dbfs:/mnt/tpcdi \
+  --output-path dbfs:/mnt/tpcdi \
   --target-database tpcdi_warehouse \
   --target-schema dw
 ```

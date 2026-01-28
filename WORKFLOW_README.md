@@ -70,8 +70,8 @@ The workflow supports the following parameters (all have defaults):
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `scale_factor` | `10` | TPC-DI scale factor (10, 100, 1000, etc.) |
-| `output_path` | `dbfs:/mnt/tpcdi` | Data generation output path (where raw data is written) |
-| `raw_data_path` | `dbfs:/mnt/tpcdi` | Base path for raw data in DBFS (benchmark reads from here) |
+| `output_path` | `dbfs:/mnt/tpcdi` | Data gen output & benchmark raw data input (DBFS or Volume base) |
+| `use_volume` | `false` | Raw data in Unity Catalog Volume (use with `output_path`) |
 | `load_type` | `batch` | Load type: `batch` or `incremental` |
 | `target_database` | `tpcdi_warehouse` | Target database name |
 | `target_schema` | `dw` | Target schema name |
@@ -145,7 +145,7 @@ print(f"Run ID: {run['run_id']}")
 - **Task Key**: `01_data_generation`
 - **Notebook**: `generate_tpcdi_data_notebook`
 - **Purpose**: Generate TPC-DI raw data files
-- **Output**: Raw data files in DBFS at `{raw_data_path}/sf={scale_factor}/`
+- **Output**: Raw data files at `{output_path}/sf={scale_factor}/` (DBFS or Volume)
 
 ### Task 2: Benchmark Execution
 - **Task Key**: `02_benchmark_execution`
@@ -163,7 +163,8 @@ print(f"Run ID: {run['run_id']}")
 {
   "scale_factor": "10",
   "load_type": "batch",
-  "raw_data_path": "dbfs:/mnt/tpcdi",
+  "output_path": "dbfs:/mnt/tpcdi",
+  "use_volume": "false",
   "target_database": "tpcdi_warehouse",
   "target_schema": "dw"
 }
@@ -174,7 +175,8 @@ print(f"Run ID: {run['run_id']}")
 {
   "scale_factor": "100",
   "load_type": "batch",
-  "raw_data_path": "dbfs:/mnt/tpcdi",
+  "output_path": "dbfs:/mnt/tpcdi",
+  "use_volume": "false",
   "target_database": "tpcdi_warehouse",
   "target_schema": "dw"
 }
@@ -186,7 +188,8 @@ print(f"Run ID: {run['run_id']}")
   "scale_factor": "10",
   "load_type": "incremental",
   "batch_id": "2",
-  "raw_data_path": "dbfs:/mnt/tpcdi",
+  "output_path": "dbfs:/mnt/tpcdi",
+  "use_volume": "false",
   "target_database": "tpcdi_warehouse",
   "target_schema": "dw"
 }

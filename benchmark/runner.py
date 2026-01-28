@@ -76,7 +76,10 @@ def create_platform_adapter(config: BenchmarkConfig, spark: SparkSession):
         Platform adapter instance
     """
     if config.platform == Platform.DATABRICKS:
-        return DatabricksPlatform(spark, config.raw_data_path)
+        # Use output_path as raw data input when provided (DBFS or Volume)
+        base = (config.output_path or config.raw_data_path).rstrip("/")
+        raw_root = f"{base}/sf={config.scale_factor}"
+        return DatabricksPlatform(spark, raw_root, use_volume=config.use_volume)
     elif config.platform == Platform.DATAPROC:
         return DataprocPlatform(spark, config.raw_data_path, 
                                config.gcs_bucket, config.project_id)
@@ -185,7 +188,9 @@ if __name__ == "__main__":
     parser.add_argument("--platform", choices=["databricks", "dataproc"], required=True)
     parser.add_argument("--load-type", choices=["batch", "incremental"], required=True)
     parser.add_argument("--scale-factor", type=int, required=True)
-    parser.add_argument("--raw-data-path", required=True)
+    parser.add_argument("--raw-data-path", help="GCS path for Dataproc; base path for Databricks if --output-path not set")
+    parser.add_argument("--output-path", help="Databricks: raw data location (DBFS or Volume base); overrides raw-data-path")
+    parser.add_argument("--use-volume", action="store_true", help="Databricks: raw data in Unity Catalog Volume")
     parser.add_argument("--target-database", default="tpcdi_warehouse")
     parser.add_argument("--target-schema", default="dw")
     parser.add_argument("--target-catalog", help="Unity Catalog (Databricks); when set, create catalog + schema")
@@ -198,14 +203,23 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
+    # Databricks: use output_path as raw data input when set; else raw_data_path
+    raw_base = args.output_path or args.raw_data_path
+    if not raw_base and args.platform == "dataproc":
+        raw_base = args.raw_data_path
+    if not raw_base:
+        raise ValueError("Provide --raw-data-path or --output-path (Databricks)")
+    
     config = BenchmarkConfig(
         platform=Platform(args.platform),
         load_type=LoadType(args.load_type),
         scale_factor=args.scale_factor,
-        raw_data_path=args.raw_data_path,
+        raw_data_path=raw_base,
         target_database=args.target_database,
         target_schema=args.target_schema,
         target_catalog=args.target_catalog,
+        output_path=args.output_path,
+        use_volume=args.use_volume,
         batch_id=args.batch_id,
         gcs_bucket=args.gcs_bucket,
         project_id=args.project_id,
