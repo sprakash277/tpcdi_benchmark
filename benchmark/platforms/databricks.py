@@ -72,7 +72,12 @@ class DatabricksPlatform:
             DataFrame with the data
         """
         full_path = self._resolve_path(file_path)
-        logger.debug(f"Reading file: {full_path} (volume={self.use_volume})")
+        # Final safety check: ensure Volume paths never have dbfs: prefix
+        if full_path.startswith("dbfs:/Volumes/"):
+            full_path = full_path[5:]
+            logger.warning(f"Removed 'dbfs:' prefix in read_raw_file: {full_path}")
+        
+        logger.info(f"Reading file: {full_path} (volume={self.use_volume}, base={self.raw_data_path})")
         
         reader = self.spark.read.format(format)
         if schema:

@@ -89,6 +89,16 @@ load_type = dbutils.widgets.get("load_type")
 scale_factor = int(dbutils.widgets.get("scale_factor"))
 output_path = dbutils.widgets.get("output_path").strip()
 use_volume = dbutils.widgets.get("use_volume") == "true"
+
+# Normalize output_path: remove dbfs: prefix from Volume paths
+if output_path.startswith("dbfs:/Volumes/"):
+    output_path = output_path[5:]  # Remove "dbfs:" prefix
+    print(f"WARNING: Removed 'dbfs:' prefix from Volume path. Using: {output_path}")
+elif output_path.startswith("/Volumes/"):
+    # Volume path is correct
+    pass
+elif use_volume and not output_path.startswith("/Volumes/"):
+    print(f"WARNING: use_volume=True but path doesn't start with /Volumes/: {output_path}")
 target_database = dbutils.widgets.get("target_database").strip()
 target_schema = dbutils.widgets.get("target_schema").strip()
 target_catalog = dbutils.widgets.get("target_catalog").strip() or None
