@@ -574,25 +574,62 @@ class BatchETL:
         if "ActionType" in df.columns:
             # XML format: filter for Account actions and extract Account data
             logger.info("Processing CustomerMgmt.xml (XML format)")
+            logger.info(f"[DEBUG] XML DataFrame columns: {df.columns}")
+            logger.info(f"[DEBUG] XML DataFrame schema: {df.schema}")
+            df.show(2, truncate=False)
             
-            # Filter for actions that have Account data
+            # Filter for actions that have Account data (not Customer data)
+            # In TPC-DI XML, each Action can have either Customer or Account
             account_actions = df.filter(col("Account").isNotNull())
             
+            logger.info(f"[DEBUG] Found {account_actions.count()} Account actions")
+            
             # Extract Account fields from nested XML structure
-            # XML structure: Action -> Account -> fields
-            dim_account = account_actions.select(
-                col("Account._AccountID").alias("AccountID"),
-                col("Account._SK_BrokerID").alias("SK_BrokerID"),
-                col("Account._SK_CustomerID").alias("SK_CustomerID"),
-                col("Account._Status").alias("Status"),
-                col("Account._AccountDesc").alias("AccountDesc"),
-                col("Account._TaxStatus").alias("TaxStatus"),
-                col("Account._IsCurrent").alias("IsCurrent"),
-                col("ActionType"),
-                lit(batch_id).alias("BatchID"),
-                current_timestamp().alias("EffectiveDate"),
-                current_timestamp().alias("EndDate")
-            )
+            # XML structure: <Action><Account><field>value</field></Account></Action>
+            # Spark XML reader flattens this structure
+            # Field names depend on actual XML structure - may need adjustment
+            try:
+                dim_account = account_actions.select(
+                    # Try common XML field access patterns
+                    col("Account.AccountID").alias("AccountID"),
+                    col("Account.SK_BrokerID").alias("SK_BrokerID"),
+                    col("Account.SK_CustomerID").alias("SK_CustomerID"),
+                    col("Account.Status").alias("Status"),
+                    col("Account.AccountDesc").alias("AccountDesc"),
+                    col("Account.TaxStatus").alias("TaxStatus"),
+                    col("Account.IsCurrent").alias("IsCurrent"),
+                    col("ActionType"),
+                    lit(batch_id).alias("BatchID"),
+                    current_timestamp().alias("EffectiveDate"),
+                    current_timestamp().alias("EndDate")
+                )
+            except Exception as e:
+                # If field access fails, try alternative patterns
+                logger.warning(f"Failed to access Account fields with standard pattern: {e}")
+                logger.info("Trying alternative XML field access patterns...")
+                # Try with underscore prefix (for attributes)
+                try:
+                    dim_account = account_actions.select(
+                        col("Account._AccountID").alias("AccountID"),
+                        col("Account._SK_BrokerID").alias("SK_BrokerID"),
+                        col("Account._SK_CustomerID").alias("SK_CustomerID"),
+                        col("Account._Status").alias("Status"),
+                        col("Account._AccountDesc").alias("AccountDesc"),
+                        col("Account._TaxStatus").alias("TaxStatus"),
+                        col("Account._IsCurrent").alias("IsCurrent"),
+                        col("ActionType"),
+                        lit(batch_id).alias("BatchID"),
+                        current_timestamp().alias("EffectiveDate"),
+                        current_timestamp().alias("EndDate")
+                    )
+                except Exception as e2:
+                    logger.error(f"Failed with underscore pattern: {e2}")
+                    logger.error("Please check the actual XML structure. Available columns:")
+                    account_actions.select("Account.*").show(1, truncate=False)
+                    raise ValueError(
+                        f"Could not extract Account fields from XML. "
+                        f"Please check the XML structure. Error: {e2}"
+                    ) from e2
         else:
             # Text format: filter for Account records (record type 'A')
             logger.info("Processing CustomerMgmt.txt (pipe-delimited format)")
