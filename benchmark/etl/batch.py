@@ -6,7 +6,7 @@ Handles historical load and initial batch processing.
 import logging
 from typing import TYPE_CHECKING
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, when, trim, upper, regexp_replace, lit, current_timestamp, split
+from pyspark.sql.functions import col, when, trim, upper, regexp_replace, lit, current_timestamp, split, element_at
 
 if TYPE_CHECKING:
     from benchmark.platforms.databricks import DatabricksPlatform
@@ -188,11 +188,13 @@ class BatchETL:
         split_cols = split(text_df["value"], "\\|", -1)  # -1 to include trailing empty strings
         
         # Create individual columns based on expected count
-        # In Spark, use getItem() to access array elements
+        # Use element_at() function which is more reliable than getItem()
+        # element_at() uses 1-based indexing, so we add 1 to the index
         select_exprs = []
         for i in range(expected_cols):
-            # Use getItem() to access array element at index i
-            select_exprs.append(trim(split_cols.getItem(i)).alias(f"_c{i}"))
+            # element_at(array, index) - uses 1-based indexing
+            array_element = element_at(split_cols, i + 1)
+            select_exprs.append(trim(array_element).alias(f"_c{i}"))
         
         # Create the DataFrame with split columns
         df = text_df.select(*select_exprs)
