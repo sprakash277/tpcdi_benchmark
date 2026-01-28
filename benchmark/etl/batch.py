@@ -188,10 +188,11 @@ class BatchETL:
         split_cols = split(text_df["value"], "\\|", -1)  # -1 to include trailing empty strings
         
         # Create individual columns based on expected count
-        # We'll create up to expected_cols columns
+        # In Spark, use getItem() to access array elements
         select_exprs = []
         for i in range(expected_cols):
-            select_exprs.append(trim(split_cols[i]).alias(f"_c{i}"))
+            # Use getItem() to access array element at index i
+            select_exprs.append(trim(split_cols.getItem(i)).alias(f"_c{i}"))
         
         # Create the DataFrame with split columns
         df = text_df.select(*select_exprs)
