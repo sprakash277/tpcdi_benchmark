@@ -8,7 +8,7 @@ including CDC (Change Data Capture) and SCD Type 2 handling.
 import logging
 from typing import TYPE_CHECKING, List, Optional
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, lit, current_timestamp
+from pyspark.sql.functions import col, lit, current_timestamp, coalesce
 
 if TYPE_CHECKING:
     from benchmark.platforms.databricks import DatabricksPlatform
@@ -37,6 +37,30 @@ class SilverLoaderBase:
         """
         self.platform = platform
         self.spark = platform.get_spark()
+    
+    def _extract_record_type(self, parsed_df: DataFrame, batch_id: int, col_offset: int = 0) -> tuple:
+        """
+        Extract record_type from first column for incremental loads.
+        
+        Args:
+            parsed_df: Parsed DataFrame with _c0, _c1, etc. columns
+            batch_id: Batch number
+            col_offset: Offset to apply to column indices (default 0)
+            
+        Returns:
+            Tuple of (record_type_column, actual_col_offset)
+            - record_type_column: Column expression for record_type
+            - actual_col_offset: Column offset to use for data columns (0 or 1)
+        """
+        def col_exists(idx: int) -> bool:
+            return f"_c{idx}" in parsed_df.columns
+        
+        if batch_id > 1 and col_exists(col_offset):
+            # Incremental load: extract record_type from first column
+            return (col(f"_c{col_offset}").alias("record_type"), col_offset + 1)
+        else:
+            # Batch 1: no record_type, use default
+            return (lit("I").alias("record_type"), col_offset)
     
     def _parse_pipe_delimited(self, df: DataFrame, num_cols: int) -> DataFrame:
         """
