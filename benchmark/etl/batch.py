@@ -31,6 +31,64 @@ class BatchETL:
         self.spark = platform.get_spark()
         logger.info("Initialized BatchETL processor")
     
+    def _read_pipe_delimited_txt(self, batch_id: int, file_pattern: str, expected_cols: int) -> DataFrame:
+        """
+        Read a pipe-delimited .txt file using pure SQL split.
+        
+        This method bypasses Spark's CSV reader which has issues with pipe delimiter
+        on some Databricks runtimes. It uses spark.sql() with a temporary view to avoid
+        query context tracking issues.
+        
+        Args:
+            batch_id: Batch number
+            file_pattern: File pattern (e.g., "Date.txt")
+            expected_cols: Expected number of columns
+        
+        Returns:
+            DataFrame with columns _c0, _c1, _c2, etc.
+        """
+        logger.info(f"[DEBUG] _read_pipe_delimited_txt: Reading {file_pattern} from Batch{batch_id}")
+        
+        # Read file as text (single column 'value' with full line content)
+        text_df = self.platform.read_batch_files(
+            batch_id,
+            file_pattern,
+            format="text"
+        )
+        
+        # Show sample raw content for debugging
+        logger.info(f"[DEBUG] Raw content of {file_pattern} (first 3 lines):")
+        text_df.show(3, truncate=False)
+        
+        # Create temporary view for SQL execution
+        temp_view_name = f"_temp_txt_{file_pattern.replace('.', '_').replace('/', '_')}_{batch_id}"
+        text_df.createOrReplaceTempView(temp_view_name)
+        
+        # Build SQL SELECT with split() and element_at() - uses 1-based indexing
+        select_parts = []
+        for i in range(expected_cols):
+            # Split on pipe, extract element at position i+1, trim whitespace, default to empty string
+            select_parts.append(f"TRIM(COALESCE(element_at(split(value, '\\\\|'), {i+1}), '')) AS _c{i}")
+        
+        sql_query = f"SELECT {', '.join(select_parts)} FROM {temp_view_name}"
+        logger.info(f"[DEBUG] Executing SQL: {sql_query[:150]}...")
+        
+        # Execute SQL and get result
+        df = self.spark.sql(sql_query)
+        
+        # Drop temporary view
+        try:
+            self.spark.catalog.dropTempView(temp_view_name)
+        except Exception as e:
+            logger.warning(f"[DEBUG] Could not drop temp view {temp_view_name}: {e}")
+        
+        # Debug output
+        logger.info(f"[DEBUG] _read_pipe_delimited_txt: Got {len(df.columns)} columns: {df.columns}")
+        logger.info(f"[DEBUG] Sample rows after split:")
+        df.show(3, truncate=50)
+        
+        return df
+    
     def _read_file_with_delimiter_detection(self, batch_id: int, file_pattern: str, 
                                            expected_cols: int, expected_format: str,
                                            preferred_delimiter: str = "|", **options) -> DataFrame:
@@ -54,6 +112,12 @@ class BatchETL:
         Returns:
             DataFrame with the file data
         """
+        # For .txt files (pipe-delimited per TPC-DI spec), use SQL-based split directly
+        # Spark's CSV reader has issues with pipe delimiter on some Databricks runtimes
+        if file_pattern.endswith(".txt") and preferred_delimiter == "|":
+            logger.info(f"[DEBUG] Reading {file_pattern} as pipe-delimited .txt file using SQL split")
+            return self._read_pipe_delimited_txt(batch_id, file_pattern, expected_cols)
+        
         # First, read as raw text to inspect actual content
         try:
             # Read the file path to inspect raw content
@@ -80,7 +144,7 @@ class BatchETL:
             logger.warning(f"[DEBUG] Could not read raw text for inspection: {e}")
             logger.info(f"[DEBUG] Will proceed with delimiter detection anyway")
         
-        # Try preferred delimiter first
+        # Try preferred delimiter first (for .csv files)
         try:
             # For pipe delimiter, use both sep and delimiter options
             # Note: format is handled by read_batch_files, don't include it here
@@ -171,53 +235,13 @@ class BatchETL:
         except Exception as e:
             logger.warning(f"[DEBUG] Failed with alternative delimiter '{alt_delimiter}': {e}")
         
-        # If still failing, try reading as text and manually splitting
+        # If still failing, use the SQL-based split method
         logger.warning(
             f"[DEBUG] All delimiter attempts failed for {file_pattern}. "
-            f"Trying to read as text and manually split on pipe delimiter..."
+            f"Using SQL-based split on pipe delimiter..."
         )
         
-        # Read as text (single column with full line)
-        text_df = self.platform.read_batch_files(
-            batch_id,
-            file_pattern,
-            format="text"
-        )
-        
-        # Manually split on pipe delimiter using a UDF that returns a struct
-        # This avoids Spark query context issues by doing all splitting in one UDF call
-        # text format returns a column named 'value'
-        
-        def split_line_to_struct(line: str, num_cols: int) -> tuple:
-            """Split a line on pipe delimiter and return all fields as a tuple."""
-            if not line:
-                return tuple([""] * num_cols)
-            parts = line.split("|")
-            # Pad with empty strings if we have fewer parts than expected columns
-            result = []
-            for i in range(num_cols):
-                if i < len(parts):
-                    result.append(parts[i].strip())
-                else:
-                    result.append("")
-            return tuple(result)
-        
-        # Create struct schema for the return type
-        struct_fields = [StructField(f"_c{i}", StringType(), True) for i in range(expected_cols)]
-        struct_schema = StructType(struct_fields)
-        
-        # Create UDF that returns a struct with all columns
-        split_udf = udf(lambda line: split_line_to_struct(line, expected_cols), struct_schema)
-        
-        # Apply UDF once to get all columns as a struct
-        df_with_struct = text_df.withColumn("split_struct", split_udf(col("value")))
-        
-        # Extract individual columns from the struct
-        select_exprs = [trim(col(f"split_struct._c{i}")).alias(f"_c{i}") for i in range(expected_cols)]
-        df = df_with_struct.select(*select_exprs)
-        
-        logger.info(f"[DEBUG] Manually split {file_pattern} on pipe delimiter: got {len(df.columns)} columns")
-        return df
+        return self._read_pipe_delimited_txt(batch_id, file_pattern, expected_cols)
     
     def _read_customermgmt_xml(self, batch_id: int) -> DataFrame:
         """
