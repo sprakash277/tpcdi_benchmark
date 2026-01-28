@@ -557,96 +557,54 @@ class BatchETL:
         logger.info("[DEBUG] Sample XML rows:")
         xml_df.show(2, truncate=200, vertical=True)
         
-        # Extract Account data from XML
+        # Extract Account data from XML using the correct SQL pattern
         # Structure: Action -> Customer -> Account
-        # Attributes: Action.ActionType, Action.ActionTS, Customer.C_ID, Account.CA_ID, Account.CA_TAX_ST
-        logger.info("[DEBUG] Attempting to extract Account data from XML...")
+        # Attributes use underscore prefix: _ActionType, _ActionTS, _C_ID, _CA_ID, _CA_TAX_ST
+        # Elements don't use underscore: CA_NAME
+        logger.info("[DEBUG] Extracting Account data from XML using SQL pattern...")
         
-        account_df = None
-        extraction_errors = []
+        # Use the exact SQL pattern provided:
+        # SELECT
+        #   _ActionType as ActionType,
+        #   _ActionTS as ActionTS,
+        #   Customer._C_ID as CustomerID,
+        #   Customer.Account._CA_ID as AccountID,
+        #   Customer.Account._CA_TAX_ST as TaxStatus,
+        #   Customer.Account.CA_NAME as AccountName
+        # FROM customer_mgmt_raw_xml
         
-        # Pattern 1: Access nested Customer.Account attributes
         try:
-            logger.info("[DEBUG] Trying Pattern 1: Customer.Account._CA_ID (nested with attributes)")
             account_df = xml_df.select(
-                col("Customer.Account._CA_ID").alias("CA_ID"),
-                col("Customer._C_ID").alias("C_ID"),
                 col("_ActionType").alias("ActionType"),
                 col("_ActionTS").alias("ActionTS"),
-                col("Customer.Account._CA_TAX_ST").alias("CA_TAX_ST")
+                col("Customer._C_ID").alias("CustomerID"),
+                col("Customer.Account._CA_ID").alias("AccountID"),
+                col("Customer.Account._CA_TAX_ST").alias("TaxStatus"),
+                col("Customer.Account.CA_NAME").alias("AccountName")
             ).filter(col("Customer.Account._CA_ID").isNotNull())
-            logger.info(f"[DEBUG] Pattern 1 succeeded: extracted {account_df.count()} accounts")
-        except Exception as e1:
-            extraction_errors.append(f"Pattern 1 (Customer.Account._CA_ID): {e1}")
-            logger.warning(f"[DEBUG] Pattern 1 failed: {e1}")
-        
-        # Pattern 2: Try without underscore prefix for attributes
-        if account_df is None:
-            try:
-                logger.info("[DEBUG] Trying Pattern 2: Customer.Account.CA_ID (without underscore)")
-                account_df = xml_df.select(
-                    col("Customer.Account.CA_ID").alias("CA_ID"),
-                    col("Customer.C_ID").alias("C_ID"),
-                    col("ActionType").alias("ActionType"),
-                    col("ActionTS").alias("ActionTS"),
-                    col("Customer.Account.CA_TAX_ST").alias("CA_TAX_ST")
-                ).filter(col("Customer.Account.CA_ID").isNotNull())
-                logger.info(f"[DEBUG] Pattern 2 succeeded: extracted {account_df.count()} accounts")
-            except Exception as e2:
-                extraction_errors.append(f"Pattern 2 (Customer.Account.CA_ID): {e2}")
-                logger.warning(f"[DEBUG] Pattern 2 failed: {e2}")
-        
-        # Pattern 3: Try accessing Customer as struct, then Account
-        if account_df is None:
-            try:
-                logger.info("[DEBUG] Trying Pattern 3: Explode Customer struct")
-                # First, check if Customer is an array
-                from pyspark.sql.functions import explode
-                customer_df = xml_df.select(
-                    col("_ActionType").alias("ActionType"),
-                    col("_ActionTS").alias("ActionTS"),
-                    explode(col("Customer")).alias("Customer")
-                )
-                account_df = customer_df.select(
-                    col("Customer.Account._CA_ID").alias("CA_ID"),
-                    col("Customer._C_ID").alias("C_ID"),
-                    col("ActionType"),
-                    col("ActionTS"),
-                    col("Customer.Account._CA_TAX_ST").alias("CA_TAX_ST")
-                ).filter(col("Customer.Account._CA_ID").isNotNull())
-                logger.info(f"[DEBUG] Pattern 3 succeeded: extracted {account_df.count()} accounts")
-            except Exception as e3:
-                extraction_errors.append(f"Pattern 3 (explode Customer): {e3}")
-                logger.warning(f"[DEBUG] Pattern 3 failed: {e3}")
-        
-        # Pattern 4: Try using getItem if Customer is an array
-        if account_df is None:
-            try:
-                logger.info("[DEBUG] Trying Pattern 4: Customer[0].Account")
-                account_df = xml_df.select(
-                    col("Customer").getItem(0).getField("Account").getField("_CA_ID").alias("CA_ID"),
-                    col("Customer").getItem(0).getField("_C_ID").alias("C_ID"),
-                    col("_ActionType").alias("ActionType"),
-                    col("_ActionTS").alias("ActionTS"),
-                    col("Customer").getItem(0).getField("Account").getField("_CA_TAX_ST").alias("CA_TAX_ST")
-                ).filter(col("CA_ID").isNotNull())
-                logger.info(f"[DEBUG] Pattern 4 succeeded: extracted {account_df.count()} accounts")
-            except Exception as e4:
-                extraction_errors.append(f"Pattern 4 (Customer[0].Account): {e4}")
-                logger.warning(f"[DEBUG] Pattern 4 failed: {e4}")
-        
-        if account_df is None:
-            error_summary = "\n".join(extraction_errors)
+            
+            logger.info(f"[DEBUG] Successfully extracted {account_df.count()} accounts from XML")
+        except Exception as e:
+            logger.error(f"[DEBUG] Failed to extract Account data: {e}")
+            logger.info("[DEBUG] XML DataFrame schema for debugging:")
+            xml_df.printSchema()
+            logger.info("[DEBUG] Sample XML rows:")
+            xml_df.show(2, truncate=200, vertical=True)
             raise RuntimeError(
-                f"Failed to extract Account data from CustomerMgmt.xml. "
-                f"Tried multiple access patterns but all failed.\n"
-                f"Errors:\n{error_summary}\n\n"
+                f"Failed to extract Account data from CustomerMgmt.xml.\n"
+                f"Error: {e}\n\n"
+                f"Expected structure:\n"
+                f"  - _ActionType (attribute on Action)\n"
+                f"  - _ActionTS (attribute on Action)\n"
+                f"  - Customer._C_ID (attribute on Customer)\n"
+                f"  - Customer.Account._CA_ID (attribute on Account)\n"
+                f"  - Customer.Account._CA_TAX_ST (attribute on Account)\n"
+                f"  - Customer.Account.CA_NAME (element on Account)\n\n"
                 f"Please check:\n"
                 f"1. spark-xml library is installed (com.databricks:spark-xml_2.12:0.15.0)\n"
                 f"2. XML file structure matches TPC-DI spec\n"
-                f"3. Check the XML schema output above to see actual structure\n"
-                f"4. The XML structure should be: Action -> Customer -> Account with attributes"
-            )
+                f"3. Check the schema output above to see actual structure"
+            ) from e
         
         # Show extracted data
         logger.info(f"[DEBUG] Extracted Account data:")
@@ -655,18 +613,20 @@ class BatchETL:
         account_df.printSchema()
         
         # Transform to DimAccount schema
-        # Map TPC-DI XML fields to DimAccount columns
-        # CA_ID -> SK_AccountID
-        # C_ID -> SK_CustomerID (from Customer)
-        # CA_TAX_ST -> TaxStatus
-        # ActionType -> Status (NEW/UPD/INACT)
+        # Map TPC-DI XML fields to DimAccount columns:
+        # AccountID (from Customer.Account._CA_ID) -> SK_AccountID
+        # CustomerID (from Customer._C_ID) -> SK_CustomerID
+        # TaxStatus (from Customer.Account._CA_TAX_ST) -> TaxStatus
+        # AccountName (from Customer.Account.CA_NAME) -> AccountDesc
+        # ActionType (from _ActionType) -> Status
+        # ActionType == "INACT" -> IsActive = False
         dim_account = account_df.select(
-            col("CA_ID").alias("SK_AccountID"),
-            lit(None).cast("bigint").alias("SK_BrokerID"),  # May need to extract from elsewhere
-            col("C_ID").alias("SK_CustomerID"),
+            col("AccountID").alias("SK_AccountID"),
+            lit(None).cast("bigint").alias("SK_BrokerID"),  # May need to extract from elsewhere in XML
+            col("CustomerID").alias("SK_CustomerID"),
             col("ActionType").alias("Status"),
-            lit(None).cast("string").alias("AccountDesc"),  # May need to extract from Customer.Name
-            col("CA_TAX_ST").alias("TaxStatus"),
+            col("AccountName").alias("AccountDesc"),
+            col("TaxStatus"),
             when(col("ActionType") == "INACT", lit(False)).otherwise(lit(True)).alias("IsActive"),
             current_timestamp().alias("BatchID")
         )
