@@ -239,6 +239,17 @@ class DatabricksPlatform:
         """
         logger.info(f"Writing table: {table_name} (mode={mode}, format={format})")
         
+        # For Delta Lake with overwrite mode, drop table first to avoid schema merge conflicts
+        if mode == "overwrite" and format == "delta":
+            try:
+                # Check if table exists
+                table_exists = self.spark.catalog.tableExists(table_name)
+                if table_exists:
+                    logger.info(f"Table {table_name} exists. Dropping it before overwrite to avoid schema conflicts.")
+                    self.spark.sql(f"DROP TABLE IF EXISTS {table_name}")
+            except Exception as e:
+                logger.warning(f"Could not check/drop table {table_name}: {e}. Proceeding with write.")
+        
         writer = df.write.format(format).mode(mode)
         if partition_by:
             writer = writer.partitionBy(*partition_by)
