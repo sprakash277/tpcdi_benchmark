@@ -12,7 +12,7 @@ TPC-DI Format Differences:
 import logging
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
-    col, lit, when, to_date, to_timestamp, explode, current_timestamp, coalesce
+    col, lit, when, to_date, to_timestamp, explode, current_timestamp, coalesce, trim
 )
 from pyspark.sql.types import LongType, IntegerType, StringType, DateType, TimestampType
 
@@ -418,7 +418,13 @@ class SilverCustomers(SilverLoaderBase):
             coalesce(col("c_m_name"), lit("")).alias("middle_name"),
             coalesce(col("c_gndr"), lit("")).alias("gender"),
             coalesce(col("c_tier"), lit("0")).cast(IntegerType()).alias("tier"),
-            coalesce(col("c_dob"), lit("")).alias("dob"),
+            # Parse dob as date, handling empty strings and nulls
+            when(
+                (col("c_dob").isNull()) | (trim(col("c_dob")) == ""),
+                lit(None).cast(DateType())
+            ).otherwise(
+                to_date(col("c_dob"), "yyyy-MM-dd")
+            ).alias("dob"),
             coalesce(col("c_adline1"), lit("")).alias("address_line1"),
             coalesce(col("c_adline2"), lit("")).alias("address_line2"),
             coalesce(col("c_zipcode"), lit("")).alias("zipcode"),

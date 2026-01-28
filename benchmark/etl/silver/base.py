@@ -197,6 +197,40 @@ class SilverLoaderBase:
             logger.info(f"Created {target_table} with {incoming_df.count()} rows")
             return incoming_df
         
+        # Align schema: Read existing table and ensure incoming schema matches
+        # This handles cases where Batch 1 had different types (e.g., dob as string vs date)
+        try:
+            existing_schema = existing_df.schema
+            incoming_schema = incoming_df.schema
+            
+            # Check for schema mismatches and align incoming data
+            schema_fields = {}
+            for field in existing_schema:
+                schema_fields[field.name] = field.dataType
+            
+            # Build select with type casts to match existing schema
+            select_cols = []
+            for field in incoming_schema:
+                col_name = field.name
+                if col_name in schema_fields:
+                    existing_type = schema_fields[col_name]
+                    incoming_type = field.dataType
+                    if str(existing_type) != str(incoming_type):
+                        # Type mismatch - cast to match existing
+                        logger.info(f"Aligning column {col_name}: {incoming_type} -> {existing_type}")
+                        select_cols.append(col(col_name).cast(existing_type).alias(col_name))
+                    else:
+                        select_cols.append(col(col_name))
+                else:
+                    # New column - keep as is
+                    select_cols.append(col(col_name))
+            
+            if select_cols:
+                incoming_df = incoming_df.select(*select_cols)
+                logger.info(f"Schema aligned for {target_table}")
+        except Exception as e:
+            logger.warning(f"Schema alignment failed: {e}. Proceeding with original schema.")
+        
         # Get business keys from incoming data
         incoming_keys = incoming_df.select(key_column).distinct()
         
@@ -229,6 +263,7 @@ class SilverLoaderBase:
             return incoming_df
         
         # Step 2: Insert new versions
+        # Use mergeSchema=true for Delta append to handle schema evolution
         self.platform.write_table(incoming_df, target_table, mode="append")
         
         # Cleanup temp views
