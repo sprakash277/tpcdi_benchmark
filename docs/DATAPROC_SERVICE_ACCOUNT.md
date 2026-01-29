@@ -157,10 +157,10 @@ gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
 
 ---
 
-## 4. Optional: raw data path and metrics path
+## 4. Optional: raw data path and metrics
 
 - **Raw data path:** Default is `gs://<gcs-bucket>/tpcdi/sf=<scale_factor>`. Override with `--raw-data-path=gs://bucket/path/to/sf=10`.
-- **Metrics output:** Default is `gs://<gcs-bucket>/tpcdi/metrics`. Override with `--metrics-output=gs://bucket/path/metrics`.
+- **Saving benchmark metrics:** By default, metrics are saved to GCS. Use `--no-save-metrics` to skip writing metrics. Use `--metrics-output=gs://bucket/path/metrics` to set the output path (default: `gs://<gcs-bucket>/tpcdi/metrics`).
 
 The SA must have read access to the raw data path and write access to the metrics (and table output) path.
 

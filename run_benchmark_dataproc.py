@@ -78,8 +78,12 @@ if __name__ == "__main__":
                        help="Service account email for GCS access (optional)")
     parser.add_argument("--service-account-key-file",
                        help="Path to service account JSON key file for GCS access (optional)")
+    parser.add_argument("--save-metrics", action="store_true", default=True,
+                       help="Save benchmark metrics to GCS (default: True)")
+    parser.add_argument("--no-save-metrics", dest="save_metrics", action="store_false",
+                       help="Do not save benchmark metrics to GCS")
     parser.add_argument("--metrics-output",
-                       help="Path to save metrics JSON (default: gs://<bucket>/tpcdi/metrics)")
+                       help="Path to save metrics JSON when --save-metrics (default: gs://<bucket>/tpcdi/metrics)")
     parser.add_argument("--log-detailed-stats", action="store_true",
                        help="Log per-table timing and records; default is only job start/end/total duration")
     
@@ -91,11 +95,11 @@ if __name__ == "__main__":
     else:
         raw_data_path = f"gs://{args.gcs_bucket}/tpcdi/sf={args.scale_factor}"
     
-    # Construct metrics output path
-    if args.metrics_output:
-        metrics_output = args.metrics_output
+    # Construct metrics output path (only used when save_metrics is True)
+    if args.save_metrics:
+        metrics_output = args.metrics_output if args.metrics_output else f"gs://{args.gcs_bucket}/tpcdi/metrics"
     else:
-        metrics_output = f"gs://{args.gcs_bucket}/tpcdi/metrics"
+        metrics_output = args.metrics_output  # can be None when not saving
     
     config = BenchmarkConfig(
         platform=Platform.DATAPROC,
@@ -111,6 +115,7 @@ if __name__ == "__main__":
         spark_master=args.spark_master or "yarn",
         service_account_email=args.service_account_email,
         service_account_key_file=args.service_account_key_file,
+        enable_metrics=args.save_metrics,
         metrics_output_path=metrics_output,
         log_detailed_stats=args.log_detailed_stats,
     )

@@ -101,6 +101,8 @@ zip -r benchmark.zip benchmark
 
 Then pass `--py-files=benchmark.zip` (or `--py-files=gs://<bucket>/benchmark.zip` if you upload the zip to GCS) to every `gcloud dataproc jobs submit pyspark` command below.
 
+**Benchmark metrics:** By default, metrics are saved to GCS. Use `--no-save-metrics` to skip saving; use `--metrics-output=gs://bucket/path/metrics` to set the output path (default: `gs://<gcs-bucket>/tpcdi/metrics`).
+
 #### Submit as Spark Job
 ```bash
 gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
