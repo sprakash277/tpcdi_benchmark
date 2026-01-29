@@ -3,6 +3,9 @@ Performance metrics collection and logging for TPC-DI benchmark.
 """
 
 import json
+import os
+import subprocess
+import tempfile
 import time
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -105,22 +108,41 @@ class BenchmarkMetrics:
         }
     
     def save(self, output_path: str):
-        """Save metrics to file (JSON)."""
-        output = Path(output_path)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Generate filename with timestamp
+        """Save metrics to file (JSON). Local paths use pathlib/open; gs:// paths write to temp then upload via gsutil."""
         timestamp = datetime.fromtimestamp(self.start_time).strftime("%Y%m%d_%H%M%S")
         filename = f"metrics_{self.platform}_{self.load_type}_sf{self.scale_factor}_{timestamp}.json"
         if self.batch_id is not None:
             filename = f"metrics_{self.platform}_{self.load_type}_sf{self.scale_factor}_batch{self.batch_id}_{timestamp}.json"
-        
-        filepath = output / filename
-        with open(filepath, 'w') as f:
-            json.dump(self.to_dict(), f, indent=2)
-        
-        logger.info(f"Metrics saved to {filepath}")
-        return str(filepath)
+
+        if output_path.startswith("gs://"):
+            # pathlib.Path("gs://bucket/path") turns gs:// into gs:/ (one slash). Build path as string and upload.
+            base = output_path.rstrip("/")
+            full_gcs_path = f"{base}/{filename}"
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+                json.dump(self.to_dict(), f, indent=2)
+                tmp_path = f.name
+            try:
+                subprocess.run(
+                    ["gsutil", "-q", "cp", tmp_path, full_gcs_path],
+                    check=True,
+                    capture_output=True,
+                )
+                logger.info(f"Metrics saved to {full_gcs_path}")
+                return full_gcs_path
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+        else:
+            # Local path (or dbfs:/ on Databricks if mounted)
+            output = Path(output_path)
+            output.mkdir(parents=True, exist_ok=True)
+            filepath = output / filename
+            with open(filepath, "w") as f:
+                json.dump(self.to_dict(), f, indent=2)
+            logger.info(f"Metrics saved to {filepath}")
+            return str(filepath)
 
 
 class MetricsCollector:
