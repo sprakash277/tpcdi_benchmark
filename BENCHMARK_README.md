@@ -17,13 +17,13 @@ The benchmark framework:
 |------|--------|
 | **`benchmark/`** | Shared ETL, metrics, runner; platform adapters in `benchmark/platforms/` |
 | **`databricks/`** | Databricks-only: notebooks (benchmark, data gen, workflow creation), workflow script, workflow docs |
-| **`dataproc/`** | Dataproc-only: run script, run guide (`DataprocRun.md`), bundled JARs (`libs/`) |
+| **`dataproc/`** | Dataproc-only: run guide (`DataprocRun.md`), bundled JARs (`libs/`). Run script `run_benchmark_dataproc.py` is at root. |
 | **`docs/`** | Architecture and platform-specific docs (e.g. `DATAPROC_*`) |
 | **`tools/`** | TPC-DI tools (DIGen, pdgf) for data generation |
-| **Root** | `generate_tpcdi_data.py`, `run_benchmark_databricks.py`, `requirements.txt`, READMEs |
+| **Root** | `generate_tpcdi_data.py`, `run_benchmark_databricks.py`, `run_benchmark_dataproc.py`, `requirements.txt`, READMEs |
 
 **Databricks:** `databricks/benchmark_databricks_notebook`, `databricks/generate_tpcdi_data_notebook`, `databricks/create_workflow_notebook`, `databricks/create_databricks_workflow`, `databricks/WORKFLOW_README`, `databricks/QUICK_START_WORKFLOW`.  
-**Dataproc:** `dataproc/run_benchmark_dataproc`, `dataproc/DataprocRun.md`, `dataproc/libs/`.
+**Dataproc:** `run_benchmark_dataproc.py` (root), `dataproc/DataprocRun.md`, `dataproc/libs/`.
 
 ## Architecture
 
@@ -51,7 +51,7 @@ benchmark/
 
 ### Dataproc
 1. Dataproc cluster with GCS connector installed
-2. **TPC-DI raw data must already exist in GCS** — `dataproc/run_benchmark_dataproc.py` does **not** generate data (unlike the Databricks workflow). Generate data separately (e.g. TPC-DI DIGen, then upload to GCS).
+2. **TPC-DI raw data must already exist in GCS** — `run_benchmark_dataproc.py` does **not** generate data (unlike the Databricks workflow). Generate data separately (e.g. TPC-DI DIGen, then upload to GCS).
 3. Data path: `gs://<bucket>/tpcdi/sf=<scale_factor>/`
 4. GCP project ID and region
 5. **Metastore (optional):** If you do **not** attach a [Dataproc Metastore](https://cloud.google.com/dataproc-metastore/docs), Spark uses the default metastore. See **docs/DATAPROC_METASTORE.md**.

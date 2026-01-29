@@ -7,7 +7,7 @@ This guide describes how to run the benchmark on **Dataproc**: prerequisites, al
 ## Prerequisites
 
 1. **Dataproc cluster** with GCS connector installed.
-2. **TPC-DI raw data** must already exist in GCS. `dataproc/run_benchmark_dataproc.py` does **not** generate data. Generate separately (e.g. TPC-DI DIGen, then upload to GCS).
+2. **TPC-DI raw data** must already exist in GCS. `run_benchmark_dataproc.py` does **not** generate data. Generate separately (e.g. TPC-DI DIGen, then upload to GCS).
 3. Data path: `gs://<bucket>/tpcdi/sf=<scale_factor>/` (or your `--raw-data-path`).
 4. GCP **project ID** and **region**.
 5. **Metastore (optional):** Without a [Dataproc Metastore](https://cloud.google.com/dataproc-metastore/docs), Spark uses the default metastore. The benchmark sets the warehouse to GCS (`gs://<bucket>/spark-warehouse`) and uses two-part table names (`database.table`) and Parquet by default. See **../docs/DATAPROC_METASTORE.md**.
@@ -137,7 +137,7 @@ Pass `--py-files=benchmark.zip` (or `--py-files=gs://<bucket>/benchmark.zip` if 
 ### Batch load
 
 ```bash
-gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
+gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
   --cluster=<cluster-name> \
   --region=us-central1 \
   --project=<your-project> \
@@ -153,7 +153,7 @@ gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
 ### With per-table timing (`--log-detailed-stats`)
 
 ```bash
-gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
+gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
   --cluster=<cluster-name> \
   --region=us-central1 \
   --project=<your-project> \
@@ -170,7 +170,7 @@ gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
 ### Incremental load
 
 ```bash
-gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
+gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
   --cluster=<cluster-name> \
   --region=us-central1 \
   --project=<your-project> \
@@ -210,7 +210,7 @@ Use **both** for key-file auth.
 **3. Run locally (driver on your machine)**
 
 ```bash
-python dataproc/run_benchmark_dataproc.py \
+python run_benchmark_dataproc.py \
   --load-type batch \
   --scale-factor 10 \
   --gcs-bucket=<your-bucket> \
@@ -226,7 +226,7 @@ python dataproc/run_benchmark_dataproc.py \
 Upload the key to a restricted GCS path (e.g. `gs://<bucket>/secrets/tpcdi-sa-key.json`). Ensure the cluster’s default SA can read it. Then:
 
 ```bash
-gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
+gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
   --cluster=<cluster-name> \
   --region=us-central1 \
   --project=<your-project> \
@@ -265,7 +265,7 @@ Complete `gcloud` command with SA, optional parameters set explicitly:
 ```bash
 zip -r benchmark.zip benchmark
 
-gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
+gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
   --cluster=sumitbnchmark \
   --region=us-central1 \
   --project=gcp-sandbox-field-eng \
@@ -293,7 +293,7 @@ gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
 **Incremental (batch 2):**
 
 ```bash
-gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
+gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
   --cluster=sumitbnchmark \
   --region=us-central1 \
   --project=gcp-sandbox-field-eng \

@@ -11,7 +11,7 @@ Pre-bundled JARs used by the TPC-DI benchmark when running on **Dataproc** (or o
 The benchmark adds `spark-xml` via `spark.jars.packages` by default (Maven). If your cluster has no Maven access (e.g. air-gapped), pass the local JAR with `--jars` when submitting:
 
 ```bash
-gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
+gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
   --cluster=... --region=... \
   --py-files=benchmark.zip \
   --jars=dataproc/libs/spark-xml_2.12-0.18.0.jar \
