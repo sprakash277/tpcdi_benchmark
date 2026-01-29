@@ -54,8 +54,12 @@ def create_spark_session(config: BenchmarkConfig) -> SparkSession:
         if config.spark_master:
             builder = builder.master(config.spark_master)
         
+        # Use GCS for Spark warehouse so CREATE DATABASE / tables use gs://, not file:/tmp/...
+        warehouse_dir = f"gs://{config.gcs_bucket}/spark-warehouse"
+        spark_config = builder.config("spark.sql.warehouse.dir", warehouse_dir)
+        
         # Configure for GCS
-        spark_config = builder.config("spark.hadoop.fs.gs.impl", 
+        spark_config = spark_config.config("spark.hadoop.fs.gs.impl", 
                               "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem") \
                       .config("spark.hadoop.fs.AbstractFileSystem.gs.impl",
                               "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS") \

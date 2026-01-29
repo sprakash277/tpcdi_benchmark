@@ -12,8 +12,7 @@ When you run the TPC-DI benchmark on **Dataproc** without attaching a **Dataproc
    - It stores database and table **metadata** (names, schemas, locations) only for that driver session.
 
 2. **Warehouse**  
-   Table data written by `saveAsTable()` goes to Spark’s **default warehouse**:
-   - On Dataproc this is often **local HDFS** or **local disk** on the cluster (e.g. `/user/hive/warehouse` or similar), **not** GCS, unless you set `spark.sql.warehouse.dir` to a GCS path.
+   The benchmark sets `spark.sql.warehouse.dir` to **GCS** for Dataproc (`gs://<gcs_bucket>/spark-warehouse`) so that `CREATE DATABASE` and table data use GCS, not local disk. The cluster identity (or the service account you pass) must have write access to that path.
 
 3. **During the job**  
    - `CREATE DATABASE IF NOT EXISTS tpcdi_warehouse` and `saveAsTable(...)` **succeed**.
@@ -44,10 +43,10 @@ Then:
 - Create a **Dataproc Metastore** service and attach it to the cluster (e.g. `--metastore-service` when creating the cluster).
 - Configure Spark/Hive to use a **GCS warehouse** (e.g. `spark.sql.warehouse.dir=gs://your-bucket/warehouse` or equivalent Hive config).
 
-The benchmark does **not** set the metastore or warehouse for you; it uses whatever Spark is configured with. So:
+The benchmark sets the **warehouse** to GCS for Dataproc (`gs://<gcs_bucket>/spark-warehouse`); the **metastore** is whatever the cluster is configured with. So:
 
-- **No metastore attached** → default (ephemeral) metastore and usually local warehouse; benchmark runs, but nothing is persistent.
-- **Dataproc Metastore + GCS warehouse** → persistent metadata and data in GCS; you can reuse the same database/tables across runs and clusters.
+- **No metastore attached** → default (ephemeral) metastore; warehouse is in GCS so data is in GCS for the run, but metadata is lost when the job/cluster ends.
+- **Dataproc Metastore attached** → persistent metadata and data in GCS; you can reuse the same database/tables across runs and clusters.
 
 ---
 
