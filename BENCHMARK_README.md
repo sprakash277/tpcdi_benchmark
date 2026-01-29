@@ -139,6 +139,78 @@ gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
 
 Add `--log-detailed-stats` after the `--` to log per-table timing and records; without it, only job start time, end time, and total duration are logged (for performance comparison). See the optional example above.
 
+#### Running with a Service Account (SA) and Key File
+
+When the cluster’s default identity should not be used for GCS (e.g. different project, stricter IAM), you can run the benchmark using a **service account (SA)** and its **JSON key file**.
+
+**1. Create a service account and key (GCP Console or gcloud)**
+
+- Create a SA in your project (e.g. `tpcdi-dataproc@<project>.iam.gserviceaccount.com`).
+- Grant the SA roles that can read from your GCS bucket and write to the bucket (e.g. **Storage Object Viewer** on the raw data path, **Storage Object Admin** or **Creator** where you write tables/metrics).
+- Create a JSON key for the SA and download it:
+  ```bash
+  gcloud iam service-accounts keys create sa-key.json \
+    --iam-account=tpcdi-dataproc@<project>.iam.gserviceaccount.com
+  ```
+
+**2. Pass SA and key to the benchmark**
+
+- **Service account email:** `--service-account-email <sa-email>`
+- **Key file path:** `--service-account-key-file <path-to-json>`
+
+Use **both** for key-file auth; the driver will use this SA for GCS (Hadoop `fs.gs`).
+
+**Example: run locally (driver on your machine)**
+
+```bash
+python run_benchmark_dataproc.py \
+  --load-type batch \
+  --scale-factor 10 \
+  --gcs-bucket=<your-bucket> \
+  --project-id=<your-project> \
+  --region=us-central1 \
+  --service-account-email=tpcdi-dataproc@<project>.iam.gserviceaccount.com \
+  --service-account-key-file=./sa-key.json
+```
+
+**Example: submit as a Dataproc job (key file on cluster)**
+
+The key file path must be a path that the **driver node** can read. Options:
+
+- **A. Key file in GCS**  
+  Upload the key to a GCS path only the job can access (e.g. `gs://<bucket>/secrets/tpcdi-sa-key.json`). Ensure the cluster’s default SA can read that object. Then pass the GCS path:
+  ```bash
+  gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
+    --cluster=<cluster-name> \
+    --region=us-central1 \
+    -- \
+    --load-type batch \
+    --scale-factor 10 \
+    --gcs-bucket=<your-bucket> \
+    --project-id=<your-project> \
+    --region=us-central1 \
+    --service-account-email=tpcdi-dataproc@<project>.iam.gserviceaccount.com \
+    --service-account-key-file=gs://<bucket>/secrets/tpcdi-sa-key.json
+  ```
+
+- **B. Key file on local disk**  
+  Copy the key to the cluster (e.g. via init action or a one-time copy to a fixed path) and use that path:
+  ```bash
+  --service-account-key-file=/var/lib/tpcdi/sa-key.json
+  ```
+
+**3. Using only the cluster’s service account**
+
+If the cluster is already created with the SA you want (e.g. `gcloud dataproc clusters create ... --service-account=...`), you do **not** need to pass `--service-account-email` or `--service-account-key-file`. The job will use the cluster’s default identity for GCS.
+
+**4. Security**
+
+- Do **not** commit the JSON key to source control. Add `*.json` (or the key filename) to `.gitignore` if the key is in the repo tree.
+- Prefer storing the key in **Secret Manager** or a restricted GCS path and making it available only to the job (e.g. copy to a local path in an init script that only the job user can read).
+- Prefer short-lived keys and rotating them; avoid long-lived keys in shared locations.
+
+For more detail, see **docs/DATAPROC_SERVICE_ACCOUNT.md**.
+
 ## Load Types
 
 ### Batch Load
