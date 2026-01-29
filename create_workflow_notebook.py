@@ -12,8 +12,20 @@
 
 # MAGIC %md
 # MAGIC ## Configuration
+# MAGIC
+# MAGIC **Cloud** sets default Worker/Driver node types when left blank:
+# MAGIC - **AWS**: `i3.xlarge`
+# MAGIC - **GCP**: use dropdown (n2d-standard-* and c2-standard-*); default `n2d-standard-16`
+# MAGIC - **Azure**: `Standard_DS4_v2` (8 vCPU, 28 GB; recommended for Spark)
 
 # COMMAND ----------
+
+# GCP node type options: all n2d-standard-* and c2-standard-* (default n2d-standard-16)
+GCP_NODE_TYPE_OPTIONS = [
+    "n2d-standard-4", "n2d-standard-8", "n2d-standard-16", "n2d-standard-32",
+    "n2d-standard-48", "n2d-standard-64", "n2d-standard-80", "n2d-standard-96",
+    "c2-standard-4", "c2-standard-8", "c2-standard-16", "c2-standard-30",
+]
 
 # Widgets for workflow creation
 dbutils.widgets.text("job_name", "TPC-DI-Benchmark", "Job Name")
@@ -34,8 +46,11 @@ dbutils.widgets.dropdown(
     ],
     "Cluster Spark Version (DBR)"
 )
-dbutils.widgets.text("node_type_id", "i3.xlarge", "Worker Node Type")
-dbutils.widgets.text("driver_node_type_id", "i3.xlarge", "Driver Node Type")
+dbutils.widgets.dropdown("cloud", "AWS", ["AWS", "GCP", "Azure"], "Cloud (sets default Worker/Driver node types)")
+dbutils.widgets.text("node_type_id", "", "Worker Node Type (AWS/Azure: blank = cloud default)")
+dbutils.widgets.dropdown("gcp_node_type_id", "n2d-standard-16", GCP_NODE_TYPE_OPTIONS, "GCP Worker Node Type (n2d/c2)")
+dbutils.widgets.text("driver_node_type_id", "", "Driver Node Type (AWS/Azure: blank = cloud default)")
+dbutils.widgets.dropdown("gcp_driver_node_type_id", "n2d-standard-16", GCP_NODE_TYPE_OPTIONS, "GCP Driver Node Type (n2d/c2)")
 dbutils.widgets.text("num_workers", "2", "Number of Workers")
 dbutils.widgets.text("existing_cluster_id", "", "Existing Cluster ID (optional)")
 
@@ -44,12 +59,30 @@ dbutils.widgets.text("existing_cluster_id", "", "Existing Cluster ID (optional)"
 import json
 from pathlib import Path
 
+# Default instance types per cloud: (worker, driver)
+# AWS: i3.xlarge; GCP: from dropdown (default n2d-standard-16); Azure: Standard_DS4_v2
+DEFAULT_NODE_TYPES = {
+    "AWS": ("i3.xlarge", "i3.xlarge"),
+    "GCP": ("n2d-standard-16", "n2d-standard-16"),  # from GCP dropdown; default n2d-standard-16
+    "Azure": ("Standard_DS4_v2", "Standard_DS4_v2"),
+}
+
 job_name = dbutils.widgets.get("job_name")
 data_gen_notebook = dbutils.widgets.get("data_gen_notebook")
 benchmark_notebook = dbutils.widgets.get("benchmark_notebook")
 spark_version = dbutils.widgets.get("spark_version")
-node_type_id = dbutils.widgets.get("node_type_id")
-driver_node_type_id = dbutils.widgets.get("driver_node_type_id")
+cloud = dbutils.widgets.get("cloud")
+_node_type_id = dbutils.widgets.get("node_type_id").strip()
+_driver_node_type_id = dbutils.widgets.get("driver_node_type_id").strip()
+gcp_node_type_id = dbutils.widgets.get("gcp_node_type_id")
+gcp_driver_node_type_id = dbutils.widgets.get("gcp_driver_node_type_id")
+
+if cloud == "GCP":
+    node_type_id = gcp_node_type_id
+    driver_node_type_id = gcp_driver_node_type_id
+else:
+    node_type_id = _node_type_id or DEFAULT_NODE_TYPES[cloud][0]
+    driver_node_type_id = _driver_node_type_id or DEFAULT_NODE_TYPES[cloud][1]
 num_workers = int(dbutils.widgets.get("num_workers"))
 existing_cluster_id = dbutils.widgets.get("existing_cluster_id").strip()
 
@@ -65,6 +98,9 @@ if not data_gen_notebook.startswith("/"):
     data_gen_notebook = f"{workspace_path}/{data_gen_notebook}"
 if not benchmark_notebook.startswith("/"):
     benchmark_notebook = f"{workspace_path}/{benchmark_notebook}"
+
+# Show resolved node types (from cloud default if Worker/Driver were left blank)
+print(f"Cloud: {cloud} | Worker: {node_type_id} | Driver: {driver_node_type_id}")
 
 # COMMAND ----------
 

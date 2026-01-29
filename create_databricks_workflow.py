@@ -270,10 +270,12 @@ def main():
     parser.add_argument("--spark-version", default="14.3.x-scala2.12",
                        choices=SPARK_VERSIONS,
                        help="Databricks Runtime (Spark) version")
-    parser.add_argument("--node-type-id", default="i3.xlarge",
-                       help="Worker node type")
-    parser.add_argument("--driver-node-type-id", default="i3.xlarge",
-                       help="Driver node type")
+    parser.add_argument("--cloud", default="AWS", choices=["AWS", "GCP", "Azure"],
+                       help="Cloud (sets default worker/driver node type if --node-type-id not set)")
+    parser.add_argument("--node-type-id", default=None,
+                       help="Worker node type (default: AWS i3.xlarge, GCP n2d-standard-16, Azure Standard_DS4_v2; GCP: n2d-standard-* or c2-standard-*)")
+    parser.add_argument("--driver-node-type-id", default=None,
+                       help="Driver node type (default: same as worker for selected cloud)")
     parser.add_argument("--num-workers", type=int, default=2,
                        help="Number of worker nodes")
     parser.add_argument("--use-existing-cluster", 
@@ -288,13 +290,23 @@ def main():
                        help="Output workflow definition to JSON file instead of creating via API")
     
     args = parser.parse_args()
-    
+
+    # Default instance types per cloud: (worker, driver)
+    # AWS: i3.xlarge; GCP: n2d-standard-16 (all n2d-standard-* and c2-standard-* available); Azure: Standard_DS4_v2
+    DEFAULT_NODE_TYPES = {
+        "AWS": ("i3.xlarge", "i3.xlarge"),
+        "GCP": ("n2d-standard-16", "n2d-standard-16"),
+        "Azure": ("Standard_DS4_v2", "Standard_DS4_v2"),
+    }
+    node_type_id = args.node_type_id or DEFAULT_NODE_TYPES[args.cloud][0]
+    driver_node_type_id = args.driver_node_type_id or DEFAULT_NODE_TYPES[args.cloud][1]
+
     # Build cluster config
     cluster_config = {
         "spark_version": args.spark_version,
-        "node_type_id": args.node_type_id,
+        "node_type_id": node_type_id,
         "num_workers": args.num_workers,
-        "driver_node_type_id": args.driver_node_type_id,
+        "driver_node_type_id": driver_node_type_id,
     }
     
     # Create workflow definition
