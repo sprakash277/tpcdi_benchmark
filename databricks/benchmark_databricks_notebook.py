@@ -83,10 +83,11 @@ logging.basicConfig(
     force=True  # Override any existing configuration
 )
 
-# Add benchmark module to path: derive from notebook path (parent of current notebook)
+# Add project root to path (notebook in databricks/ → repo root = parent; else notebook dir)
 notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-workspace_path = str(Path(notebook_path).parent)
-sys.path.insert(0, str(Path(workspace_path).resolve()))
+workspace_path = Path(notebook_path).parent
+project_root = workspace_path.parent if (workspace_path.parent / "benchmark").is_dir() else workspace_path
+sys.path.insert(0, str(project_root.resolve()))
 
 from benchmark.config import BenchmarkConfig, Platform, LoadType
 from benchmark.runner import run_benchmark

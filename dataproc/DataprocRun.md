@@ -1,16 +1,16 @@
 # How to run the TPC-DI benchmark on Dataproc
 
-This guide describes how to run the benchmark on **Dataproc**: prerequisites, all parameters (mandatory vs optional, what each means), setup, run commands, and running with a service account. See **[BENCHMARK_README.md](BENCHMARK_README.md)** for overview, architecture, and Databricks usage.
+This guide describes how to run the benchmark on **Dataproc**: prerequisites, all parameters (mandatory vs optional, what each means), setup, run commands, and running with a service account. See **[BENCHMARK_README.md](../BENCHMARK_README.md)** for overview, architecture, and Databricks usage.
 
 ---
 
 ## Prerequisites
 
 1. **Dataproc cluster** with GCS connector installed.
-2. **TPC-DI raw data** must already exist in GCS. `run_benchmark_dataproc.py` does **not** generate data. Generate separately (e.g. TPC-DI DIGen, then upload to GCS).
+2. **TPC-DI raw data** must already exist in GCS. `dataproc/run_benchmark_dataproc.py` does **not** generate data. Generate separately (e.g. TPC-DI DIGen, then upload to GCS).
 3. Data path: `gs://<bucket>/tpcdi/sf=<scale_factor>/` (or your `--raw-data-path`).
 4. GCP **project ID** and **region**.
-5. **Metastore (optional):** Without a [Dataproc Metastore](https://cloud.google.com/dataproc-metastore/docs), Spark uses the default metastore. The benchmark sets the warehouse to GCS (`gs://<bucket>/spark-warehouse`) and uses two-part table names (`database.table`) and Parquet by default. See **docs/DATAPROC_METASTORE.md**.
+5. **Metastore (optional):** Without a [Dataproc Metastore](https://cloud.google.com/dataproc-metastore/docs), Spark uses the default metastore. The benchmark sets the warehouse to GCS (`gs://<bucket>/spark-warehouse`) and uses two-part table names (`database.table`) and Parquet by default. See **../docs/DATAPROC_METASTORE.md**.
 
 **How this guide is structured:** §1 lists all parameters (gcloud + script). §2 explains which are mandatory vs optional. §3 describes what each parameter means. §4–§5 cover setup and run commands (batch, incremental, `--log-detailed-stats`). §6 explains running with a service account. §7 gives a full example with SA. The end section covers Dataproc-specific troubleshooting.
 
@@ -28,7 +28,7 @@ You run the benchmark with `gcloud dataproc jobs submit pyspark`. Options **befo
 | `--region` | GCP region (e.g. `us-central1`) |
 | `--project` | GCP project ID |
 | `--py-files=benchmark.zip` | Benchmark package; create with `zip -r benchmark.zip benchmark` |
-| `--jars=libs/spark-xml_2.12-0.18.0.jar` | Optional; bundled spark-xml JAR (e.g. when no Maven access) |
+| `--jars=dataproc/libs/spark-xml_2.12-0.18.0.jar` | Optional; bundled spark-xml JAR (e.g. when no Maven access) |
 
 ### 1.2 Script parameters (after `--`)
 
@@ -88,7 +88,7 @@ If omitted, these use the defaults in §1:
 | `--region` | GCP region where the cluster lives (e.g. `us-central1`). |
 | `--project` | GCP project that owns the cluster and job. |
 | `--py-files=benchmark.zip` | Zipped `benchmark` package. The script imports `benchmark`; without this, the job fails. Create with `zip -r benchmark.zip benchmark` from the project root. |
-| `--jars=libs/spark-xml_2.12-0.18.0.jar` | Spark-xml JAR for reading `CustomerMgmt.xml`. Optional if the cluster can resolve Maven packages; use when air-gapped or without Maven. Run from project root. |
+| `--jars=dataproc/libs/spark-xml_2.12-0.18.0.jar` | Spark-xml JAR for reading `CustomerMgmt.xml`. Optional if the cluster can resolve Maven packages; use when air-gapped or without Maven. Run from project root. |
 
 ### Script parameters (after `--`)
 
@@ -128,7 +128,7 @@ Pass `--py-files=benchmark.zip` (or `--py-files=gs://<bucket>/benchmark.zip` if 
 
 **Table format:** Use `--format delta` or `--format parquet` (default). With `--format delta`, the benchmark adds the Delta package automatically.
 
-**Spark packages:** The benchmark adds `spark-xml` (for CustomerMgmt.xml) and, when `--format delta`, Delta automatically. The driver needs Maven access. For air-gapped setups, use `--jars=libs/spark-xml_2.12-0.18.0.jar` (see **libs/README.md**).
+**Spark packages:** The benchmark adds `spark-xml` (for CustomerMgmt.xml) and, when `--format delta`, Delta automatically. The driver needs Maven access. For air-gapped setups, use `--jars=dataproc/libs/spark-xml_2.12-0.18.0.jar` (see **dataproc/libs/README.md**).
 
 ---
 
@@ -137,7 +137,7 @@ Pass `--py-files=benchmark.zip` (or `--py-files=gs://<bucket>/benchmark.zip` if 
 ### Batch load
 
 ```bash
-gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
+gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
   --cluster=<cluster-name> \
   --region=us-central1 \
   --project=<your-project> \
@@ -153,7 +153,7 @@ gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
 ### With per-table timing (`--log-detailed-stats`)
 
 ```bash
-gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
+gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
   --cluster=<cluster-name> \
   --region=us-central1 \
   --project=<your-project> \
@@ -170,7 +170,7 @@ gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
 ### Incremental load
 
 ```bash
-gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
+gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
   --cluster=<cluster-name> \
   --region=us-central1 \
   --project=<your-project> \
@@ -210,7 +210,7 @@ Use **both** for key-file auth.
 **3. Run locally (driver on your machine)**
 
 ```bash
-python run_benchmark_dataproc.py \
+python dataproc/run_benchmark_dataproc.py \
   --load-type batch \
   --scale-factor 10 \
   --gcs-bucket=<your-bucket> \
@@ -226,7 +226,7 @@ python run_benchmark_dataproc.py \
 Upload the key to a restricted GCS path (e.g. `gs://<bucket>/secrets/tpcdi-sa-key.json`). Ensure the cluster’s default SA can read it. Then:
 
 ```bash
-gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
+gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
   --cluster=<cluster-name> \
   --region=us-central1 \
   --project=<your-project> \
@@ -254,7 +254,7 @@ If the cluster is created with the desired SA (`gcloud dataproc clusters create 
 - Prefer **Secret Manager** or a restricted GCS path; restrict access to the key.
 - Use a dedicated SA with minimal roles; rotate keys regularly.
 
-For more detail, see **docs/DATAPROC_SERVICE_ACCOUNT.md**.
+For more detail, see **../docs/DATAPROC_SERVICE_ACCOUNT.md**.
 
 ---
 
@@ -265,12 +265,12 @@ Complete `gcloud` command with SA, optional parameters set explicitly:
 ```bash
 zip -r benchmark.zip benchmark
 
-gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
+gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
   --cluster=sumitbnchmark \
   --region=us-central1 \
   --project=gcp-sandbox-field-eng \
   --py-files=benchmark.zip \
-  --jars=libs/spark-xml_2.12-0.18.0.jar \
+  --jars=dataproc/libs/spark-xml_2.12-0.18.0.jar \
   -- \
   --load-type batch \
   --scale-factor 10 \
@@ -288,17 +288,17 @@ gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
   --service-account-key-file=gs://sumit_prakash_gcs/service_account_key_file/service_account.json
 ```
 
-**Notes:** `--jars=libs/...` uses the bundled spark-xml JAR; run from project root. `--format delta` adds the Delta package. With `--service-account-key-file=gs://...`, Spark uses **default** GCS credentials (key not local). For Spark to use the SA, use a **local** key path on the driver. Add `--log-detailed-stats` for per-table timing.
+**Notes:** `--jars=dataproc/libs/...` uses the bundled spark-xml JAR; run from project root. `--format delta` adds the Delta package. With `--service-account-key-file=gs://...`, Spark uses **default** GCS credentials (key not local). For Spark to use the SA, use a **local** key path on the driver. Add `--log-detailed-stats` for per-table timing.
 
 **Incremental (batch 2):**
 
 ```bash
-gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
+gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
   --cluster=sumitbnchmark \
   --region=us-central1 \
   --project=gcp-sandbox-field-eng \
   --py-files=benchmark.zip \
-  --jars=libs/spark-xml_2.12-0.18.0.jar \
+  --jars=dataproc/libs/spark-xml_2.12-0.18.0.jar \
   -- \
   --load-type incremental \
   --scale-factor 10 \
@@ -324,4 +324,4 @@ gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
 - **GCS permissions:** Verify bucket (and paths) access for the identity used (cluster SA or SA key).
 - **Raw data:** Confirm `--raw-data-path` exists and is readable from the cluster.
 - **Project / region:** Check `--project-id` and `--region` match the cluster.
-- **Tables/database gone after job or cluster ends:** Without a Dataproc Metastore, metadata and often data are ephemeral. See **docs/DATAPROC_METASTORE.md**.
+- **Tables/database gone after job or cluster ends:** Without a Dataproc Metastore, metadata and often data are ephemeral. See **../docs/DATAPROC_METASTORE.md**.

@@ -85,7 +85,7 @@ If only `--service-account-email` is set (no key file), the code uses SA email o
 Use a **local path** to the key file:
 
 ```bash
-python run_benchmark_dataproc.py \
+python dataproc/run_benchmark_dataproc.py \
   --load-type batch \
   --scale-factor 10 \
   --gcs-bucket=your-bucket \
@@ -98,7 +98,7 @@ python run_benchmark_dataproc.py \
 Incremental example:
 
 ```bash
-python run_benchmark_dataproc.py \
+python dataproc/run_benchmark_dataproc.py \
   --load-type incremental \
   --scale-factor 10 \
   --batch-id 2 \
@@ -117,7 +117,7 @@ python run_benchmark_dataproc.py \
 4. Pass the **GCS path** as `--service-account-key-file` and **`--py-files=benchmark.zip`**:
 
 ```bash
-gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
+gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
   --cluster=your-cluster-name \
   --region=us-central1 \
   --py-files=benchmark.zip \
@@ -153,7 +153,7 @@ For a path like `/home/sumit_prakash/service_account.json`: the job runs as a us
 4. Pass that **local path** after the `--` and **`--py-files=benchmark.zip`**:
 
 ```bash
-gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
+gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py \
   --cluster=your-cluster-name \
   --region=us-central1 \
   --py-files=benchmark.zip \

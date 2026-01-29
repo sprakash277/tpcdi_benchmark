@@ -3,18 +3,20 @@
 ## Create Workflow (One-Time Setup)
 
 ### Using Notebook (Easiest)
-1. Open `create_workflow_notebook.py` in Databricks
+1. Open `databricks/create_workflow_notebook.py` in Databricks (or `create_workflow_notebook` in Repos under `databricks/`)
 2. Set **Cluster Spark Version (DBR)** via dropdown (e.g. 14.3.x, 15.4.x)
 3. Run all cells
 4. Copy the job ID from the output
 
 ### Using Python Script
 ```bash
-python create_databricks_workflow.py \
+python databricks/create_databricks_workflow.py \
   --job-name "TPC-DI-Benchmark" \
+  --workspace-path "/Workspace/Repos/your-org/your-repo/databricks" \
   --databricks-host "https://your-workspace.cloud.databricks.com" \
   --databricks-token "your-token"
 ```
+Run from project root.
 
 ## Run Workflow
 

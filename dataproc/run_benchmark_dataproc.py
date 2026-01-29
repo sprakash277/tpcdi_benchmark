@@ -9,7 +9,7 @@ Generate data separately (e.g. TPC-DI DIGen + upload to GCS, or a separate data-
 
 When submitting via gcloud, you must provide the benchmark package with --py-files:
   zip -r benchmark.zip benchmark
-  gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py --py-files=benchmark.zip ...
+  gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py --py-files=benchmark.zip ...
 """
 
 import sys
@@ -23,7 +23,10 @@ def _ensure_benchmark_on_path():
     except ModuleNotFoundError:
         pass
     script_dir = Path(__file__).resolve().parent
-    # Local run: project root as parent of script
+    root = script_dir.parent
+    # Local run: script in dataproc/; benchmark/ at project root
+    if script_dir.name == "dataproc" and (root / "benchmark").is_dir():
+        sys.path.insert(0, str(root))
     sys.path.insert(0, str(script_dir))
     # Dataproc: script and benchmark.zip often in same staging dir; add zips so "benchmark" is importable
     for z in script_dir.glob("*.zip"):
@@ -36,7 +39,7 @@ def _ensure_benchmark_on_path():
     print(
         "ERROR: Cannot import 'benchmark'. When submitting to Dataproc, pass the package with --py-files:\n"
         "  zip -r benchmark.zip benchmark\n"
-        "  gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py --py-files=benchmark.zip \\\n"
+        "  gcloud dataproc jobs submit pyspark dataproc/run_benchmark_dataproc.py --py-files=benchmark.zip \\\n"
         "    --cluster=... --region=... -- \\\n"
         "    --load-type batch --scale-factor 10 ...\n"
         "For local runs, run from the project root or set PYTHONPATH to the project root.",

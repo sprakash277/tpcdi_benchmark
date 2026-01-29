@@ -78,13 +78,14 @@ import sys
 import importlib
 from pathlib import Path
 
-# Ensure project root is on path: derive from notebook path (parent of current notebook)
+# Ensure project root is on path (notebook in databricks/ → repo root = parent; else notebook dir)
 try:
     notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-    workspace_path = str(Path(notebook_path).parent)
+    workspace_path = Path(notebook_path).parent
+    project_root = workspace_path.parent if (workspace_path.parent / "benchmark").is_dir() else workspace_path
 except Exception:
-    workspace_path = os.getcwd()
-sys.path.insert(0, str(Path(workspace_path).resolve()))
+    project_root = Path(os.getcwd())
+sys.path.insert(0, str(project_root.resolve()))
 
 # Import and reload to pick up any code changes
 import generate_tpcdi_data

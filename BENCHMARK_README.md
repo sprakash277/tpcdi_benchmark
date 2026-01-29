@@ -11,6 +11,20 @@ The benchmark framework:
 - Collects detailed performance metrics
 - Provides platform-agnostic ETL transformations
 
+## Project layout
+
+| Path | Purpose |
+|------|--------|
+| **`benchmark/`** | Shared ETL, metrics, runner; platform adapters in `benchmark/platforms/` |
+| **`databricks/`** | Databricks-only: notebooks (benchmark, data gen, workflow creation), workflow script, workflow docs |
+| **`dataproc/`** | Dataproc-only: run script, run guide (`DataprocRun.md`), bundled JARs (`libs/`) |
+| **`docs/`** | Architecture and platform-specific docs (e.g. `DATAPROC_*`) |
+| **`tools/`** | TPC-DI tools (DIGen, pdgf) for data generation |
+| **Root** | `generate_tpcdi_data.py`, `run_benchmark_databricks.py`, `requirements.txt`, READMEs |
+
+**Databricks:** `databricks/benchmark_databricks_notebook`, `databricks/generate_tpcdi_data_notebook`, `databricks/create_workflow_notebook`, `databricks/create_databricks_workflow`, `databricks/WORKFLOW_README`, `databricks/QUICK_START_WORKFLOW`.  
+**Dataproc:** `dataproc/run_benchmark_dataproc`, `dataproc/DataprocRun.md`, `dataproc/libs/`.
+
 ## Architecture
 
 ```
@@ -37,18 +51,18 @@ benchmark/
 
 ### Dataproc
 1. Dataproc cluster with GCS connector installed
-2. **TPC-DI raw data must already exist in GCS** — `run_benchmark_dataproc.py` does **not** generate data (unlike the Databricks workflow). Generate data separately (e.g. TPC-DI DIGen, then upload to GCS).
+2. **TPC-DI raw data must already exist in GCS** — `dataproc/run_benchmark_dataproc.py` does **not** generate data (unlike the Databricks workflow). Generate data separately (e.g. TPC-DI DIGen, then upload to GCS).
 3. Data path: `gs://<bucket>/tpcdi/sf=<scale_factor>/`
 4. GCP project ID and region
 5. **Metastore (optional):** If you do **not** attach a [Dataproc Metastore](https://cloud.google.com/dataproc-metastore/docs), Spark uses the default metastore. See **docs/DATAPROC_METASTORE.md**.
-6. **How to run:** All Dataproc run commands, parameters, and setup → **[DataprocRun.md](DataprocRun.md)**.
+6. **How to run:** All Dataproc run commands, parameters, and setup → **[dataproc/DataprocRun.md](dataproc/DataprocRun.md)**.
 
 ## Usage
 
 ### Databricks
 
 #### Option 1: Databricks Notebook
-1. Open `benchmark_databricks_notebook.py` in Databricks
+1. Open `databricks/benchmark_databricks_notebook.py` in Databricks
 2. Configure widgets:
    - **Load Type**: batch or incremental
    - **Scale Factor**: e.g., 10, 100, 1000
@@ -98,14 +112,14 @@ Run the benchmark as a **Databricks workflow (job)** that (1) generates TPC-DI r
 **Step 1: Generate the workflow from the notebook**
 
 1. **Open the workflow-creation notebook in Databricks**  
-   Import or open `create_workflow_notebook.py` in your workspace (e.g. **Repos** or **Workspace**).
+   Import or open `databricks/create_workflow_notebook.py` in your workspace (e.g. **Repos** or **Workspace**).
 
 2. **Set Job Name** (widget: **Job Name**)  
    Default: `TPC-DI-Benchmark`. Change if you want a different job name.
 
 3. **Set notebook paths** (optional)  
-   - **Data Generation Notebook Path**: Notebook that generates TPC-DI data. Default: `generate_tpcdi_data_notebook`. Use just the name if it lives next to this notebook, or a full path (e.g. `/Workspace/Repos/user/repo/generate_tpcdi_data_notebook`).  
-   - **Benchmark Notebook Path**: Notebook that runs the benchmark. Default: `benchmark_databricks_notebook`. Same rules as above.
+   - **Data Generation Notebook Path**: Notebook that generates TPC-DI data. Default: `generate_tpcdi_data_notebook` (in `databricks/`). Use just the name if it lives next to the workflow notebook, or a full path (e.g. `/Workspace/Repos/user/repo/databricks/generate_tpcdi_data_notebook`).  
+   - **Benchmark Notebook Path**: Notebook that runs the benchmark. Default: `benchmark_databricks_notebook` (in `databricks/`). Same rules as above.
 
 4. **Set cluster config**  
    - **Cluster Spark Version (DBR)**: Choose a DBR version (e.g. `14.3.x-scala2.12`, `15.4.x-photon-scala2.12`) from the dropdown.  
@@ -132,12 +146,12 @@ Run the benchmark as a **Databricks workflow (job)** that (1) generates TPC-DI r
 `scale_factor` (10), `tpcdi_raw_data_path` (`dbfs:/mnt/tpcdi`), `load_type` (batch), `target_database`, `target_schema`, `batch_id` (for incremental), `metrics_output`, etc. Override when you run the job.
 
 **More detail**  
-- **[QUICK_START_WORKFLOW.md](QUICK_START_WORKFLOW.md)** — quick create + run.  
-- **[WORKFLOW_README.md](WORKFLOW_README.md)** — full workflow docs, parameters, CLI/API, troubleshooting.
+- **[databricks/QUICK_START_WORKFLOW.md](databricks/QUICK_START_WORKFLOW.md)** — quick create + run.  
+- **[databricks/WORKFLOW_README.md](databricks/WORKFLOW_README.md)** — full workflow docs, parameters, CLI/API, troubleshooting.
 
 ### Dataproc
 
-**→ [How to run Dataproc](DataprocRun.md)** — prerequisites, all parameters (mandatory vs optional, what each means), setup, run commands (batch, incremental, `--log-detailed-stats`), running with a service account, full example with SA, and troubleshooting. All Dataproc run commands and setup live there; the run does **not** generate TPC-DI data (raw data must exist in GCS).
+**→ [How to run Dataproc](dataproc/DataprocRun.md)** — prerequisites, all parameters (mandatory vs optional, what each means), setup, run commands (batch, incremental, `--log-detailed-stats`), running with a service account, full example with SA, and troubleshooting. All Dataproc run commands and setup live there; the run does **not** generate TPC-DI data (raw data must exist in GCS).
 
 ## Load Types
 
@@ -245,7 +259,7 @@ The benchmark implements core TPC-DI transformations:
 - Verify SparkSession is available
 
 ### Dataproc
-- See **[DataprocRun.md](DataprocRun.md)** for run commands, SA setup, and Dataproc-specific troubleshooting.
+- See **[dataproc/DataprocRun.md](dataproc/DataprocRun.md)** for run commands, SA setup, and Dataproc-specific troubleshooting.
 
 ## References
 

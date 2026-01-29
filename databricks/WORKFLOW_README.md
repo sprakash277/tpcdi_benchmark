@@ -14,11 +14,11 @@ All parameters are configurable via workflow parameters, allowing you to run the
 
 ### Option 1: Using the Notebook (Recommended)
 
-1. Open `create_workflow_notebook.py` in Databricks
+1. Open `databricks/create_workflow_notebook.py` in Databricks (or `create_workflow_notebook` when in Repos under `databricks/`)
 2. Configure the widgets:
    - **Job Name**: Name for your workflow
-   - **Data Generation Notebook**: Path to `generate_tpcdi_data_notebook`
-   - **Benchmark Notebook**: Path to `benchmark_databricks_notebook`
+   - **Data Generation Notebook**: Path to `generate_tpcdi_data_notebook` (same dir; default)
+   - **Benchmark Notebook**: Path to `benchmark_databricks_notebook` (same dir; default)
    - **Cluster Spark Version (DBR)**: Dropdown (13.3.x–16.4.x, standard and Photon)
    - **Node types**, **Number of workers**
    - **Existing Cluster ID**: (Optional) Use existing cluster instead of creating new
@@ -28,11 +28,11 @@ All parameters are configurable via workflow parameters, allowing you to run the
 ### Option 2: Using Python Script
 
 ```bash
-python create_databricks_workflow.py \
+python databricks/create_databricks_workflow.py \
   --job-name "TPC-DI-Benchmark" \
   --data-gen-notebook "generate_tpcdi_data_notebook" \
   --benchmark-notebook "benchmark_databricks_notebook" \
-  --workspace-path "/Workspace/Repos/user/repo" \
+  --workspace-path "/Workspace/Repos/user/repo/databricks" \
   --default-scale-factor 10 \
   --spark-version "14.3.x-scala2.12" \
   --default-output-path "dbfs:/mnt/tpcdi" \
@@ -43,19 +43,23 @@ python create_databricks_workflow.py \
   --output-json workflow.json
 ```
 
+Run from project root. Use `--workspace-path` as the Databricks path to the `databricks/` folder (e.g. `/Workspace/Repos/<org>/<repo>/databricks`).
+
 Or create directly via API:
 ```bash
-python create_databricks_workflow.py \
+python databricks/create_databricks_workflow.py \
   --databricks-host "https://workspace.cloud.databricks.com" \
   --databricks-token "<your-token>" \
-  --job-name "TPC-DI-Benchmark"
+  --job-name "TPC-DI-Benchmark" \
+  --workspace-path "/Workspace/Repos/user/repo/databricks"
 ```
 
 ### Option 3: Using Databricks CLI
 
 1. Generate workflow JSON:
 ```bash
-python create_databricks_workflow.py --output-json workflow.json
+python databricks/create_databricks_workflow.py --output-json workflow.json \
+  --workspace-path "/Workspace/Repos/user/repo/databricks"
 ```
 
 2. Create job:
@@ -147,7 +151,7 @@ print(f"Run ID: {run['run_id']}")
 
 ### Task 2: Benchmark Execution
 - **Task Key**: `02_benchmark_execution`
-- **Notebook**: `benchmark_databricks_notebook`
+- **Notebook**: `benchmark_databricks_notebook` (in `databricks/`)
 - **Depends On**: `01_data_generation`
 - **Purpose**: Run ETL transformations and collect metrics
 - **Output**: 
@@ -237,10 +241,11 @@ To update an existing workflow:
 
 ```python
 # Create workflow
-python create_databricks_workflow.py \
+python databricks/create_databricks_workflow.py \
   --job-name "TPC-DI-Benchmark-SF100" \
   --default-scale-factor 100 \
   --num-workers 4 \
+  --workspace-path "/Workspace/Repos/user/repo/databricks" \
   --databricks-host "https://workspace.cloud.databricks.com" \
   --databricks-token "<token>"
 

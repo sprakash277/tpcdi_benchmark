@@ -7,7 +7,7 @@ Generate [TPC-DI](https://www.tpc.org/tpcdi/) benchmark raw data using Python on
 - **TPC-DI** is a benchmark for Data Integration: it models extracting, transforming, and loading data from OLTP and other sources into a data warehouse.
 - This project provides:
   - **`generate_tpcdi_data.py`** – CLI / library script that runs DIGen and uploads output to DBFS or a Unity Catalog Volume.
-  - **`generate_tpcdi_data_notebook.py`** – Databricks notebook with widgets for scale factor, output path, and Volume vs DBFS.
+  - **`databricks/generate_tpcdi_data_notebook.py`** – Databricks notebook with widgets for scale factor, output path, and Volume vs DBFS.
 
 Data generation runs on the **Databricks driver** (single node). Output can be written to **DBFS** or a **Unity Catalog Volume**.
 
@@ -58,7 +58,7 @@ python generate_tpcdi_data.py -s 10 -o dbfs:/mnt/tpcdi --no-skip-existing
 ### 2. Run via Databricks Notebook
 
 1. Clone or upload this repo into **Databricks Repos** (or place the files in a workspace folder).
-2. Open **`generate_tpcdi_data_notebook.py`** as a Databricks notebook.
+2. Open **`databricks/generate_tpcdi_data_notebook.py`** as a Databricks notebook.
 3. Ensure **`tools/datagen/`** (with DIGen.jar and pdgf/) is in the same repo/folder.
 4. Adjust widgets: **Scale factor**, **Output path**, **Use Unity Catalog Volume**, **Catalog**.
 5. Run all cells.
@@ -94,8 +94,9 @@ Generation runs on the **driver** only. For large scale factors (e.g. &gt; 1000)
 ```
 tpcdi_benchmark/
 ├── README.md
-├── generate_tpcdi_data.py          # Main script
-├── generate_tpcdi_data_notebook.py # Databricks notebook
+├── generate_tpcdi_data.py          # Main script (CLI / library)
+├── databricks/
+│   └── generate_tpcdi_data_notebook.py  # Databricks notebook
 ├── tools/
 │   └── datagen/
 │       ├── README.txt              # Setup instructions
