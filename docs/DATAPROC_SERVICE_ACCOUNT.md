@@ -135,7 +135,19 @@ The GCS connector can resolve `gs://` paths for the key file when the cluster id
 
 ### Option C: Submit as a Dataproc job (key file on cluster local disk)
 
-1. Copy the key file to a path on the **driver node** (e.g. via an init action, startup script, or one-time copy to `/var/lib/tpcdi/sa-key.json`).
+**How is the key file made available on the Dataproc node?**  
+`gcloud dataproc jobs submit` does **not** upload or create the key file. You must put it on the **driver node** yourself. Common options:
+
+| Method | When | How |
+|--------|------|-----|
+| **SSH + copy** | One-off or after cluster start | SSH to the driver (e.g. `gcloud compute ssh <master-name> --zone=...`), then copy the key (e.g. from your laptop via `scp`, or create it from Secret Manager / GCS and save to `/home/<user>/service_account.json`). |
+| **Initialization action** | At cluster create | Script that runs when the cluster is created: e.g. download the key from GCS or Secret Manager and write to a path like `/var/lib/tpcdi/sa-key.json`; restrict permissions (`chmod 600`). |
+| **Startup script** | At cluster create | Same idea as init action: script that fetches the key (e.g. `gsutil cp gs://bucket/secrets/key.json /var/lib/tpcdi/sa-key.json`) and secures it. |
+| **GCS path (Option B)** | No file on node | Use `--service-account-key-file=gs://bucket/secrets/key.json` so Spark/GCS connector read the key from GCS; the driver only needs access to that object. (Metrics upload via gsutil then uses default credentials unless a local key is also provided.) |
+
+For a path like `/home/sumit_prakash/service_account.json`: the job runs as a user (often the one who submitted the job). That user’s home on the driver is e.g. `/home/sumit_prakash/`. You must place the file there (or at another path the driver can read) using one of the methods above before submitting the job.
+
+1. Copy the key file to a path on the **driver node** (e.g. via an init action, startup script, or one-time copy to `/var/lib/tpcdi/sa-key.json` or `/home/<user>/service_account.json`).
 2. Restrict file permissions so only the job user can read it (e.g. `chmod 600`).
 3. From the project root, package the benchmark module: `zip -r benchmark.zip benchmark`.
 4. Pass that **local path** after the `--` and **`--py-files=benchmark.zip`**:
@@ -180,9 +192,10 @@ The SA must have read access to the raw data path and write access to the metric
 
 | Issue | What to check |
 |-------|-------------------------------|
+| **NullPointerException** when SparkContext starts (GCS connector, FileInputStream) | The Spark/Hadoop GCS connector expects a **local** key file path. Use a local path on the driver (Option C) for SA auth; if you use `--service-account-key-file=gs://...` (Option B), the code uses default credentials for Spark so the context can start. |
 | Access denied reading GCS | SA has `roles/storage.objectViewer` (or equivalent) on the raw data path. |
 | Access denied writing GCS | SA has write (e.g. `objectAdmin` or `objectCreator`) on the bucket/path used for tables and metrics. |
-| Key file not found | Path is correct and the **driver** process can read it (local path or `gs://` readable by cluster identity). |
+| Key file not found | For **Spark/GCS**, the key path must be a **local** path on the driver (connector opens it with `FileInputStream`). With `--service-account-key-file=gs://...`, Spark uses default credentials. |
 | Invalid key / auth error | Key file is valid JSON and not corrupted; SA email matches the key’s `client_email`. |
 
 For GCS connector and Hadoop config details, see `benchmark/platforms/dataproc.py` (key-file auth) and `benchmark/runner.py` (Spark session config).

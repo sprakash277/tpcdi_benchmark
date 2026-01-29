@@ -48,9 +48,15 @@ class DataprocPlatform:
                 "fs.gs.project.id", project_id
             )
             
-            # Configure service account authentication if provided
-            if service_account_email and service_account_key_file:
-                # Use service account key file authentication
+            # Configure service account authentication if provided.
+            # GCS connector expects a local key file path (FileInputStream); gs:// path causes NPE.
+            key_file = (service_account_key_file or "").strip()
+            use_keyfile = (
+                service_account_email
+                and key_file
+                and not key_file.startswith("gs://")
+            )
+            if use_keyfile:
                 spark.sparkContext._jsc.hadoopConfiguration().set(
                     "fs.gs.auth.type", "SERVICE_ACCOUNT_JSON_KEYFILE"
                 )
@@ -58,9 +64,9 @@ class DataprocPlatform:
                     "fs.gs.auth.service.account.email", service_account_email
                 )
                 spark.sparkContext._jsc.hadoopConfiguration().set(
-                    "fs.gs.auth.service.account.keyfile", service_account_key_file
+                    "fs.gs.auth.service.account.keyfile", key_file
                 )
-                logger.info(f"Configured GCS access with service account: {service_account_email}")
+                logger.info(f"Configured GCS access with service account key file: {service_account_email}")
             elif service_account_email:
                 # Use service account email only (assumes cluster has access to impersonate)
                 spark.sparkContext._jsc.hadoopConfiguration().set(

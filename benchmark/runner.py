@@ -61,17 +61,27 @@ def create_spark_session(config: BenchmarkConfig) -> SparkSession:
                               "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS") \
                       .config("spark.hadoop.fs.gs.project.id", config.project_id)
         
-        # Configure service account authentication if provided
-        if config.service_account_email and config.service_account_key_file:
-            spark_config = spark_config.config("spark.hadoop.fs.gs.auth.type", 
+        # Configure service account authentication if provided.
+        # GCS connector expects a *local* key file path; it opens it with FileInputStream.
+        # If key file is gs:// or missing, do not set keyfile auth or SparkContext init fails (NPE).
+        key_file = getattr(config, "service_account_key_file", None) or ""
+        use_keyfile = (
+            config.service_account_email
+            and key_file
+            and not key_file.strip().startswith("gs://")
+        )
+        if use_keyfile:
+            spark_config = spark_config.config("spark.hadoop.fs.gs.auth.type",
                                               "SERVICE_ACCOUNT_JSON_KEYFILE") \
                                       .config("spark.hadoop.fs.gs.auth.service.account.email",
                                               config.service_account_email) \
                                       .config("spark.hadoop.fs.gs.auth.service.account.keyfile",
-                                              config.service_account_key_file)
+                                              key_file.strip())
+            logger.info("Using service account key file for GCS (local path)")
         elif config.service_account_email:
             spark_config = spark_config.config("spark.hadoop.fs.gs.auth.service.account.email",
                                               config.service_account_email)
+            logger.info("Using service account email for GCS (no local key file)")
         
         spark = spark_config.getOrCreate()
         
