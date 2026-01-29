@@ -6,6 +6,8 @@ including CDC (Change Data Capture) and SCD Type 2 handling.
 """
 
 import logging
+import time
+from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, lit, current_timestamp, coalesce
@@ -13,6 +15,8 @@ from pyspark.sql.functions import col, lit, current_timestamp, coalesce
 if TYPE_CHECKING:
     from benchmark.platforms.databricks import DatabricksPlatform
     from benchmark.platforms.dataproc import DataprocPlatform
+
+from benchmark.etl.table_timing import end_table as table_timing_end, is_detailed as table_timing_is_detailed
 
 logger = logging.getLogger(__name__)
 
@@ -157,9 +161,25 @@ class SilverLoaderBase:
         """
         # Batch 1 = overwrite, subsequent batches = append
         mode = "overwrite" if batch_id == 1 else "append"
+        
+        # Log timing (detailed only when log_detailed_stats is True)
+        start_time = time.time()
+        start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Starting load for {target_table} at {start_datetime}")
+        
         self.platform.write_table(df, target_table, mode=mode)
         
-        logger.info(f"Loaded {target_table}: {df.count()} rows (mode={mode})")
+        end_time = time.time()
+        end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        duration = end_time - start_time
+        row_count = df.count()
+        
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
+            logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: {mode}")
+        table_timing_end(target_table, row_count)
+        
         return df
     
     def _apply_scd_type2(self, incoming_df: DataFrame, target_table: str,
@@ -188,6 +208,12 @@ class SilverLoaderBase:
         Returns:
             DataFrame with changes applied
         """
+        # Log timing for entire SCD Type 2 operation (detailed only when log_detailed_stats is True)
+        start_time = time.time()
+        start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Starting SCD Type 2 for {target_table} at {start_datetime}")
+        
         logger.info(f"Applying SCD Type 2 to {target_table} on key {key_column}")
         
         # Check if target table exists
@@ -200,8 +226,21 @@ class SilverLoaderBase:
         
         if not table_exists:
             # First load - just write directly
+            write_start = time.time()
             self.platform.write_table(incoming_df, target_table, mode="overwrite")
-            logger.info(f"Created {target_table} with {incoming_df.count()} rows")
+            write_end = time.time()
+            row_count = incoming_df.count()
+            if table_timing_is_detailed():
+                logger.info(f"[TIMING] {target_table} (initial create) - Duration: {write_end - write_start:.2f}s, Rows: {row_count}")
+            logger.info(f"Created {target_table} with {row_count} rows")
+            
+            end_time = time.time()
+            end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            duration = end_time - start_time
+            if table_timing_is_detailed():
+                logger.info(f"[TIMING] Completed SCD Type 2 for {target_table} at {end_datetime}")
+                logger.info(f"[TIMING] {target_table} (SCD Type 2) - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s")
+            table_timing_end(target_table, row_count)
             return incoming_df
         
         # Align schema: Read existing table and ensure incoming schema matches
@@ -269,7 +308,21 @@ class SilverLoaderBase:
             append_df = incoming_df
             if record_type_col and exclude_record_types:
                 append_df = incoming_df.filter(~col(record_type_col).isin(*exclude_record_types))
+            
+            write_start = time.time()
             self.platform.write_table(append_df, target_table, mode="append")
+            write_end = time.time()
+            row_count = append_df.count()
+            if table_timing_is_detailed():
+                logger.info(f"[TIMING] {target_table} (fallback append) - Duration: {write_end - write_start:.2f}s, Rows: {row_count}")
+            
+            end_time = time.time()
+            end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            duration = end_time - start_time
+            if table_timing_is_detailed():
+                logger.info(f"[TIMING] Completed SCD Type 2 for {target_table} at {end_datetime}")
+                logger.info(f"[TIMING] {target_table} (SCD Type 2) - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s")
+            table_timing_end(target_table, row_count)
             return incoming_df
         
         # Step 2: Insert new versions (exclude D: close-only, no insert)
@@ -277,8 +330,14 @@ class SilverLoaderBase:
         if record_type_col and exclude_record_types:
             append_df = incoming_df.filter(~col(record_type_col).isin(*exclude_record_types))
             logger.info(f"Excluding record_type in {exclude_record_types} from append ({append_df.count()} rows to insert)")
+        
         # Use mergeSchema=true for Delta append to handle schema evolution
+        write_start = time.time()
         self.platform.write_table(append_df, target_table, mode="append")
+        write_end = time.time()
+        row_count = append_df.count()
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] {target_table} (append) - Duration: {write_end - write_start:.2f}s, Rows: {row_count}")
         
         # Cleanup temp views
         try:
@@ -287,7 +346,14 @@ class SilverLoaderBase:
         except:
             pass
         
-        logger.info(f"SCD Type 2 applied to {target_table}: {append_df.count()} new versions inserted")
+        end_time = time.time()
+        end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        duration = end_time - start_time
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Completed SCD Type 2 for {target_table} at {end_datetime}")
+            logger.info(f"[TIMING] {target_table} (SCD Type 2) - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows inserted: {row_count}")
+        logger.info(f"SCD Type 2 applied to {target_table}: {row_count} new versions inserted")
+        table_timing_end(target_table, row_count)
         return incoming_df
     
     def _upsert_fact_table(self, incoming_df: DataFrame, target_table: str,
@@ -308,6 +374,12 @@ class SilverLoaderBase:
         Returns:
             DataFrame with changes applied
         """
+        # Log timing for entire upsert operation (detailed only when log_detailed_stats is True)
+        start_time = time.time()
+        start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Starting upsert for {target_table} at {start_datetime}")
+        
         logger.info(f"Upserting {target_table} on key {key_column}")
         
         # Check if target table exists
@@ -320,8 +392,21 @@ class SilverLoaderBase:
         
         if not table_exists:
             # First load - just write directly
+            write_start = time.time()
             self.platform.write_table(incoming_df, target_table, mode="overwrite")
-            logger.info(f"Created {target_table} with {incoming_df.count()} rows")
+            write_end = time.time()
+            row_count = incoming_df.count()
+            if table_timing_is_detailed():
+                logger.info(f"[TIMING] {target_table} (initial create) - Duration: {write_end - write_start:.2f}s, Rows: {row_count}")
+            logger.info(f"Created {target_table} with {row_count} rows")
+            
+            end_time = time.time()
+            end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            duration = end_time - start_time
+            if table_timing_is_detailed():
+                logger.info(f"[TIMING] Completed upsert for {target_table} at {end_datetime}")
+                logger.info(f"[TIMING] {target_table} (upsert) - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s")
+            table_timing_end(target_table, row_count)
             return incoming_df
         
         # Create temp view for incoming data
@@ -349,17 +434,35 @@ class SilverLoaderBase:
         """
         
         try:
+            merge_start = time.time()
             self.spark.sql(merge_sql)
+            merge_end = time.time()
+            if table_timing_is_detailed():
+                logger.info(f"[TIMING] {target_table} (MERGE) - Duration: {merge_end - merge_start:.2f}s")
             logger.info(f"MERGE completed for {target_table}")
         except Exception as e:
             logger.warning(f"MERGE failed (may not be Delta): {e}. Falling back to append-only.")
             # Fallback: just append (works for non-Delta tables)
+            write_start = time.time()
             self.platform.write_table(incoming_df, target_table, mode="append")
+            write_end = time.time()
+            row_count = incoming_df.count()
+            if table_timing_is_detailed():
+                logger.info(f"[TIMING] {target_table} (fallback append) - Duration: {write_end - write_start:.2f}s, Rows: {row_count}")
         
         # Cleanup temp view
         try:
             self.spark.catalog.dropTempView("incoming_data")
         except:
             pass
+        
+        end_time = time.time()
+        end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        duration = end_time - start_time
+        row_count = incoming_df.count()
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Completed upsert for {target_table} at {end_datetime}")
+            logger.info(f"[TIMING] {target_table} (upsert) - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}")
+        table_timing_end(target_table, row_count)
         
         return incoming_df

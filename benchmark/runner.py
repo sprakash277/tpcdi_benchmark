@@ -9,6 +9,13 @@ from pyspark.sql import SparkSession
 
 from benchmark.config import BenchmarkConfig, Platform, LoadType
 from benchmark.metrics import MetricsCollector
+from benchmark.etl.table_timing import (
+    clear as clear_table_timing,
+    configure as table_timing_configure,
+    set_job_start as table_timing_job_start,
+    set_job_end as table_timing_job_end,
+    log_final_summary as table_timing_log_final,
+)
 from benchmark.platforms.databricks import DatabricksPlatform
 from benchmark.platforms.dataproc import DataprocPlatform
 
@@ -159,6 +166,10 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
         metrics.finish_step()
         
         # Run ETL: Medallion only (Bronze -> Silver layers)
+        clear_table_timing()
+        table_timing_configure(log_detailed_stats=config.log_detailed_stats)
+        table_timing_job_start()
+
         if config.load_type == LoadType.BATCH:
             metrics.start_step("bronze_etl")
             from benchmark.etl.bronze import BronzeETL
@@ -216,7 +227,10 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
                     logger.warning(f"Could not get metrics for {table}: {e}")
             metrics.finish_step(rows=sum(gold_row_counts.values()),
                                metadata={"table_counts": gold_row_counts})
-        
+
+            table_timing_job_end()
+            table_timing_log_final()
+
         elif config.load_type == LoadType.INCREMENTAL:
             metrics.start_step(f"bronze_incremental_batch{config.batch_id}")
             from benchmark.etl.bronze import BronzeETL
@@ -245,7 +259,10 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             gold_etl = GoldETL(platform)
             gold_etl.run_gold_load(db_or_catalog, config.target_schema)
             metrics.finish_step()
-        
+
+            table_timing_job_end()
+            table_timing_log_final()
+
         else:
             raise ValueError(f"Unsupported load type: {config.load_type}")
     
@@ -281,6 +298,8 @@ if __name__ == "__main__":
     parser.add_argument("--region", help="Required for Dataproc")
     parser.add_argument("--spark-master", help="Spark master URL for Dataproc")
     parser.add_argument("--metrics-output", help="Path to save metrics JSON")
+    parser.add_argument("--log-detailed-stats", action="store_true",
+                        help="Log per-table timing and records; default is only job start/end/total duration")
     
     args = parser.parse_args()
     
@@ -307,6 +326,7 @@ if __name__ == "__main__":
         region=args.region,
         spark_master=args.spark_master,
         metrics_output_path=args.metrics_output,
+        log_detailed_stats=args.log_detailed_stats,
     )
     
     result = run_benchmark(config)

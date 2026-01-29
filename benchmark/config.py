@@ -41,7 +41,7 @@ class BenchmarkConfig:
     service_account_key_file: Optional[str] = None  # For Dataproc: path to service account JSON key file
     enable_metrics: bool = True
     metrics_output_path: Optional[str] = None
-    
+    log_detailed_stats: bool = False  # If True, log per-table timing and records; else only job start/end/total duration
     def __post_init__(self):
         """Validate configuration."""
         if self.platform == Platform.DATAPROC:

@@ -28,6 +28,7 @@ from benchmark.etl.bronze.reference import (
     BronzeDate, BronzeTime, BronzeStatusType, 
     BronzeTaxRate, BronzeTradeType, BronzeIndustry
 )
+from benchmark.etl.table_timing import start_table as table_timing_start
 
 if TYPE_CHECKING:
     from benchmark.platforms.databricks import DatabricksPlatform
@@ -110,34 +111,51 @@ class BronzeETL:
         
         # Reference data (Batch1 only)
         if batch_id == 1:
+            table_timing_start(f"{prefix}.bronze_date")
             self.date.load(f"{prefix}.bronze_date")
+            table_timing_start(f"{prefix}.bronze_time")
             self.time.load(f"{prefix}.bronze_time")
+            table_timing_start(f"{prefix}.bronze_status_type")
             self.status_type.load(f"{prefix}.bronze_status_type")
+            table_timing_start(f"{prefix}.bronze_tax_rate")
             self.tax_rate.load(f"{prefix}.bronze_tax_rate")
+            table_timing_start(f"{prefix}.bronze_trade_type")
             self.trade_type.load(f"{prefix}.bronze_trade_type")
+            table_timing_start(f"{prefix}.bronze_industry")
             self.industry.load(f"{prefix}.bronze_industry")
+            table_timing_start(f"{prefix}.bronze_hr")
             self.hr.load(batch_id, f"{prefix}.bronze_hr")
         
         # Customer/Account data: Different formats for Batch 1 vs Batch 2+
         # Batch 1: CustomerMgmt.xml (XML event log)
         # Batch 2+: Customer.txt and Account.txt (pipe-delimited state snapshots)
         if batch_id == 1:
+            table_timing_start(f"{prefix}.bronze_customer_mgmt")
             self.customer_mgmt.load(batch_id, f"{prefix}.bronze_customer_mgmt")
         else:
             # Incremental batches: pipe-delimited flat files
+            table_timing_start(f"{prefix}.bronze_customer")
             self.customer.load(batch_id, f"{prefix}.bronze_customer")
+            table_timing_start(f"{prefix}.bronze_account")
             self.account.load(batch_id, f"{prefix}.bronze_account")
         
         # Other data files (all batches)
+        table_timing_start(f"{prefix}.bronze_trade")
         self.trade.load(batch_id, f"{prefix}.bronze_trade")
+        table_timing_start(f"{prefix}.bronze_daily_market")
         self.daily_market.load(batch_id, f"{prefix}.bronze_daily_market")
+        table_timing_start(f"{prefix}.bronze_prospect")
         self.prospect.load(batch_id, f"{prefix}.bronze_prospect")
+        table_timing_start(f"{prefix}.bronze_cash_transaction")
         self.cash_transaction.load(batch_id, f"{prefix}.bronze_cash_transaction")
+        table_timing_start(f"{prefix}.bronze_holding_history")
         self.holding_history.load(batch_id, f"{prefix}.bronze_holding_history")
+        table_timing_start(f"{prefix}.bronze_watch_history")
         self.watch_history.load(batch_id, f"{prefix}.bronze_watch_history")
         
         # FINWIRE (Batch1 only per TPC-DI spec)
         if batch_id == 1:
+            table_timing_start(f"{prefix}.bronze_finwire")
             self.finwire.load(batch_id, f"{prefix}.bronze_finwire")
         
         logger.info(f"Bronze layer load completed for Batch{batch_id}")

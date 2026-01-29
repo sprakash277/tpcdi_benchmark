@@ -4,6 +4,8 @@ Handles historical load and initial batch processing.
 """
 
 import logging
+import time
+from datetime import datetime
 from typing import TYPE_CHECKING
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, when, trim, upper, regexp_replace, lit, current_timestamp, split, element_at, size, explode
@@ -13,6 +15,8 @@ from pyspark.sql.functions import udf
 if TYPE_CHECKING:
     from benchmark.platforms.databricks import DatabricksPlatform
     from benchmark.platforms.dataproc import DataprocPlatform
+
+from benchmark.etl.table_timing import is_detailed as table_timing_is_detailed
 
 logger = logging.getLogger(__name__)
 
@@ -290,7 +294,22 @@ class BatchETL:
             current_timestamp().alias("BatchID")
         )
         
+        # Log timing (detailed only when log_detailed_stats is True)
+        start_time = time.time()
+        start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Starting load for {target_table} at {start_datetime}")
+        
         self.platform.write_table(dim_date, target_table, mode="overwrite")
+        
+        end_time = time.time()
+        end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        duration = end_time - start_time
+        row_count = dim_date.count()
+        
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
+            logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: overwrite")
         return dim_date
     
     def load_dim_time(self, target_table: str) -> DataFrame:
@@ -334,7 +353,22 @@ class BatchETL:
             current_timestamp().alias("BatchID")
         )
         
+        # Log timing (detailed only when log_detailed_stats is True)
+        start_time = time.time()
+        start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Starting load for {target_table} at {start_datetime}")
+        
         self.platform.write_table(dim_time, target_table, mode="overwrite")
+        
+        end_time = time.time()
+        end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        duration = end_time - start_time
+        row_count = dim_time.count()
+        
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
+            logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: overwrite")
         return dim_time
     
     def load_dim_trade_type(self, target_table: str) -> DataFrame:
@@ -359,7 +393,22 @@ class BatchETL:
             current_timestamp().alias("BatchID")
         )
         
+        # Log timing (detailed only when log_detailed_stats is True)
+        start_time = time.time()
+        start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Starting load for {target_table} at {start_datetime}")
+        
         self.platform.write_table(dim_trade_type, target_table, mode="overwrite")
+        
+        end_time = time.time()
+        end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        duration = end_time - start_time
+        row_count = dim_trade_type.count()
+        
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
+            logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: overwrite")
         return dim_trade_type
     
     def load_dim_status_type(self, target_table: str) -> DataFrame:
@@ -382,7 +431,22 @@ class BatchETL:
             current_timestamp().alias("BatchID")
         )
         
+        # Log timing (detailed only when log_detailed_stats is True)
+        start_time = time.time()
+        start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Starting load for {target_table} at {start_datetime}")
+        
         self.platform.write_table(dim_status_type, target_table, mode="overwrite")
+        
+        end_time = time.time()
+        end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        duration = end_time - start_time
+        row_count = dim_status_type.count()
+        
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
+            logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: overwrite")
         return dim_status_type
     
     def load_dim_tax_rate(self, target_table: str) -> DataFrame:
@@ -406,7 +470,22 @@ class BatchETL:
             current_timestamp().alias("BatchID")
         )
         
+        # Log timing (detailed only when log_detailed_stats is True)
+        start_time = time.time()
+        start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Starting load for {target_table} at {start_datetime}")
+        
         self.platform.write_table(dim_tax_rate, target_table, mode="overwrite")
+        
+        end_time = time.time()
+        end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        duration = end_time - start_time
+        row_count = dim_tax_rate.count()
+        
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
+            logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: overwrite")
         return dim_tax_rate
     
     def load_dim_industry(self, target_table: str) -> DataFrame:
@@ -431,7 +510,22 @@ class BatchETL:
             current_timestamp().alias("BatchID")
         )
         
+        # Log timing (detailed only when log_detailed_stats is True)
+        start_time = time.time()
+        start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Starting load for {target_table} at {start_datetime}")
+        
         self.platform.write_table(dim_industry, target_table, mode="overwrite")
+        
+        end_time = time.time()
+        end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        duration = end_time - start_time
+        row_count = dim_industry.count()
+        
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
+            logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: overwrite")
         return dim_industry
     
     def load_dim_account(self, target_table: str) -> DataFrame:
@@ -607,9 +701,24 @@ class BatchETL:
             lit(None).cast("timestamp").alias("EndDate")  # NULL for current records
         )
         
-        logger.info(f"Loaded DimAccount: {dim_account.count()} rows")
+        row_count = dim_account.count()
+        logger.info(f"Loaded DimAccount: {row_count} rows")
+        
+        # Log timing (detailed only when log_detailed_stats is True)
+        start_time = time.time()
+        start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Starting load for {target_table} at {start_datetime}")
         
         self.platform.write_table(dim_account, target_table, mode="overwrite")
+        
+        end_time = time.time()
+        end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        duration = end_time - start_time
+        
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
+            logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: overwrite")
         return dim_account
     
     def run_full_batch_load(self, target_database: str, target_schema: str):

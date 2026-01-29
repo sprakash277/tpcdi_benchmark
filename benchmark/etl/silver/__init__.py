@@ -24,6 +24,7 @@ from benchmark.etl.silver.daily_market import SilverDailyMarket
 from benchmark.etl.silver.reference import (
     SilverDate, SilverStatusType, SilverTradeType, SilverIndustry
 )
+from benchmark.etl.table_timing import start_table as table_timing_start
 
 if TYPE_CHECKING:
     from benchmark.platforms.databricks import DatabricksPlatform
@@ -97,15 +98,22 @@ class SilverETL:
         
         # Reference data (Batch1 only)
         if batch_id == 1:
+            table_timing_start(f"{prefix}.silver_date")
             self.date.load(f"{prefix}.bronze_date", f"{prefix}.silver_date")
+            table_timing_start(f"{prefix}.silver_status_type")
             self.status_type.load(f"{prefix}.bronze_status_type", f"{prefix}.silver_status_type")
+            table_timing_start(f"{prefix}.silver_trade_type")
             self.trade_type.load(f"{prefix}.bronze_trade_type", f"{prefix}.silver_trade_type")
+            table_timing_start(f"{prefix}.silver_industry")
             self.industry.load(f"{prefix}.bronze_industry", f"{prefix}.silver_industry")
             
             # FINWIRE parsing (Batch1 only)
             try:
+                table_timing_start(f"{prefix}.silver_companies")
                 self.companies.load(f"{prefix}.bronze_finwire", f"{prefix}.silver_companies")
+                table_timing_start(f"{prefix}.silver_securities")
                 self.securities.load(f"{prefix}.bronze_finwire", f"{prefix}.silver_securities")
+                table_timing_start(f"{prefix}.silver_financials")
                 self.financials.load(f"{prefix}.bronze_finwire", f"{prefix}.silver_financials")
             except Exception as e:
                 logger.warning(f"FINWIRE parsing skipped: {e}")
@@ -114,19 +122,25 @@ class SilverETL:
         # Batch 1: bronze_customer_mgmt (XML)
         # Batch 2+: bronze_customer and bronze_account (pipe-delimited)
         if batch_id == 1:
+            table_timing_start(f"{prefix}.silver_customers")
             self.customers.load(f"{prefix}.bronze_customer_mgmt", f"{prefix}.silver_customers", batch_id)
+            table_timing_start(f"{prefix}.silver_accounts")
             self.accounts.load(f"{prefix}.bronze_customer_mgmt", f"{prefix}.silver_accounts", batch_id)
         else:
+            table_timing_start(f"{prefix}.silver_customers")
             self.customers.load(f"{prefix}.bronze_customer", f"{prefix}.silver_customers", batch_id)
+            table_timing_start(f"{prefix}.silver_accounts")
             self.accounts.load(f"{prefix}.bronze_account", f"{prefix}.silver_accounts", batch_id)
         
         # Trade and Market data (all batches)
         try:
+            table_timing_start(f"{prefix}.silver_trades")
             self.trades.load(f"{prefix}.bronze_trade", f"{prefix}.silver_trades", batch_id)
         except Exception as e:
             logger.warning(f"Trade data skipped: {e}")
         
         try:
+            table_timing_start(f"{prefix}.silver_daily_market")
             self.daily_market.load(f"{prefix}.bronze_daily_market", f"{prefix}.silver_daily_market", batch_id)
         except Exception as e:
             logger.warning(f"Daily market data skipped: {e}")

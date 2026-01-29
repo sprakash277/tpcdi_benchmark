@@ -44,6 +44,8 @@ if __name__ == "__main__":
                        help="Path to service account JSON key file for GCS access (optional)")
     parser.add_argument("--metrics-output",
                        help="Path to save metrics JSON (default: gs://<bucket>/tpcdi/metrics)")
+    parser.add_argument("--log-detailed-stats", action="store_true",
+                       help="Log per-table timing and records; default is only job start/end/total duration")
     
     args = parser.parse_args()
     
@@ -74,6 +76,7 @@ if __name__ == "__main__":
         service_account_email=args.service_account_email,
         service_account_key_file=args.service_account_key_file,
         metrics_output_path=metrics_output,
+        log_detailed_stats=args.log_detailed_stats,
     )
     
     result = run_benchmark(config)

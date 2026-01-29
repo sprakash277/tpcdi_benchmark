@@ -31,6 +31,7 @@ from benchmark.etl.gold.facts import (
     GoldFactCashBalances,
     GoldFactHoldings,
 )
+from benchmark.etl.table_timing import start_table as table_timing_start
 
 if TYPE_CHECKING:
     from benchmark.platforms.databricks import DatabricksPlatform
@@ -109,41 +110,49 @@ class GoldETL:
         # Step 1: Load dimension tables (must be done first)
         logger.info("Loading Gold dimension tables...")
         
+        table_timing_start(f"{prefix}.gold_dim_date")
         self.dim_date.load(
             f"{prefix}.silver_date",
             f"{prefix}.gold_dim_date"
         )
         
+        table_timing_start(f"{prefix}.gold_dim_customer")
         self.dim_customer.load(
             f"{prefix}.silver_customers",
             f"{prefix}.gold_dim_customer"
         )
         
+        table_timing_start(f"{prefix}.gold_dim_account")
         self.dim_account.load(
             f"{prefix}.silver_accounts",
             f"{prefix}.gold_dim_account"
         )
         
+        table_timing_start(f"{prefix}.gold_dim_company")
         self.dim_company.load(
             f"{prefix}.silver_companies",
             f"{prefix}.gold_dim_company"
         )
         
+        table_timing_start(f"{prefix}.gold_dim_security")
         self.dim_security.load(
             f"{prefix}.silver_securities",
             f"{prefix}.gold_dim_security"
         )
         
+        table_timing_start(f"{prefix}.gold_dim_trade_type")
         self.dim_trade_type.load(
             f"{prefix}.silver_trade_type",
             f"{prefix}.gold_dim_trade_type"
         )
         
+        table_timing_start(f"{prefix}.gold_dim_status_type")
         self.dim_status_type.load(
             f"{prefix}.silver_status_type",
             f"{prefix}.gold_dim_status_type"
         )
         
+        table_timing_start(f"{prefix}.gold_dim_industry")
         self.dim_industry.load(
             f"{prefix}.silver_industry",
             f"{prefix}.gold_dim_industry"
@@ -154,6 +163,7 @@ class GoldETL:
         # Step 2: Load fact tables (join with dimensions)
         logger.info("Loading Gold fact tables...")
         
+        table_timing_start(f"{prefix}.gold_fact_trade")
         self.fact_trade.load(
             f"{prefix}.silver_trades",
             f"{prefix}.gold_fact_trade",
@@ -164,6 +174,7 @@ class GoldETL:
             dim_trade_type_table=f"{prefix}.gold_dim_trade_type",
         )
         
+        table_timing_start(f"{prefix}.gold_fact_market_history")
         self.fact_market_history.load(
             f"{prefix}.silver_daily_market",
             f"{prefix}.gold_fact_market_history",
@@ -173,6 +184,7 @@ class GoldETL:
         
         # Optional fact tables (may not exist yet)
         try:
+            table_timing_start(f"{prefix}.gold_fact_cash_balances")
             self.fact_cash_balances.load(
                 f"{prefix}.silver_cash_transaction",
                 f"{prefix}.gold_fact_cash_balances",
@@ -183,6 +195,7 @@ class GoldETL:
             logger.warning(f"FactCashBalances skipped: {e}")
         
         try:
+            table_timing_start(f"{prefix}.gold_fact_holdings")
             self.fact_holdings.load(
                 f"{prefix}.silver_holding_history",
                 f"{prefix}.gold_fact_holdings",

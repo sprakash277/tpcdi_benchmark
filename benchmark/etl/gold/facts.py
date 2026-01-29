@@ -48,23 +48,23 @@ class GoldFactTrade(GoldLoaderBase):
         dim_date = self.spark.table(dim_date_table)
         dim_trade_type = self.spark.table(dim_trade_type_table)
         
-        # Join with dimensions to get surrogate keys
+        # Join with dimensions to get surrogate keys (qualify columns to avoid ambiguity)
         # Note: silver_trades has account_id, join to account to get customer_id
         fact_df = silver_trades \
-            .join(dim_date, 
-                  to_date(col("trade_dts")) == dim_date["date_value"], 
+            .join(dim_date,
+                  to_date(silver_trades["trade_dts"]) == dim_date["date_value"],
                   "left") \
             .join(dim_account,
-                  col("account_id") == dim_account["account_id"],
+                  silver_trades["account_id"] == dim_account["account_id"],
                   "left") \
             .join(dim_customer,
                   dim_account["customer_id"] == dim_customer["customer_id"],
                   "left") \
             .join(dim_security,
-                  col("symbol") == dim_security["symbol"],
+                  silver_trades["symbol"] == dim_security["symbol"],
                   "left") \
             .join(dim_trade_type,
-                  col("trade_type_id") == dim_trade_type["trade_type_id"],
+                  silver_trades["trade_type_id"] == dim_trade_type["trade_type_id"],
                   "left") \
             .select(
                 # Surrogate keys
@@ -73,22 +73,19 @@ class GoldFactTrade(GoldLoaderBase):
                 dim_account["sk_account_id"].alias("sk_account_id"),
                 dim_security["sk_security_id"].alias("sk_security_id"),
                 dim_trade_type["sk_trade_type_id"].alias("sk_trade_type_id"),
-                
-                # Fact measures
-                col("trade_id"),
-                col("trade_dts"),
-                col("trade_price"),
-                col("quantity").alias("trade_quantity"),
-                (col("trade_price") * col("quantity")).alias("trade_amount"),
-                col("commission"),
-                col("charge"),
-                col("tax"),
-                col("status_id"),
-                col("is_cash"),
-                col("exec_name"),
-                
-                # Metadata
-                col("batch_id"),
+                # Fact measures (from silver_trades)
+                silver_trades["trade_id"],
+                silver_trades["trade_dts"],
+                silver_trades["trade_price"],
+                silver_trades["quantity"].alias("trade_quantity"),
+                (silver_trades["trade_price"] * silver_trades["quantity"]).alias("trade_amount"),
+                silver_trades["commission"],
+                silver_trades["charge"],
+                silver_trades["tax"],
+                silver_trades["status_id"],
+                silver_trades["is_cash"],
+                silver_trades["exec_name"],
+                silver_trades["batch_id"],
                 current_timestamp().alias("etl_timestamp"),
             )
         
@@ -171,18 +168,18 @@ class GoldFactCashBalances(GoldLoaderBase):
             dim_date = self.spark.table(dim_date_table)
             dim_account = self.spark.table(dim_account_table)
             
-            # Aggregate cash transactions by account and date
+            # Aggregate cash transactions by account and date (qualify columns to avoid ambiguity)
             fact_df = silver_ct \
                 .join(dim_date,
-                      to_date(col("transaction_date")) == col("date_value"),
+                      to_date(silver_ct["transaction_date"]) == dim_date["date_value"],
                       "left") \
                 .join(dim_account,
-                      col("account_id") == dim_account["account_id"],
+                      silver_ct["account_id"] == dim_account["account_id"],
                       "left") \
                 .groupBy(
-                    col("sk_date_id"),
-                    col("sk_account_id"),
-                    col("account_id"),
+                    dim_date["sk_date_id"],
+                    dim_account["sk_account_id"],
+                    dim_account["account_id"],
                 ) \
                 .agg(
                     spark_sum("amount").alias("cash_balance"),
@@ -229,26 +226,26 @@ class GoldFactHoldings(GoldLoaderBase):
             dim_account = self.spark.table(dim_account_table)
             dim_security = self.spark.table(dim_security_table)
             
-            # Get current holdings (latest by account_id, security_id)
+            # Get current holdings (qualify columns to avoid ambiguity)
             fact_df = silver_hh \
                 .join(dim_date,
-                      to_date(col("holding_date")) == col("date_value"),
+                      to_date(silver_hh["holding_date"]) == dim_date["date_value"],
                       "left") \
                 .join(dim_account,
-                      col("account_id") == dim_account["account_id"],
+                      silver_hh["account_id"] == dim_account["account_id"],
                       "left") \
                 .join(dim_security,
-                      col("symbol") == dim_security["symbol"],
+                      silver_hh["symbol"] == dim_security["symbol"],
                       "left") \
                 .select(
-                    col("sk_date_id"),
-                    col("sk_account_id"),
-                    col("sk_security_id"),
-                    col("account_id"),
-                    col("symbol"),
-                    col("quantity"),
-                    col("purchase_price"),
-                    col("purchase_date"),
+                    dim_date["sk_date_id"],
+                    dim_account["sk_account_id"],
+                    dim_security["sk_security_id"],
+                    silver_hh["account_id"],
+                    silver_hh["symbol"],
+                    silver_hh["quantity"],
+                    silver_hh["purchase_price"],
+                    silver_hh["purchase_date"],
                     current_timestamp().alias("etl_timestamp"),
                 )
             

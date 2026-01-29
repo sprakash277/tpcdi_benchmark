@@ -4,6 +4,8 @@ Handles incremental batch processing.
 """
 
 import logging
+import time
+from datetime import datetime
 from typing import TYPE_CHECKING
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, when, trim, upper, regexp_replace, lit, current_timestamp, explode
@@ -11,6 +13,8 @@ from pyspark.sql.functions import col, when, trim, upper, regexp_replace, lit, c
 if TYPE_CHECKING:
     from benchmark.platforms.databricks import DatabricksPlatform
     from benchmark.platforms.dataproc import DataprocPlatform
+
+from benchmark.etl.table_timing import is_detailed as table_timing_is_detailed
 
 logger = logging.getLogger(__name__)
 
@@ -317,11 +321,26 @@ class IncrementalETL:
             current_timestamp().alias("EndDate")
         )
         
-        logger.info(f"Loaded DimAccount incremental: {dim_account.count()} rows")
+        row_count = dim_account.count()
+        logger.info(f"Loaded DimAccount incremental: {row_count} rows")
         
         # For incremental: merge with existing data (SCD Type 2)
         # This is simplified - actual implementation would handle SCD properly
+        # Log timing (detailed only when log_detailed_stats is True)
+        start_time = time.time()
+        start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Starting load for {target_table} at {start_datetime}")
+        
         self.platform.write_table(dim_account, target_table, mode="append")
+        
+        end_time = time.time()
+        end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        duration = end_time - start_time
+        
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
+            logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: append")
         return dim_account
     
     def _read_pipe_delimited_txt(self, batch_id: int, file_pattern: str, expected_cols: int) -> DataFrame:
@@ -395,8 +414,23 @@ class IncrementalETL:
             lit(batch_id).alias("BatchID")
         )
         
+        # Log timing (detailed only when log_detailed_stats is True)
+        start_time = time.time()
+        start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Starting load for {target_table} at {start_datetime}")
+        
         self.platform.write_table(fact_trade, target_table, mode="append")
-        logger.info(f"Loaded FactTrade: {fact_trade.count()} rows")
+        
+        end_time = time.time()
+        end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        duration = end_time - start_time
+        row_count = fact_trade.count()
+        
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
+            logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: append")
+        logger.info(f"Loaded FactTrade: {row_count} rows")
         return fact_trade
     
     def load_dim_customer_incremental(self, batch_id: int, target_table: str) -> DataFrame:
@@ -654,8 +688,23 @@ class IncrementalETL:
             current_timestamp().alias("EndDate")
         )
         
-        logger.info(f"Loaded DimCustomer incremental: {dim_customer.count()} rows")
+        row_count = dim_customer.count()
+        logger.info(f"Loaded DimCustomer incremental: {row_count} rows")
         
         # For incremental: merge with existing data (SCD Type 2)
+        # Log timing (detailed only when log_detailed_stats is True)
+        start_time = time.time()
+        start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Starting load for {target_table} at {start_datetime}")
+        
         self.platform.write_table(dim_customer, target_table, mode="append")
+        
+        end_time = time.time()
+        end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        duration = end_time - start_time
+        
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
+            logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: append")
         return dim_customer

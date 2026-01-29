@@ -36,6 +36,8 @@ if __name__ == "__main__":
                        help="Batch ID for incremental loads (required for incremental)")
     parser.add_argument("--metrics-output", default="dbfs:/mnt/tpcdi/metrics",
                        help="Path to save metrics JSON (default: dbfs:/mnt/tpcdi/metrics)")
+    parser.add_argument("--log-detailed-stats", action="store_true",
+                       help="Log per-table timing and records; default is only job start/end/total duration")
     
     args = parser.parse_args()
     
@@ -52,6 +54,7 @@ if __name__ == "__main__":
         use_volume=args.use_volume,
         batch_id=args.batch_id,
         metrics_output_path=args.metrics_output,
+        log_detailed_stats=args.log_detailed_stats,
     )
     
     result = run_benchmark(config)
