@@ -2,6 +2,10 @@
 """
 Dataproc benchmark runner for TPC-DI.
 Run this script on Dataproc to benchmark ETL performance.
+
+Note: This script does NOT generate TPC-DI raw data. Raw data must already exist
+in GCS at the path given by --raw-data-path (default: gs://<bucket>/tpcdi/sf=<sf>/).
+Generate data separately (e.g. TPC-DI DIGen + upload to GCS, or a separate data-gen job).
 """
 
 import sys

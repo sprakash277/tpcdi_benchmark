@@ -36,7 +36,7 @@ benchmark/
 
 ### Dataproc
 1. Dataproc cluster with GCS connector installed
-2. TPC-DI raw data in GCS bucket
+2. **TPC-DI raw data must already exist in GCS** — `run_benchmark_dataproc.py` does **not** generate data (unlike the Databricks workflow, which can run data generation then benchmark). Generate data separately (e.g. TPC-DI DIGen, then upload to GCS).
 3. Data path: `gs://<bucket>/tpcdi/sf=<scale_factor>/`
 4. GCP project ID and region
 
@@ -89,6 +89,8 @@ python run_benchmark_databricks.py \
 ```
 
 ### Dataproc
+
+**Important:** The Dataproc run does **not** create or generate TPC-DI data. Ensure raw data already exists at `gs://<bucket>/tpcdi/sf=<scale_factor>/` (or your `--raw-data-path`). On Databricks, the workflow can run data generation then benchmark in one job; on Dataproc you must generate/upload data separately before submitting the benchmark.
 
 #### Submit as Spark Job
 ```bash
