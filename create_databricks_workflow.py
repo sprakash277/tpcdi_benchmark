@@ -75,9 +75,6 @@ def create_workflow_definition(
                     "base_parameters": {
                         "scale_factor": str(default_scale_factor),
                         "raw_output_path": default_output_path,
-                        "use_volume": "false",
-                        "catalog": "tpcdi",
-                        "schema": "tpcdi_raw_data",
                         "upload_threads": "8"
                     }
                 },
@@ -105,7 +102,6 @@ def create_workflow_definition(
                         "load_type": default_load_type,
                         "scale_factor": str(default_scale_factor),
                         "tpcdi_raw_data_path": default_output_path,
-                        "use_volume": "false",
                         "target_database": default_target_database,
                         "target_schema": default_target_schema,
                         "target_catalog": default_target_catalog,
@@ -140,11 +136,6 @@ def create_workflow_definition(
                 "name": "tpcdi_raw_data_path",
                 "default": default_output_path,
                 "description": "Benchmark raw data path (02_benchmark_execution); same as raw_output_path so benchmark reads from data gen output"
-            },
-            {
-                "name": "use_volume",
-                "default": "false",
-                "description": "Raw data in Unity Catalog Volume (use with output_path)"
             },
             {
                 "name": "load_type",
@@ -185,16 +176,6 @@ def create_workflow_definition(
                 "name": "upload_threads",
                 "default": "8",
                 "description": "Number of parallel threads for DBFS uploads"
-            },
-            {
-                "name": "catalog",
-                "default": "tpcdi",
-                "description": "Unity Catalog name (when use_volume=true)"
-            },
-            {
-                "name": "schema",
-                "default": "tpcdi_raw_data",
-                "description": "Unity Catalog schema (when use_volume=true)"
             }
         ],
         "job_clusters": [],

@@ -265,23 +265,22 @@ def generate_tpcdi_data(
     scale_factor: int = DEFAULT_SCALE_FACTOR,
     raw_output_path: str = "dbfs:/mnt/tpcdi",
     digen_path: Optional[str] = None,
-    use_volume: bool = False,
-    catalog: Optional[str] = None,
-    schema: Optional[str] = None,
     skip_if_exists: bool = True,
     upload_threads: int = DEFAULT_UPLOAD_THREADS,
 ) -> str:
     """
     Generate TPC-DI raw data and optionally upload to DBFS, UC Volume, or GCS.
 
+    Destination is inferred from raw_output_path:
+    - dbfs:/... or /dbfs/... -> DBFS load
+    - /Volumes/... -> Unity Catalog Volume load
+    - gs://... -> GCS load
+    - otherwise -> local directory
+
     Args:
         scale_factor: TPC-DI scale factor (e.g. 10 ~ 1GB, 100 ~ 10GB).
-        raw_output_path: DBFS path (dbfs:/...), UC Volume (/Volumes/...), GCS (gs://...), or local dir.
+        raw_output_path: DBFS path (dbfs:/...), UC Volume (/Volumes/catalog/schema/vol), GCS (gs://...), or local dir.
         digen_path: Path to folder containing DIGen.jar and pdgf/. Default: tools/datagen.
-        use_volume: If True, write to Unity Catalog Volume. Sets path to
-                    /Volumes/<catalog>/<schema>/tpcdi_volume/sf=<sf>.
-        catalog: Catalog name when use_volume=True. Default: tpcdi.
-        schema: Schema name when use_volume=True. Default: tpcdi_raw_data.
         skip_if_exists: If output already exists, skip generation.
         upload_threads: Number of parallel threads for DBFS file uploads. Default: 8.
 
@@ -306,29 +305,16 @@ def generate_tpcdi_data(
     _copy_directory(digen, driver_tmp, overwrite=True)
     digen_run = driver_tmp  # run from copied location
 
-    # Output destination
-    if use_volume:
-        cat = catalog or "tpcdi"
-        sch = schema or "tpcdi_raw_data"
-        volume_path = f"/Volumes/{cat}/{sch}/tpcdi_volume/sf={scale_factor}"
-        if skip_if_exists and IN_DATABRICKS and spark is not None:
-            try:
-                existing = spark.sql(
-                    f"SELECT 1 FROM system.information_schema.volumes "
-                    f"WHERE catalog_name = '{cat}' AND schema_name = '{sch}' AND name = 'tpcdi_volume'"
-                ).first()
-                if existing:
-                    # Check sf folder
-                    vol_full = f"/Volumes/{cat}/{sch}/tpcdi_volume/sf={scale_factor}"
-                    if Path(vol_full).exists():
-                        print(f"Volume path {vol_full} already exists; skipping generation.")
-                        return vol_full
-            except Exception:
-                pass
-        create_volume_if_needed(cat, sch, spark)
-        final_dest = volume_path
-    else:
-        final_dest = (raw_output_path.rstrip("/") + f"/sf={scale_factor}").replace("//", "/")
+    # Output destination: infer from path (dbfs -> DBFS, /Volumes/ -> Volume, gs:// -> GCS)
+    final_dest = (raw_output_path.rstrip("/") + f"/sf={scale_factor}").replace("//", "/")
+
+    # If Volume path, ensure catalog/schema/volume exist
+    if final_dest.startswith("/Volumes/"):
+        parts = final_dest.split("/")
+        # /Volumes/catalog/schema/vol_name/sf=N -> catalog, schema, vol_name
+        if len(parts) >= 5:
+            _catalog, _schema, _vol_name = parts[2], parts[3], parts[4]
+            create_volume_if_needed(_catalog, _schema, _vol_name, spark)
 
     # Skip if exists
     if skip_if_exists:
@@ -353,7 +339,7 @@ def generate_tpcdi_data(
     _run_digen(digen_run, scale_factor, driver_out)
     print("Generation complete. Uploading to destination...")
 
-    if use_volume:
+    if final_dest.startswith("/Volumes/"):
         _upload_to_volume(driver_out, final_dest)
     elif final_dest.startswith("dbfs:") or final_dest.startswith("/dbfs"):
         dbfs_arg = ("dbfs:" + final_dest[5:]) if final_dest.startswith("/dbfs") else final_dest
@@ -367,7 +353,9 @@ def generate_tpcdi_data(
     return final_dest
 
 
-def create_volume_if_needed(catalog: str, schema: str, spark_session: Optional[SparkSession]) -> None:
+def create_volume_if_needed(
+    catalog: str, schema: str, volume_name: str, spark_session: Optional[SparkSession]
+) -> None:
     """Create catalog, schema, and volume if they do not exist."""
     if not IN_DATABRICKS or spark_session is None:
         return
@@ -378,7 +366,7 @@ def create_volume_if_needed(catalog: str, schema: str, spark_session: Optional[S
         "COMMENT 'Schema for TPC-DI Raw Files Volume'"
     )
     spark_session.sql(
-        f"CREATE VOLUME IF NOT EXISTS {catalog}.{schema}.tpcdi_volume "
+        f"CREATE VOLUME IF NOT EXISTS {catalog}.{schema}.{volume_name} "
         "COMMENT 'TPC-DI Raw Files'"
     )
 
@@ -406,21 +394,6 @@ def main() -> None:
         help="Path to DIGen (DIGen.jar + pdgf/). Default: tools/datagen",
     )
     ap.add_argument(
-        "--use-volume",
-        action="store_true",
-        help="Write to Unity Catalog Volume (tpcdi.tpcdi_raw_data.tpcdi_volume)",
-    )
-    ap.add_argument(
-        "--catalog",
-        default="tpcdi",
-        help="Catalog name when --use-volume",
-    )
-    ap.add_argument(
-        "--schema",
-        default="tpcdi_raw_data",
-        help="Schema name when --use-volume",
-    )
-    ap.add_argument(
         "--upload-threads",
         type=int,
         default=DEFAULT_UPLOAD_THREADS,
@@ -437,9 +410,6 @@ def main() -> None:
         scale_factor=args.scale_factor,
         raw_output_path=args.raw_output_path,
         digen_path=args.digen_path,
-        use_volume=args.use_volume,
-        catalog=args.catalog,
-        schema=args.schema,
         skip_if_exists=not args.no_skip_existing,
         upload_threads=args.upload_threads,
     )

@@ -102,9 +102,6 @@ workflow = {
                 "base_parameters": {
                     "scale_factor": "10",
                     "raw_output_path": "dbfs:/mnt/tpcdi",
-                    "use_volume": "false",
-                    "catalog": "tpcdi",
-                    "schema": "tpcdi_raw_data",
                     "upload_threads": "8"
                 }
             },
@@ -129,7 +126,6 @@ workflow = {
                     "load_type": "batch",
                     "scale_factor": "10",
                     "tpcdi_raw_data_path": "dbfs:/mnt/tpcdi",
-                    "use_volume": "false",
                     "target_database": "tpcdi_warehouse",
                     "target_schema": "dw",
                     "target_catalog": "",
@@ -161,11 +157,6 @@ workflow = {
             "name": "tpcdi_raw_data_path",
             "default": "dbfs:/mnt/tpcdi",
             "description": "Benchmark raw data path (02_benchmark_execution); same as raw_output_path"
-        },
-        {
-            "name": "use_volume",
-            "default": "false",
-            "description": "Raw data in Unity Catalog Volume (use with output_path)"
         },
         {
             "name": "load_type",
@@ -206,16 +197,6 @@ workflow = {
             "name": "upload_threads",
             "default": "8",
             "description": "Number of parallel threads for DBFS uploads"
-        },
-        {
-            "name": "catalog",
-            "default": "tpcdi",
-            "description": "Unity Catalog name (when use_volume=true)"
-        },
-        {
-            "name": "schema",
-            "default": "tpcdi_raw_data",
-            "description": "Unity Catalog schema (when use_volume=true)"
         }
     ],
     "tags": {

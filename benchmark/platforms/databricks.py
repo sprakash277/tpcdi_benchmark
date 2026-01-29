@@ -12,27 +12,27 @@ logger = logging.getLogger(__name__)
 
 
 class DatabricksPlatform:
-    """Platform adapter for Databricks. Reads raw data from DBFS or Unity Catalog Volume."""
-    
-    def __init__(self, spark: SparkSession, raw_data_path: str, use_volume: bool = False):
+    """Platform adapter for Databricks. Reads raw data from DBFS or Unity Catalog Volume.
+    Load type is inferred from path: dbfs:/... -> DBFS, /Volumes/... -> Volume.
+    """
+
+    def __init__(self, spark: SparkSession, raw_data_path: str):
         """
         Initialize Databricks platform adapter.
-        
+
         Args:
             spark: SparkSession (should already be configured)
             raw_data_path: Base path to raw TPC-DI data including sf=X
                           (e.g. dbfs:/mnt/tpcdi/sf=10 or /Volumes/cat/schema/vol/sf=10)
-            use_volume: True if raw data is in a Unity Catalog Volume
         """
         logger.info(f"[DEBUG DatabricksPlatform.__init__] Called with:")
         logger.info(f"  raw_data_path='{raw_data_path}'")
-        logger.info(f"  use_volume={use_volume}")
-        
+
         self.spark = spark
         # Normalize path: remove dbfs: prefix from Volume paths
         normalized = raw_data_path.rstrip("/")
         logger.info(f"[DEBUG DatabricksPlatform.__init__] normalized (before checks)='{normalized}'")
-        
+
         if normalized.startswith("dbfs:/Volumes/"):
             # Volume path incorrectly prefixed with dbfs: - remove it
             original = normalized
@@ -40,26 +40,11 @@ class DatabricksPlatform:
             logger.warning(
                 f"[DEBUG DatabricksPlatform.__init__] Removed 'dbfs:' prefix from Volume path: {original} -> {normalized}"
             )
-        elif normalized.startswith("/Volumes/"):
-            # Volume path is correct
-            logger.info(f"[DEBUG DatabricksPlatform.__init__] Volume path detected (starts with /Volumes/)")
-        elif use_volume and not normalized.startswith("/Volumes/"):
-            # use_volume=True but path doesn't start with /Volumes/
-            logger.warning(
-                f"[DEBUG DatabricksPlatform.__init__] use_volume=True but path doesn't start with /Volumes/: {normalized}"
-            )
-        
+
         self.raw_data_path = normalized
-        self.use_volume = use_volume
-        logger.info(
-            f"[DEBUG DatabricksPlatform.__init__] Final values:"
-        )
-        logger.info(
-            f"  self.raw_data_path='{self.raw_data_path}'"
-        )
-        logger.info(
-            f"  self.use_volume={self.use_volume}"
-        )
+        # Infer from path: /Volumes/ -> Volume load, otherwise DBFS
+        self.use_volume = normalized.startswith("/Volumes/")
+        logger.info(f"[DEBUG DatabricksPlatform.__init__] Final: raw_data_path='{self.raw_data_path}', use_volume={self.use_volume}")
     
     def _resolve_path(self, relative_path: str) -> str:
         """Resolve full path for reading. Handles both DBFS and Volume."""
@@ -133,7 +118,7 @@ class DatabricksPlatform:
         logger.info(f"[DEBUG read_raw_file] Calling reader.load('{full_path}')...")
         
         # Verify file exists for Volume paths (helps debug path issues)
-        if self.use_volume and full_path.startswith("/Volumes/"):
+        if full_path.startswith("/Volumes/"):
             try:
                 # Try to verify path exists using dbutils if available
                 import dbutils  # type: ignore

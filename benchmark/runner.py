@@ -97,7 +97,6 @@ def create_platform_adapter(config: BenchmarkConfig, spark: SparkSession):
         # Use output_path as raw data input when provided (DBFS or Volume)
         logger.info(f"[DEBUG create_platform_adapter] config.output_path='{config.output_path}'")
         logger.info(f"[DEBUG create_platform_adapter] config.raw_data_path='{config.raw_data_path}'")
-        logger.info(f"[DEBUG create_platform_adapter] config.use_volume={config.use_volume}")
         
         base = (config.output_path or config.raw_data_path).rstrip("/")
         logger.info(f"[DEBUG create_platform_adapter] base (before normalization)='{base}'")
@@ -108,16 +107,14 @@ def create_platform_adapter(config: BenchmarkConfig, spark: SparkSession):
             base = base[5:]  # Remove "dbfs:" prefix
             logger.warning(f"[DEBUG create_platform_adapter] Removed 'dbfs:' prefix from Volume path: {original_base} -> {base}")
         
-        # Auto-detect Volume if use_volume=True or path starts with /Volumes/
-        is_volume = config.use_volume or base.startswith("/Volumes/")
+        # Infer load type from path: dbfs -> DBFS, /Volumes/ -> Volume, gs:// -> GCS (handled by platform)
         raw_root = f"{base}/sf={config.scale_factor}"
         
         logger.info(f"[DEBUG create_platform_adapter] Final values:")
         logger.info(f"  base='{base}'")
-        logger.info(f"  is_volume={is_volume}")
         logger.info(f"  raw_root='{raw_root}'")
         
-        return DatabricksPlatform(spark, raw_root, use_volume=is_volume)
+        return DatabricksPlatform(spark, raw_root)
     elif config.platform == Platform.DATAPROC:
         return DataprocPlatform(spark, config.raw_data_path, 
                                config.gcs_bucket, config.project_id,
@@ -288,7 +285,6 @@ if __name__ == "__main__":
     parser.add_argument("--scale-factor", type=int, required=True)
     parser.add_argument("--raw-data-path", help="GCS path for Dataproc; base path for Databricks if --output-path not set")
     parser.add_argument("--output-path", help="Databricks: raw data location (DBFS or Volume base); overrides raw-data-path")
-    parser.add_argument("--use-volume", action="store_true", help="Databricks: raw data in Unity Catalog Volume")
     parser.add_argument("--target-database", default="tpcdi_warehouse")
     parser.add_argument("--target-schema", default="dw")
     parser.add_argument("--target-catalog", help="Unity Catalog (Databricks); when set, create catalog + schema")
@@ -319,7 +315,6 @@ if __name__ == "__main__":
         target_schema=args.target_schema,
         target_catalog=args.target_catalog,
         output_path=args.output_path,
-        use_volume=args.use_volume,
         batch_id=args.batch_id,
         gcs_bucket=args.gcs_bucket,
         project_id=args.project_id,

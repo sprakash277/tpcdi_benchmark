@@ -70,17 +70,16 @@ The workflow supports the following parameters (all have defaults):
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `scale_factor` | `10` | TPC-DI scale factor (10, 100, 1000, etc.) |
-| `output_path` | `dbfs:/mnt/tpcdi` | Data gen output & benchmark raw data input (DBFS or Volume base) |
-| `use_volume` | `false` | Raw data in Unity Catalog Volume (use with `output_path`) |
+| `raw_output_path` | `dbfs:/mnt/tpcdi` | Data gen output path (01); dbfs:/..., /Volumes/..., or gs://... |
+| `tpcdi_raw_data_path` | `dbfs:/mnt/tpcdi` | Benchmark raw data path (02); same as raw_output_path |
 | `load_type` | `batch` | Load type: `batch` or `incremental` |
 | `target_database` | `tpcdi_warehouse` | Target database name |
 | `target_schema` | `dw` | Target schema name |
 | `batch_id` | `""` | Batch ID for incremental loads (empty for batch) |
 | `metrics_output` | `dbfs:/mnt/tpcdi/metrics` | Path to save metrics JSON |
 | `upload_threads` | `8` | Parallel threads for DBFS uploads |
-| `use_volume` | `false` | Use Unity Catalog Volume |
-| `catalog` | `tpcdi` | Unity Catalog name |
-| `schema` | `tpcdi_raw_data` | Unity Catalog schema |
+
+Load type for 01_data_generation is inferred from path: **dbfs:/...** (DBFS), **/Volumes/...** (Volume), **gs://...** (GCS).
 
 ## Running the Workflow
 
@@ -145,7 +144,7 @@ print(f"Run ID: {run['run_id']}")
 - **Task Key**: `01_data_generation`
 - **Notebook**: `generate_tpcdi_data_notebook`
 - **Purpose**: Generate TPC-DI raw data files
-- **Output**: Raw data files at `{output_path}/sf={scale_factor}/` (DBFS or Volume)
+- **Output**: Raw data files at `{raw_output_path}/sf={scale_factor}/` (DBFS, Volume, or GCS; inferred from path)
 
 ### Task 2: Benchmark Execution
 - **Task Key**: `02_benchmark_execution`
@@ -163,8 +162,8 @@ print(f"Run ID: {run['run_id']}")
 {
   "scale_factor": "10",
   "load_type": "batch",
-  "output_path": "dbfs:/mnt/tpcdi",
-  "use_volume": "false",
+  "raw_output_path": "dbfs:/mnt/tpcdi",
+  "tpcdi_raw_data_path": "dbfs:/mnt/tpcdi",
   "target_database": "tpcdi_warehouse",
   "target_schema": "dw"
 }
@@ -175,8 +174,8 @@ print(f"Run ID: {run['run_id']}")
 {
   "scale_factor": "100",
   "load_type": "batch",
-  "output_path": "dbfs:/mnt/tpcdi",
-  "use_volume": "false",
+  "raw_output_path": "dbfs:/mnt/tpcdi",
+  "tpcdi_raw_data_path": "dbfs:/mnt/tpcdi",
   "target_database": "tpcdi_warehouse",
   "target_schema": "dw"
 }
@@ -188,8 +187,8 @@ print(f"Run ID: {run['run_id']}")
   "scale_factor": "10",
   "load_type": "incremental",
   "batch_id": "2",
-  "output_path": "dbfs:/mnt/tpcdi",
-  "use_volume": "false",
+  "raw_output_path": "dbfs:/mnt/tpcdi",
+  "tpcdi_raw_data_path": "dbfs:/mnt/tpcdi",
   "target_database": "tpcdi_warehouse",
   "target_schema": "dw"
 }

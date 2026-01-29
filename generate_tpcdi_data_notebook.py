@@ -26,18 +26,6 @@ try:
 except Exception:
     pass
 try:
-    dbutils.widgets.drop("use_volume")
-except Exception:
-    pass
-try:
-    dbutils.widgets.drop("catalog")
-except Exception:
-    pass
-try:
-    dbutils.widgets.drop("schema")
-except Exception:
-    pass
-try:
     dbutils.widgets.drop("upload_threads")
 except Exception:
     pass
@@ -45,10 +33,7 @@ except Exception:
 # Create widgets with defaults (for interactive use)
 # When run as workflow task, these will be overridden by workflow parameters
 dbutils.widgets.text("scale_factor", "10", "Scale factor (e.g. 10 ~ 1GB)")
-dbutils.widgets.text("raw_output_path", "dbfs:/mnt/tpcdi", "Raw output path (DBFS, Volume base, or gs:// for GCS)")
-dbutils.widgets.dropdown("use_volume", "false", ["true", "false"], "Use Unity Catalog Volume")
-dbutils.widgets.text("catalog", "tpcdi", "Catalog (when use_volume=true)")
-dbutils.widgets.text("schema", "tpcdi_raw_data", "Schema (when use_volume=true)")
+dbutils.widgets.text("raw_output_path", "dbfs:/mnt/tpcdi", "Raw output path: dbfs:/... (DBFS), /Volumes/... (Volume), gs://... (GCS), or local")
 dbutils.widgets.text("upload_threads", "8", "Upload threads for DBFS (parallel file uploads)")
 
 # COMMAND ----------
@@ -57,17 +42,11 @@ dbutils.widgets.text("upload_threads", "8", "Upload threads for DBFS (parallel f
 # Workflow parameters override widget defaults
 scale_factor = int(dbutils.widgets.get("scale_factor"))
 raw_output_path = dbutils.widgets.get("raw_output_path").strip()
-use_volume = dbutils.widgets.get("use_volume") == "true"
-catalog = dbutils.widgets.get("catalog").strip() or "tpcdi"
-schema = dbutils.widgets.get("schema").strip() or "tpcdi_raw_data"
 upload_threads = int(dbutils.widgets.get("upload_threads").strip() or "8")
 
 print(f"Data Generation Parameters:")
 print(f"  Scale Factor: {scale_factor}")
-print(f"  Raw Output Path: {raw_output_path}")
-print(f"  Use Volume: {use_volume}")
-print(f"  Catalog: {catalog}")
-print(f"  Schema: {schema}")
+print(f"  Raw Output Path: {raw_output_path} (dbfs=DBFS, /Volumes/=Volume, gs://=GCS)")
 print(f"  Upload Threads: {upload_threads}")
 
 # COMMAND ----------
@@ -99,9 +78,6 @@ out = generate_tpcdi_data(
     scale_factor=scale_factor,
     raw_output_path=raw_output_path,
     digen_path=None,
-    use_volume=use_volume,
-    catalog=catalog,
-    schema=schema,
     skip_if_exists=True,
     upload_threads=upload_threads,
 )

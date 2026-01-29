@@ -192,7 +192,7 @@ python run_benchmark_databricks.py \
 
 ### Workflow
 
-Use the Databricks workflow with the standard parameters (output_path, use_volume, load_type, etc.).
+Use the Databricks workflow with the standard parameters (raw_output_path / tpcdi_raw_data_path, load_type, etc.). Load type is inferred from path: dbfs:/... (DBFS), /Volumes/... (Volume).
 
 ## CDC (Change Data Capture) & SCD Type 2
 

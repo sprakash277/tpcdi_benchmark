@@ -30,10 +30,6 @@ try:
 except Exception:
     pass
 try:
-    dbutils.widgets.drop("use_volume")
-except Exception:
-    pass
-try:
     dbutils.widgets.drop("target_database")
 except Exception:
     pass
@@ -60,8 +56,7 @@ except Exception:
 
 dbutils.widgets.dropdown("load_type", "batch", ["batch", "incremental"], "Load Type")
 dbutils.widgets.text("scale_factor", "10", "Scale Factor")
-dbutils.widgets.text("tpcdi_raw_data_path", "dbfs:/mnt/tpcdi", "TPC-DI raw data path (from 01_data_generation output; DBFS or Volume base)")
-dbutils.widgets.dropdown("use_volume", "false", ["true", "false"], "Raw data in Unity Catalog Volume")
+dbutils.widgets.text("tpcdi_raw_data_path", "dbfs:/mnt/tpcdi", "TPC-DI raw data path: dbfs:/... (DBFS), /Volumes/... (Volume)")
 dbutils.widgets.text("target_database", "tpcdi_warehouse", "Target Database")
 dbutils.widgets.text("target_schema", "dw", "Target Schema")
 dbutils.widgets.text("target_catalog", "", "Target Catalog (Unity Catalog; optional)")
@@ -107,15 +102,11 @@ logging.getLogger('benchmark.platforms.databricks').setLevel(logging.DEBUG)
 load_type = dbutils.widgets.get("load_type")
 scale_factor = int(dbutils.widgets.get("scale_factor"))
 tpcdi_raw_data_path_raw = dbutils.widgets.get("tpcdi_raw_data_path").strip()
-use_volume = dbutils.widgets.get("use_volume") == "true"
-
-# Normalize tpcdi_raw_data_path: remove dbfs: prefix from Volume paths
+# Normalize: remove dbfs: prefix from Volume paths (load type inferred from path: dbfs=DBFS, /Volumes/=Volume)
 tpcdi_raw_data_path = tpcdi_raw_data_path_raw
 if tpcdi_raw_data_path.startswith("dbfs:/Volumes/"):
     tpcdi_raw_data_path = tpcdi_raw_data_path[5:]  # Remove "dbfs:" prefix
     print(f"WARNING: Removed 'dbfs:' prefix from Volume path: '{tpcdi_raw_data_path_raw}' -> '{tpcdi_raw_data_path}'")
-elif use_volume and not tpcdi_raw_data_path.startswith("/Volumes/"):
-    print(f"WARNING: use_volume=True but path doesn't start with /Volumes/: '{tpcdi_raw_data_path}'")
 
 target_database = dbutils.widgets.get("target_database").strip()
 target_schema = dbutils.widgets.get("target_schema").strip()
@@ -139,7 +130,6 @@ config = BenchmarkConfig(
     target_schema=target_schema,
     target_catalog=target_catalog,
     output_path=tpcdi_raw_data_path,
-    use_volume=use_volume,
     batch_id=batch_id,
     metrics_output_path=metrics_output,
     log_detailed_stats=log_detailed_stats,
