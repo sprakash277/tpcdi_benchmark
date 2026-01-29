@@ -91,7 +91,7 @@ python run_benchmark_databricks.py \
 
 ### Dataproc
 
-**Important:** The Dataproc run does **not** create or generate TPC-DI data. Ensure raw data already exists at `gs://<bucket>/tpcdi/sf=<scale_factor>/` (or your `--raw-data-path`). On Databricks, the workflow can run data generation then benchmark in one job; on Dataproc you must generate/upload data separately before submitting the benchmark.
+**Important:** The Dataproc run does **not** create or generate TPC-DI data. Ensure raw data already exists at `gs://<bucket>/tpcdi/sf=<scale_factor>/` (or your `--raw-data-path`). For a **full parameter reference** and **sample run with service account**, see **benchmark.md**. On Databricks, the workflow can run data generation then benchmark in one job; on Dataproc you must generate/upload data separately before submitting the benchmark.
 
 **Package the benchmark module:** When submitting via `gcloud dataproc jobs submit pyspark`, only the main script is uploaded by default. The `benchmark` package must be provided with `--py-files`. From the **project root**:
 
