@@ -74,7 +74,7 @@ def create_workflow_definition(
                     "notebook_path": data_gen_notebook_path,
                     "base_parameters": {
                         "scale_factor": str(default_scale_factor),
-                        "output_path": default_output_path,
+                        "raw_output_path": default_output_path,
                         "use_volume": "false",
                         "catalog": "tpcdi",
                         "schema": "tpcdi_raw_data",
@@ -104,7 +104,7 @@ def create_workflow_definition(
                     "base_parameters": {
                         "load_type": default_load_type,
                         "scale_factor": str(default_scale_factor),
-                        "output_path": default_output_path,
+                        "tpcdi_raw_data_path": default_output_path,
                         "use_volume": "false",
                         "target_database": default_target_database,
                         "target_schema": default_target_schema,
@@ -132,9 +132,14 @@ def create_workflow_definition(
                 "description": "TPC-DI scale factor (e.g., 10, 100, 1000)"
             },
             {
-                "name": "output_path",
+                "name": "raw_output_path",
                 "default": default_output_path,
-                "description": "Data gen output & benchmark raw data input (DBFS or Volume base)"
+                "description": "Data gen raw output path (01_data_generation); DBFS or Volume base"
+            },
+            {
+                "name": "tpcdi_raw_data_path",
+                "default": default_output_path,
+                "description": "Benchmark raw data path (02_benchmark_execution); same as raw_output_path so benchmark reads from data gen output"
             },
             {
                 "name": "use_volume",

@@ -45,7 +45,7 @@ except Exception:
 # Create widgets with defaults (for interactive use)
 # When run as workflow task, these will be overridden by workflow parameters
 dbutils.widgets.text("scale_factor", "10", "Scale factor (e.g. 10 ~ 1GB)")
-dbutils.widgets.text("output_path", "dbfs:/mnt/tpcdi", "Output path (DBFS or base for Volume)")
+dbutils.widgets.text("raw_output_path", "dbfs:/mnt/tpcdi", "Raw output path (DBFS, Volume base, or gs:// for GCS)")
 dbutils.widgets.dropdown("use_volume", "false", ["true", "false"], "Use Unity Catalog Volume")
 dbutils.widgets.text("catalog", "tpcdi", "Catalog (when use_volume=true)")
 dbutils.widgets.text("schema", "tpcdi_raw_data", "Schema (when use_volume=true)")
@@ -56,7 +56,7 @@ dbutils.widgets.text("upload_threads", "8", "Upload threads for DBFS (parallel f
 # Get parameters (from widgets or workflow parameters)
 # Workflow parameters override widget defaults
 scale_factor = int(dbutils.widgets.get("scale_factor"))
-output_path = dbutils.widgets.get("output_path").strip()
+raw_output_path = dbutils.widgets.get("raw_output_path").strip()
 use_volume = dbutils.widgets.get("use_volume") == "true"
 catalog = dbutils.widgets.get("catalog").strip() or "tpcdi"
 schema = dbutils.widgets.get("schema").strip() or "tpcdi_raw_data"
@@ -64,7 +64,7 @@ upload_threads = int(dbutils.widgets.get("upload_threads").strip() or "8")
 
 print(f"Data Generation Parameters:")
 print(f"  Scale Factor: {scale_factor}")
-print(f"  Output Path: {output_path}")
+print(f"  Raw Output Path: {raw_output_path}")
 print(f"  Use Volume: {use_volume}")
 print(f"  Catalog: {catalog}")
 print(f"  Schema: {schema}")
@@ -97,7 +97,7 @@ from generate_tpcdi_data import generate_tpcdi_data
 
 out = generate_tpcdi_data(
     scale_factor=scale_factor,
-    output_path=output_path,
+    raw_output_path=raw_output_path,
     digen_path=None,
     use_volume=use_volume,
     catalog=catalog,

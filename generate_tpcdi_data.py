@@ -228,6 +228,34 @@ def _upload_local(local_dir: Path, output_path: str) -> None:
             shutil.copy2(src, dest / rel)
 
 
+def _upload_to_gcs(local_dir: Path, gs_path: str) -> None:
+    """Upload generated files to GCS using gsutil. gs_path must start with gs://."""
+    if not gs_path.startswith("gs://"):
+        raise ValueError("GCS path must start with gs://")
+    gs_path = gs_path.rstrip("/")
+    # Use gsutil -m cp -r for parallel upload; gsutil expects destination to be a directory
+    cmd = ["gsutil", "-m", "cp", "-r", str(local_dir) + "/*", gs_path + "/"]
+    print(f"Uploading to GCS: {gs_path}/ ...")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"gsutil upload failed (exit {result.returncode}): {result.stderr or result.stdout}"
+        )
+    print(f"Successfully uploaded to {gs_path}/")
+
+
+def _gcs_path_exists(gs_path: str) -> bool:
+    """Return True if the GCS path exists and has objects (e.g. Batch1/)."""
+    if not gs_path.startswith("gs://"):
+        return False
+    result = subprocess.run(
+        ["gsutil", "ls", gs_path.rstrip("/") + "/"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
 # -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
@@ -235,7 +263,7 @@ def _upload_local(local_dir: Path, output_path: str) -> None:
 
 def generate_tpcdi_data(
     scale_factor: int = DEFAULT_SCALE_FACTOR,
-    output_path: str = "dbfs:/mnt/tpcdi",
+    raw_output_path: str = "dbfs:/mnt/tpcdi",
     digen_path: Optional[str] = None,
     use_volume: bool = False,
     catalog: Optional[str] = None,
@@ -244,13 +272,13 @@ def generate_tpcdi_data(
     upload_threads: int = DEFAULT_UPLOAD_THREADS,
 ) -> str:
     """
-    Generate TPC-DI raw data and optionally upload to DBFS or a UC Volume.
+    Generate TPC-DI raw data and optionally upload to DBFS, UC Volume, or GCS.
 
     Args:
         scale_factor: TPC-DI scale factor (e.g. 10 ~ 1GB, 100 ~ 10GB).
-        output_path: DBFS path (dbfs:/...), UC Volume (/Volumes/...), or local dir.
+        raw_output_path: DBFS path (dbfs:/...), UC Volume (/Volumes/...), GCS (gs://...), or local dir.
         digen_path: Path to folder containing DIGen.jar and pdgf/. Default: tools/datagen.
-        use_volume: If True, write to Unity Catalog Volume. Sets output_path to
+        use_volume: If True, write to Unity Catalog Volume. Sets path to
                     /Volumes/<catalog>/<schema>/tpcdi_volume/sf=<sf>.
         catalog: Catalog name when use_volume=True. Default: tpcdi.
         schema: Schema name when use_volume=True. Default: tpcdi_raw_data.
@@ -258,7 +286,7 @@ def generate_tpcdi_data(
         upload_threads: Number of parallel threads for DBFS file uploads. Default: 8.
 
     Returns:
-        Final path where data was written (DBFS or Volume path).
+        Final path where data was written (DBFS, Volume, or GCS path).
     """
     root = _repo_root()
     digen = Path(digen_path) if digen_path else _default_digen_path()
@@ -300,7 +328,7 @@ def generate_tpcdi_data(
         create_volume_if_needed(cat, sch, spark)
         final_dest = volume_path
     else:
-        final_dest = (output_path.rstrip("/") + f"/sf={scale_factor}").replace("//", "/")
+        final_dest = (raw_output_path.rstrip("/") + f"/sf={scale_factor}").replace("//", "/")
 
     # Skip if exists
     if skip_if_exists:
@@ -311,6 +339,10 @@ def generate_tpcdi_data(
                 return final_dest
         elif final_dest.startswith("/Volumes/"):
             if Path(final_dest).exists() and any(Path(final_dest).iterdir()):
+                print(f"Output {final_dest} already exists; skipping generation.")
+                return final_dest
+        elif final_dest.startswith("gs://"):
+            if _gcs_path_exists(final_dest):
                 print(f"Output {final_dest} already exists; skipping generation.")
                 return final_dest
         elif os.path.isdir(final_dest) and os.listdir(final_dest):
@@ -326,6 +358,8 @@ def generate_tpcdi_data(
     elif final_dest.startswith("dbfs:") or final_dest.startswith("/dbfs"):
         dbfs_arg = ("dbfs:" + final_dest[5:]) if final_dest.startswith("/dbfs") else final_dest
         _upload_to_dbfs(driver_out, dbfs_arg, max_workers=upload_threads)
+    elif final_dest.startswith("gs://"):
+        _upload_to_gcs(driver_out, final_dest)
     else:
         _upload_local(driver_out, final_dest)
 
@@ -361,9 +395,10 @@ def main() -> None:
         help="TPC-DI scale factor (e.g. 10 ~ 1GB)",
     )
     ap.add_argument(
-        "-o", "--output",
+        "-o", "--output", "--raw-output-path",
+        dest="raw_output_path",
         default="dbfs:/mnt/tpcdi",
-        help="Output path: dbfs:/... or /Volumes/cat/schema/vol",
+        help="Raw output path: dbfs:/..., /Volumes/cat/schema/vol, gs://bucket/path, or local dir",
     )
     ap.add_argument(
         "-d", "--digen-path",
@@ -400,7 +435,7 @@ def main() -> None:
 
     generate_tpcdi_data(
         scale_factor=args.scale_factor,
-        output_path=args.output,
+        raw_output_path=args.raw_output_path,
         digen_path=args.digen_path,
         use_volume=args.use_volume,
         catalog=args.catalog,
