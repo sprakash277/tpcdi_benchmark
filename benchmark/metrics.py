@@ -107,8 +107,10 @@ class BenchmarkMetrics:
             "summary": self.summary,
         }
     
-    def save(self, output_path: str):
-        """Save metrics to file (JSON). Local paths use pathlib/open; gs:// paths write to temp then upload via gsutil."""
+    def save(self, output_path: str, service_account_key_file: Optional[str] = None):
+        """Save metrics to file (JSON). Local paths use pathlib/open; gs:// paths write to temp then upload via gsutil.
+        If service_account_key_file is a local path, gsutil uses that SA for the upload (GOOGLE_APPLICATION_CREDENTIALS).
+        """
         timestamp = datetime.fromtimestamp(self.start_time).strftime("%Y%m%d_%H%M%S")
         filename = f"metrics_{self.platform}_{self.load_type}_sf{self.scale_factor}_{timestamp}.json"
         if self.batch_id is not None:
@@ -122,10 +124,21 @@ class BenchmarkMetrics:
                 json.dump(self.to_dict(), f, indent=2)
                 tmp_path = f.name
             try:
+                env = os.environ.copy()
+                # Use SA key for gsutil when a local key file is provided (Dataproc: same SA as Spark GCS access)
+                if service_account_key_file and not service_account_key_file.startswith("gs://"):
+                    if os.path.isfile(service_account_key_file):
+                        env["GOOGLE_APPLICATION_CREDENTIALS"] = service_account_key_file
+                    else:
+                        logger.warning(
+                            "service_account_key_file=%s not found or not local; gsutil will use default credentials",
+                            service_account_key_file,
+                        )
                 subprocess.run(
                     ["gsutil", "-q", "cp", tmp_path, full_gcs_path],
                     check=True,
                     capture_output=True,
+                    env=env,
                 )
                 logger.info(f"Metrics saved to {full_gcs_path}")
                 return full_gcs_path
@@ -209,7 +222,12 @@ class MetricsCollector:
         
         if self.config.enable_metrics and self.config.metrics_output_path:
             try:
-                self.metrics.save(self.config.metrics_output_path)
+                self.metrics.save(
+                    self.config.metrics_output_path,
+                    service_account_key_file=getattr(
+                        self.config, "service_account_key_file", None
+                    ),
+                )
             except Exception as e:
                 logger.error(f"Failed to save metrics: {e}")
         
