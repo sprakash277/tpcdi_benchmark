@@ -38,6 +38,7 @@ class BenchmarkConfig:
     region: Optional[str] = None  # For Dataproc
     service_account_email: Optional[str] = None  # For Dataproc: service account email for GCS access
     service_account_key_file: Optional[str] = None  # For Dataproc: path to service account JSON key file
+    table_format: Optional[str] = None  # For Dataproc: table format (delta or parquet); default parquet
     enable_metrics: bool = True
     metrics_output_path: Optional[str] = None
     log_detailed_stats: bool = False  # If True, log per-table timing and records; else only job start/end/total duration

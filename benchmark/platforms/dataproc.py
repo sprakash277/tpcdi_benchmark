@@ -17,7 +17,8 @@ class DataprocPlatform:
     def __init__(self, spark: SparkSession, raw_data_path: str, 
                  gcs_bucket: str, project_id: str,
                  service_account_email: Optional[str] = None,
-                 service_account_key_file: Optional[str] = None):
+                 service_account_key_file: Optional[str] = None,
+                 table_format: Optional[str] = None):
         """
         Initialize Dataproc platform adapter.
         
@@ -28,11 +29,13 @@ class DataprocPlatform:
             project_id: GCP project ID
             service_account_email: Optional service account email for GCS access
             service_account_key_file: Optional path to service account JSON key file
+            table_format: Table format (delta or parquet); default parquet when None
         """
         self.spark = spark
         self.raw_data_path = raw_data_path.rstrip("/")
         self.gcs_bucket = gcs_bucket
         self.project_id = project_id
+        self.table_format = (table_format or "parquet").lower()
         
         # Ensure GCS connector is available
         try:
@@ -144,19 +147,21 @@ class DataprocPlatform:
         return self.read_batch_files(1, file_pattern, schema=schema, **options)
     
     def write_table(self, df: DataFrame, table_name: str, mode: str = "overwrite",
-                   partition_by: Optional[list] = None, format: str = "delta"):
+                   partition_by: Optional[list] = None, format: Optional[str] = None):
         """
         Write DataFrame to a table in the target database.
-        For Dataproc, we use Delta Lake format stored in GCS (Delta works on Dataproc).
+        Uses --format (delta | parquet) from config; default parquet.
+        Use delta only if Delta package is on cluster (e.g. --packages io.delta:delta-spark_2.12:3.0.0).
         
         Args:
             df: DataFrame to write
-            table_name: Target table name (database.schema.table)
+            table_name: Target table name (database.table on Dataproc)
             mode: Write mode (overwrite, append, etc.)
             partition_by: Optional list of columns to partition by
-            format: Table format (delta, parquet, etc.) - defaults to delta for SCD2 MERGE support
+            format: Override table format (delta | parquet); when None, use platform default from config
         """
-        logger.info(f"Writing table: {table_name} (mode={mode}, format={format})")
+        fmt = (format or self.table_format).lower()
+        logger.info(f"Writing table: {table_name} (mode={mode}, format={fmt})")
         
         # Check if table exists
         table_exists = False
@@ -166,7 +171,7 @@ class DataprocPlatform:
             logger.warning(f"Could not check if table {table_name} exists: {e}")
         
         # For Delta Lake with overwrite mode, drop table first to avoid schema merge conflicts
-        if mode == "overwrite" and format == "delta" and table_exists:
+        if mode == "overwrite" and fmt == "delta" and table_exists:
             try:
                 logger.info(f"Table {table_name} exists. Dropping it before overwrite to avoid schema conflicts.")
                 self.spark.sql(f"DROP TABLE IF EXISTS {table_name}")
@@ -179,10 +184,10 @@ class DataprocPlatform:
             logger.info(f"Table {table_name} does not exist. Creating it with first write.")
             actual_mode = "overwrite"
         
-        writer = df.write.format(format).mode(actual_mode)
+        writer = df.write.format(fmt).mode(actual_mode)
         
         # For Delta append, enable schema merge in case of minor schema differences
-        if format == "delta" and mode == "append" and table_exists:
+        if fmt == "delta" and mode == "append" and table_exists:
             writer = writer.option("mergeSchema", "true")
         
         if partition_by:

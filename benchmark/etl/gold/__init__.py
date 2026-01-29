@@ -103,7 +103,7 @@ class GoldETL:
             target_database: Target database/catalog name
             target_schema: Target schema name
         """
-        prefix = f"{target_database}.{target_schema}"
+        prefix = ".".join(p for p in (target_database, target_schema) if p)
         
         logger.info("Starting Gold layer load")
         

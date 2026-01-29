@@ -133,7 +133,8 @@ def create_platform_adapter(config: BenchmarkConfig, spark: SparkSession):
         return DataprocPlatform(spark, config.raw_data_path, 
                                config.gcs_bucket, config.project_id,
                                service_account_email=config.service_account_email,
-                               service_account_key_file=config.service_account_key_file)
+                               service_account_key_file=config.service_account_key_file,
+                               table_format=getattr(config, "table_format", None))
     else:
         raise ValueError(f"Unsupported platform: {config.platform}")
 
@@ -171,9 +172,17 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
                 schema=config.target_schema,
             )
             db_or_catalog = config.target_catalog
+            effective_schema = config.target_schema
+        elif config.platform == Platform.DATAPROC:
+            # spark_catalog expects two-part names (database.table). Use single DB = target_database_target_schema.
+            spark_db = f"{config.target_database}_{config.target_schema}"
+            platform.create_database(spark_db)
+            db_or_catalog = spark_db
+            effective_schema = ""
         else:
             platform.create_database(config.target_database)
             db_or_catalog = config.target_database
+            effective_schema = config.target_schema
         metrics.finish_step()
         
         # Run ETL: Medallion only (Bronze -> Silver layers)
@@ -185,14 +194,14 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             metrics.start_step("bronze_etl")
             from benchmark.etl.bronze import BronzeETL
             bronze_etl = BronzeETL(platform)
-            bronze_etl.run_bronze_batch_load(1, db_or_catalog, config.target_schema)
+            bronze_etl.run_bronze_batch_load(1, db_or_catalog, effective_schema)
             
             bronze_tables = ["bronze_customer_mgmt", "bronze_trade", "bronze_daily_market", 
                             "bronze_date", "bronze_status_type", "bronze_trade_type",
                             "bronze_industry", "bronze_finwire"]
             bronze_row_counts = {}
             for table in bronze_tables:
-                table_name = f"{db_or_catalog}.{config.target_schema}.{table}"
+                table_name = ".".join(p for p in (db_or_catalog, effective_schema, table) if p)
                 try:
                     bronze_row_counts[table] = platform.get_table_count(table_name)
                 except Exception as e:
@@ -203,7 +212,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             metrics.start_step("silver_etl")
             from benchmark.etl.silver import SilverETL
             silver_etl = SilverETL(platform)
-            silver_etl.run_silver_batch_load(1, db_or_catalog, config.target_schema)
+            silver_etl.run_silver_batch_load(1, db_or_catalog, effective_schema)
             
             silver_tables = ["silver_customers", "silver_accounts", "silver_trades",
                             "silver_daily_market", "silver_date", "silver_status_type",
@@ -211,7 +220,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
                             "silver_securities", "silver_financials"]
             silver_row_counts = {}
             for table in silver_tables:
-                table_name = f"{db_or_catalog}.{config.target_schema}.{table}"
+                table_name = ".".join(p for p in (db_or_catalog, effective_schema, table) if p)
                 try:
                     silver_row_counts[table] = platform.get_table_count(table_name)
                 except Exception as e:
@@ -223,7 +232,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             metrics.start_step("gold_etl")
             from benchmark.etl.gold import GoldETL
             gold_etl = GoldETL(platform)
-            gold_etl.run_gold_load(db_or_catalog, config.target_schema)
+            gold_etl.run_gold_load(db_or_catalog, effective_schema)
             
             gold_tables = ["gold_dim_customer", "gold_dim_account", "gold_dim_company",
                           "gold_dim_security", "gold_dim_date", "gold_dim_trade_type",
@@ -231,7 +240,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
                           "gold_fact_trade", "gold_fact_market_history"]
             gold_row_counts = {}
             for table in gold_tables:
-                table_name = f"{db_or_catalog}.{config.target_schema}.{table}"
+                table_name = ".".join(p for p in (db_or_catalog, effective_schema, table) if p)
                 try:
                     gold_row_counts[table] = platform.get_table_count(table_name)
                 except Exception as e:
@@ -246,18 +255,18 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             metrics.start_step(f"bronze_incremental_batch{config.batch_id}")
             from benchmark.etl.bronze import BronzeETL
             bronze_etl = BronzeETL(platform)
-            bronze_etl.run_bronze_batch_load(config.batch_id, db_or_catalog, config.target_schema)
+            bronze_etl.run_bronze_batch_load(config.batch_id, db_or_catalog, effective_schema)
             metrics.finish_step()
             
             metrics.start_step(f"silver_incremental_batch{config.batch_id}")
             from benchmark.etl.silver import SilverETL
             silver_etl = SilverETL(platform)
-            silver_etl.run_silver_batch_load(config.batch_id, db_or_catalog, config.target_schema)
+            silver_etl.run_silver_batch_load(config.batch_id, db_or_catalog, effective_schema)
             
             silver_tables = ["silver_customers", "silver_accounts", "silver_trades"]
             row_counts = {}
             for table in silver_tables:
-                table_name = f"{db_or_catalog}.{config.target_schema}.{table}"
+                table_name = ".".join(p for p in (db_or_catalog, effective_schema, table) if p)
                 try:
                     row_counts[table] = platform.get_table_count(table_name)
                 except Exception as e:
@@ -268,7 +277,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             metrics.start_step(f"gold_incremental_batch{config.batch_id}")
             from benchmark.etl.gold import GoldETL
             gold_etl = GoldETL(platform)
-            gold_etl.run_gold_load(db_or_catalog, config.target_schema)
+            gold_etl.run_gold_load(db_or_catalog, effective_schema)
             metrics.finish_step()
 
             table_timing_job_end()

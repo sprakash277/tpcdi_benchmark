@@ -86,6 +86,8 @@ if __name__ == "__main__":
                        help="Path to save metrics JSON when --save-metrics (default: gs://<bucket>/tpcdi/metrics)")
     parser.add_argument("--log-detailed-stats", action="store_true",
                        help="Log per-table timing and records; default is only job start/end/total duration")
+    parser.add_argument("--format", choices=["delta", "parquet"], default="parquet",
+                       help="Table format for warehouse tables (default: parquet). Use delta only if Delta package is on cluster (e.g. --packages io.delta:delta-spark_2.12:3.0.0).")
     
     args = parser.parse_args()
     
@@ -118,6 +120,7 @@ if __name__ == "__main__":
         enable_metrics=args.save_metrics,
         metrics_output_path=metrics_output,
         log_detailed_stats=args.log_detailed_stats,
+        table_format=args.format,
     )
     
     result = run_benchmark(config)

@@ -39,7 +39,7 @@ benchmark/
 2. **TPC-DI raw data must already exist in GCS** — `run_benchmark_dataproc.py` does **not** generate data (unlike the Databricks workflow, which can run data generation then benchmark). Generate data separately (e.g. TPC-DI DIGen, then upload to GCS).
 3. Data path: `gs://<bucket>/tpcdi/sf=<scale_factor>/`
 4. GCP project ID and region
-5. **Metastore (optional):** If you do **not** attach a [Dataproc Metastore](https://cloud.google.com/dataproc-metastore/docs), Spark uses the default (embedded/local) metastore and usually a local warehouse. The benchmark **runs**, but database and table metadata (and often data) are **ephemeral** — they are lost when the job or cluster ends. For **persistent** tables and metadata across runs, attach a Dataproc Metastore and configure a GCS warehouse. See **docs/DATAPROC_METASTORE.md**.
+5. **Metastore (optional):** If you do **not** attach a [Dataproc Metastore](https://cloud.google.com/dataproc-metastore/docs), Spark uses the default (embedded/local) metastore. The benchmark sets the warehouse to GCS (`gs://<bucket>/spark-warehouse`) and uses **two-part** table names (`database.table`, e.g. `tpcdi_warehouse_dw.bronze_date`) and **Parquet** by default (no Delta package). See **docs/DATAPROC_METASTORE.md**.
 
 ## Usage
 
@@ -102,6 +102,8 @@ zip -r benchmark.zip benchmark
 Then pass `--py-files=benchmark.zip` (or `--py-files=gs://<bucket>/benchmark.zip` if you upload the zip to GCS) to every `gcloud dataproc jobs submit pyspark` command below.
 
 **Benchmark metrics:** By default, metrics are saved to GCS. Use `--no-save-metrics` to skip saving; use `--metrics-output=gs://bucket/path/metrics` to set the output path (default: `gs://<gcs-bucket>/tpcdi/metrics`).
+
+**Table format:** Use `--format delta` or `--format parquet` (default: parquet). Use `delta` only if the Delta package is on the cluster (e.g. `--packages io.delta:delta-spark_2.12:3.0.0` when submitting).
 
 #### Submit as Spark Job
 ```bash
