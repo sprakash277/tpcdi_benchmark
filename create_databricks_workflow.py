@@ -21,6 +21,7 @@ def create_workflow_definition(
     default_target_schema: str = "dw",
     default_target_catalog: str = "",
     default_metrics_output: str = "dbfs:/mnt/tpcdi/metrics",
+    default_log_detailed_stats: bool = False,
     cluster_config: Dict[str, Any] = None,
 ) -> Dict[str, Any]:
     """
@@ -38,6 +39,7 @@ def create_workflow_definition(
         default_target_schema: Default target schema
         default_target_catalog: Default Unity Catalog (optional); when set, create catalog + schema
         default_metrics_output: Default metrics output path
+        default_log_detailed_stats: If True, log per-table timing/records; else only job start/end/total duration
         cluster_config: Cluster configuration dict
     
     Returns:
@@ -108,7 +110,8 @@ def create_workflow_definition(
                         "target_schema": default_target_schema,
                         "target_catalog": default_target_catalog,
                         "batch_id": "",
-                        "metrics_output": default_metrics_output
+                        "metrics_output": default_metrics_output,
+                        "log_detailed_stats": "true" if default_log_detailed_stats else "false"
                     }
                 },
                 "existing_cluster_id": None,
@@ -167,6 +170,11 @@ def create_workflow_definition(
                 "name": "metrics_output",
                 "default": default_metrics_output,
                 "description": "Path to save metrics JSON files"
+            },
+            {
+                "name": "log_detailed_stats",
+                "default": "true" if default_log_detailed_stats else "false",
+                "description": "Log per-table timing and records; false = only job start/end/total duration"
             },
             {
                 "name": "upload_threads",
@@ -268,6 +276,8 @@ def main():
                        help="Default Unity Catalog (optional); when set, create catalog + schema")
     parser.add_argument("--default-metrics-output", default="dbfs:/mnt/tpcdi/metrics",
                        help="Default metrics output path")
+    parser.add_argument("--default-log-detailed-stats", action="store_true",
+                       help="Default: log per-table timing/records; else only job start/end/total duration")
     
     # Cluster configuration
     SPARK_VERSIONS = [
@@ -323,6 +333,7 @@ def main():
         default_target_schema=args.default_target_schema,
         default_target_catalog=args.default_target_catalog,
         default_metrics_output=args.default_metrics_output,
+        default_log_detailed_stats=args.default_log_detailed_stats,
         cluster_config=cluster_config,
     )
     

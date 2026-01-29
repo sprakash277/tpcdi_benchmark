@@ -105,6 +105,22 @@ gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
   --target-schema dw
 ```
 
+Optional: add `--log-detailed-stats` (before or after other args) to log per-table timing and records:
+```bash
+gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
+  --cluster=<cluster-name> \
+  --region=us-central1 \
+  -- \
+  --load-type batch \
+  --scale-factor 10 \
+  --gcs-bucket=<your-bucket> \
+  --project-id=<your-project> \
+  --region=us-central1 \
+  --target-database tpcdi_warehouse \
+  --target-schema dw \
+  --log-detailed-stats
+```
+
 For incremental:
 ```bash
 gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
@@ -118,6 +134,8 @@ gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
   --project-id=<your-project> \
   --region=us-central1
 ```
+
+Add `--log-detailed-stats` after the `--` to log per-table timing and records; without it, only job start time, end time, and total duration are logged (for performance comparison). See the optional example above.
 
 ## Load Types
 

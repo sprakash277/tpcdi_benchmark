@@ -134,7 +134,8 @@ workflow = {
                     "target_schema": "dw",
                     "target_catalog": "",
                     "batch_id": "",
-                    "metrics_output": "dbfs:/mnt/tpcdi/metrics"
+                    "metrics_output": "dbfs:/mnt/tpcdi/metrics",
+                    "log_detailed_stats": "false"
                 }
             },
             "timeout_seconds": 0,
@@ -190,6 +191,11 @@ workflow = {
             "name": "metrics_output",
             "default": "dbfs:/mnt/tpcdi/metrics",
             "description": "Path to save metrics JSON files"
+        },
+        {
+            "name": "log_detailed_stats",
+            "default": "false",
+            "description": "Log per-table timing and records; false = only job start/end/total duration"
         },
         {
             "name": "upload_threads",
