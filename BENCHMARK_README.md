@@ -7,6 +7,7 @@ This directory contains a benchmarking framework to compare ETL performance betw
 The benchmark framework:
 - Supports both **batch** and **incremental** ETL loads
 - Works with **Databricks** (DBFS storage) and **Dataproc** (GCS storage)
+- **Databricks:** Run via notebook, Python script, or **workflow** (job that generates data then runs the benchmark)
 - Collects detailed performance metrics
 - Provides platform-agnostic ETL transformations
 
@@ -89,6 +90,50 @@ python run_benchmark_databricks.py \
   --target-database tpcdi_warehouse \
   --target-schema dw
 ```
+
+#### Option 3: Databricks Workflow
+
+Run the benchmark as a **Databricks workflow (job)** that (1) generates TPC-DI raw data and (2) runs the benchmark ETL in sequence. All config is via workflow parameters.
+
+**Step 1: Generate the workflow from the notebook**
+
+1. **Open the workflow-creation notebook in Databricks**  
+   Import or open `create_workflow_notebook.py` in your workspace (e.g. **Repos** or **Workspace**).
+
+2. **Set Job Name** (widget: **Job Name**)  
+   Default: `TPC-DI-Benchmark`. Change if you want a different job name.
+
+3. **Set notebook paths** (optional)  
+   - **Data Generation Notebook Path**: Notebook that generates TPC-DI data. Default: `generate_tpcdi_data_notebook`. Use just the name if it lives next to this notebook, or a full path (e.g. `/Workspace/Repos/user/repo/generate_tpcdi_data_notebook`).  
+   - **Benchmark Notebook Path**: Notebook that runs the benchmark. Default: `benchmark_databricks_notebook`. Same rules as above.
+
+4. **Set cluster config**  
+   - **Cluster Spark Version (DBR)**: Choose a DBR version (e.g. `14.3.x-scala2.12`, `15.4.x-photon-scala2.12`) from the dropdown.  
+   - **Cloud**: `AWS`, `GCP`, or `Azure` (sets default node types when you leave Worker/Driver blank).  
+   - **Worker / Driver node types**: Leave blank to use cloud defaults, or set explicitly (e.g. `i3.xlarge` on AWS). On **GCP**, use the **GCP Worker Node Type** and **GCP Driver Node Type** dropdowns (e.g. `n2d-standard-16`).  
+   - **Number of Workers**: e.g. `2` (default).
+
+5. **Use an existing cluster (optional)**  
+   If you have a cluster to reuse, set **Existing Cluster ID** to its ID. Otherwise the workflow creates new clusters per run.
+
+6. **Run all cells**  
+   Execute the notebook from top to bottom. The last cell calls the Databricks Jobs API and creates the workflow.
+
+7. **Copy the Job ID**  
+   The final cell prints something like `Job ID: 123456789` and a link to the job. Save the **Job ID**; you use it to run the workflow.
+
+**Step 2: Run the workflow**
+
+- **UI:** Go to **Workflows** → **Jobs** → your job (e.g. **TPC-DI-Benchmark**) → **Run now**. Override parameters if needed (e.g. `scale_factor`, `tpcdi_raw_data_path`, `load_type`, `batch_id` for incremental) → **Run**.  
+- **CLI:** `databricks jobs run-now --job-id <job-id> --notebook-params '{"scale_factor":"10","load_type":"batch"}'`  
+- **API:** `POST /api/2.1/jobs/run-now` with `job_id` and `notebook_params`.
+
+**Workflow parameters (defaults)**  
+`scale_factor` (10), `tpcdi_raw_data_path` (`dbfs:/mnt/tpcdi`), `load_type` (batch), `target_database`, `target_schema`, `batch_id` (for incremental), `metrics_output`, etc. Override when you run the job.
+
+**More detail**  
+- **[QUICK_START_WORKFLOW.md](QUICK_START_WORKFLOW.md)** — quick create + run.  
+- **[WORKFLOW_README.md](WORKFLOW_README.md)** — full workflow docs, parameters, CLI/API, troubleshooting.
 
 ### Dataproc
 
