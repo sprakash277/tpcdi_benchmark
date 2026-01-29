@@ -103,7 +103,9 @@ Then pass `--py-files=benchmark.zip` (or `--py-files=gs://<bucket>/benchmark.zip
 
 **Benchmark metrics:** By default, metrics are saved to GCS. Use `--no-save-metrics` to skip saving; use `--metrics-output=gs://bucket/path/metrics` to set the output path (default: `gs://<gcs-bucket>/tpcdi/metrics`).
 
-**Table format:** Use `--format delta` or `--format parquet` (default: parquet). Use `delta` only if the Delta package is on the cluster (e.g. `--packages io.delta:delta-spark_2.12:3.0.0` when submitting).
+**Table format:** Use `--format delta` or `--format parquet` (default: parquet). With `--format delta`, the benchmark adds the Delta package automatically; no extra `--packages` needed.
+
+**Spark packages:** The benchmark adds `spark-xml` (for CustomerMgmt.xml) and, when `--format delta`, `io.delta:delta-spark_2.12` automatically. The driver must have Maven access to resolve them. For air-gapped or no-Maven setups, use the pre-bundled JAR: `--jars=libs/spark-xml_2.12-0.18.0.jar` (see **libs/README.md**).
 
 #### Submit as Spark Job
 ```bash

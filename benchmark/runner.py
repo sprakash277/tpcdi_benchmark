@@ -58,6 +58,12 @@ def create_spark_session(config: BenchmarkConfig) -> SparkSession:
         warehouse_dir = f"gs://{config.gcs_bucket}/spark-warehouse"
         spark_config = builder.config("spark.sql.warehouse.dir", warehouse_dir)
         
+        # Packages: spark-xml for CustomerMgmt.xml; delta when --format delta
+        packages = ["com.databricks:spark-xml_2.12:0.18.0"]
+        if getattr(config, "table_format", None) == "delta":
+            packages.append("io.delta:delta-spark_2.12:3.0.0")
+        spark_config = spark_config.config("spark.jars.packages", ",".join(packages))
+        
         # Configure for GCS
         spark_config = spark_config.config("spark.hadoop.fs.gs.impl", 
                               "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem") \
