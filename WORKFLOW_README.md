@@ -70,8 +70,7 @@ The workflow supports the following parameters (all have defaults):
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `scale_factor` | `10` | TPC-DI scale factor (10, 100, 1000, etc.) |
-| `raw_output_path` | `dbfs:/mnt/tpcdi` | Data gen output path (01); dbfs:/..., /Volumes/..., or gs://... |
-| `tpcdi_raw_data_path` | `dbfs:/mnt/tpcdi` | Benchmark raw data path (02); same as raw_output_path |
+| `tpcdi_raw_data_path` | `dbfs:/mnt/tpcdi` | TPC-DI raw data path (used by both 01_data_generation and 02_benchmark_execution); dbfs:/..., /Volumes/..., or gs://... |
 | `load_type` | `batch` | Load type: `batch` or `incremental` |
 | `target_database` | `tpcdi_warehouse` | Target database name |
 | `target_schema` | `dw` | Target schema name |
@@ -144,7 +143,7 @@ print(f"Run ID: {run['run_id']}")
 - **Task Key**: `01_data_generation`
 - **Notebook**: `generate_tpcdi_data_notebook`
 - **Purpose**: Generate TPC-DI raw data files
-- **Output**: Raw data files at `{raw_output_path}/sf={scale_factor}/` (DBFS, Volume, or GCS; inferred from path)
+- **Output**: Raw data files at `{tpcdi_raw_data_path}/sf={scale_factor}/` (DBFS, Volume, or GCS; inferred from path)
 
 ### Task 2: Benchmark Execution
 - **Task Key**: `02_benchmark_execution`
@@ -162,7 +161,6 @@ print(f"Run ID: {run['run_id']}")
 {
   "scale_factor": "10",
   "load_type": "batch",
-  "raw_output_path": "dbfs:/mnt/tpcdi",
   "tpcdi_raw_data_path": "dbfs:/mnt/tpcdi",
   "target_database": "tpcdi_warehouse",
   "target_schema": "dw"
@@ -174,7 +172,6 @@ print(f"Run ID: {run['run_id']}")
 {
   "scale_factor": "100",
   "load_type": "batch",
-  "raw_output_path": "dbfs:/mnt/tpcdi",
   "tpcdi_raw_data_path": "dbfs:/mnt/tpcdi",
   "target_database": "tpcdi_warehouse",
   "target_schema": "dw"
@@ -187,7 +184,6 @@ print(f"Run ID: {run['run_id']}")
   "scale_factor": "10",
   "load_type": "incremental",
   "batch_id": "2",
-  "raw_output_path": "dbfs:/mnt/tpcdi",
   "tpcdi_raw_data_path": "dbfs:/mnt/tpcdi",
   "target_database": "tpcdi_warehouse",
   "target_schema": "dw"

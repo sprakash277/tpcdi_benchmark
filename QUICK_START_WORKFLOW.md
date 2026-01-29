@@ -24,7 +24,7 @@ python create_databricks_workflow.py \
 3. Click **Run now**
 4. In **Parameters**, set:
    - `scale_factor`: `10` (or 100, 1000, etc.)
-   - `raw_output_path` / `tpcdi_raw_data_path`: `dbfs:/mnt/tpcdi` or `/Volumes/cat/schema/vol` (path type inferred: dbfs=DBFS, /Volumes/=Volume)
+   - `tpcdi_raw_data_path`: `dbfs:/mnt/tpcdi` or `/Volumes/cat/schema/vol` (path type inferred: dbfs=DBFS, /Volumes/=Volume)
    - `load_type`: `batch` (or `incremental`)
    - `batch_id`: `2` (only for incremental)
 5. Click **Run**
@@ -74,7 +74,7 @@ curl -X POST \
 All parameters have defaults. Override at runtime:
 
 - `scale_factor`: TPC-DI scale factor (default: `10`)
-- `raw_output_path` / `tpcdi_raw_data_path`: Raw data path; type inferred from path: dbfs:/... (DBFS), /Volumes/... (Volume) (default: `dbfs:/mnt/tpcdi`)
+- `tpcdi_raw_data_path`: TPC-DI raw data path; type inferred from path: dbfs:/... (DBFS), /Volumes/... (Volume) (default: `dbfs:/mnt/tpcdi`)
 - `load_type`: `batch` or `incremental` (default: `batch`)
 - `target_database`: Target database (default: `tpcdi_warehouse`)
 - `target_schema`: Target schema (default: `dw`)

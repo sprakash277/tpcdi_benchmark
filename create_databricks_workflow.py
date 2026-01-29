@@ -15,7 +15,6 @@ def create_workflow_definition(
     benchmark_notebook_path: str,
     default_scale_factor: int = 10,
     default_output_path: str = "dbfs:/mnt/tpcdi",
-    default_raw_data_path: str = "dbfs:/mnt/tpcdi",
     default_load_type: str = "batch",
     default_target_database: str = "tpcdi_warehouse",
     default_target_schema: str = "dw",
@@ -32,8 +31,7 @@ def create_workflow_definition(
         data_gen_notebook_path: Path to data generation notebook
         benchmark_notebook_path: Path to benchmark notebook
         default_scale_factor: Default scale factor
-        default_output_path: Default data generation output path (workflow parameter)
-        default_raw_data_path: Default raw data path for benchmark
+        default_output_path: Default TPC-DI raw data path (used by both tasks)
         default_load_type: Default load type (batch/incremental)
         default_target_database: Default target database
         default_target_schema: Default target schema
@@ -74,7 +72,7 @@ def create_workflow_definition(
                     "notebook_path": data_gen_notebook_path,
                     "base_parameters": {
                         "scale_factor": str(default_scale_factor),
-                        "raw_output_path": default_output_path,
+                        "tpcdi_raw_data_path": default_output_path,
                         "upload_threads": "8"
                     }
                 },
@@ -128,14 +126,9 @@ def create_workflow_definition(
                 "description": "TPC-DI scale factor (e.g., 10, 100, 1000)"
             },
             {
-                "name": "raw_output_path",
-                "default": default_output_path,
-                "description": "Data gen raw output path (01_data_generation); DBFS or Volume base"
-            },
-            {
                 "name": "tpcdi_raw_data_path",
                 "default": default_output_path,
-                "description": "Benchmark raw data path (02_benchmark_execution); same as raw_output_path so benchmark reads from data gen output"
+                "description": "TPC-DI raw data path (used by both 01_data_generation and 02_benchmark_execution); dbfs:/..., /Volumes/..., or gs://..."
             },
             {
                 "name": "load_type",
@@ -248,9 +241,7 @@ def main():
     parser.add_argument("--default-scale-factor", type=int, default=10,
                        help="Default scale factor")
     parser.add_argument("--default-output-path", default="dbfs:/mnt/tpcdi",
-                       help="Default data generation output path (workflow parameter)")
-    parser.add_argument("--default-raw-data-path", default="dbfs:/mnt/tpcdi",
-                       help="Default raw data path for benchmark")
+                       help="Default TPC-DI raw data path (used by both tasks)")
     parser.add_argument("--default-load-type", default="batch",
                        choices=["batch", "incremental"],
                        help="Default load type")
@@ -313,7 +304,6 @@ def main():
         benchmark_notebook_path=args.benchmark_notebook,
         default_scale_factor=args.default_scale_factor,
         default_output_path=args.default_output_path,
-        default_raw_data_path=args.default_raw_data_path,
         default_load_type=args.default_load_type,
         default_target_database=args.default_target_database,
         default_target_schema=args.default_target_schema,

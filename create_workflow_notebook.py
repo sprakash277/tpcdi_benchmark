@@ -101,7 +101,7 @@ workflow = {
                 "notebook_path": data_gen_notebook,
                 "base_parameters": {
                     "scale_factor": "10",
-                    "raw_output_path": "dbfs:/mnt/tpcdi",
+                    "tpcdi_raw_data_path": "dbfs:/mnt/tpcdi",
                     "upload_threads": "8"
                 }
             },
@@ -149,14 +149,9 @@ workflow = {
             "description": "TPC-DI scale factor (e.g., 10, 100, 1000)"
         },
         {
-            "name": "raw_output_path",
-            "default": "dbfs:/mnt/tpcdi",
-            "description": "Data gen raw output path (01_data_generation); DBFS or Volume base"
-        },
-        {
             "name": "tpcdi_raw_data_path",
             "default": "dbfs:/mnt/tpcdi",
-            "description": "Benchmark raw data path (02_benchmark_execution); same as raw_output_path"
+            "description": "TPC-DI raw data path (used by both 01_data_generation and 02_benchmark_execution); dbfs:/..., /Volumes/..., or gs://..."
         },
         {
             "name": "load_type",

@@ -26,6 +26,14 @@ try:
 except Exception:
     pass
 try:
+    dbutils.widgets.drop("raw_output_path")
+except Exception:
+    pass
+try:
+    dbutils.widgets.drop("tpcdi_raw_data_path")
+except Exception:
+    pass
+try:
     dbutils.widgets.drop("upload_threads")
 except Exception:
     pass
@@ -33,20 +41,29 @@ except Exception:
 # Create widgets with defaults (for interactive use)
 # When run as workflow task, these will be overridden by workflow parameters
 dbutils.widgets.text("scale_factor", "10", "Scale factor (e.g. 10 ~ 1GB)")
-dbutils.widgets.text("raw_output_path", "dbfs:/mnt/tpcdi", "Raw output path: dbfs:/... (DBFS), /Volumes/... (Volume), gs://... (GCS), or local")
+dbutils.widgets.text("tpcdi_raw_data_path", "dbfs:/mnt/tpcdi", "TPC-DI raw data path: dbfs:/... (DBFS), /Volumes/... (Volume), gs://... (GCS), or local")
 dbutils.widgets.text("upload_threads", "8", "Upload threads for DBFS (parallel file uploads)")
 
 # COMMAND ----------
 
 # Get parameters (from widgets or workflow parameters)
 # Workflow parameters override widget defaults
+# Support both tpcdi_raw_data_path (workflow parameter) and raw_output_path (backward compatibility)
 scale_factor = int(dbutils.widgets.get("scale_factor"))
-raw_output_path = dbutils.widgets.get("raw_output_path").strip()
+try:
+    tpcdi_raw_data_path = dbutils.widgets.get("tpcdi_raw_data_path").strip()
+except Exception:
+    # Fallback to raw_output_path for backward compatibility
+    try:
+        tpcdi_raw_data_path = dbutils.widgets.get("raw_output_path").strip()
+    except Exception:
+        tpcdi_raw_data_path = "dbfs:/mnt/tpcdi"
+raw_output_path = tpcdi_raw_data_path  # Use for generate_tpcdi_data() call
 upload_threads = int(dbutils.widgets.get("upload_threads").strip() or "8")
 
 print(f"Data Generation Parameters:")
 print(f"  Scale Factor: {scale_factor}")
-print(f"  Raw Output Path: {raw_output_path} (dbfs=DBFS, /Volumes/=Volume, gs://=GCS)")
+print(f"  TPC-DI Raw Data Path: {tpcdi_raw_data_path} (dbfs=DBFS, /Volumes/=Volume, gs://=GCS)")
 print(f"  Upload Threads: {upload_threads}")
 
 # COMMAND ----------
