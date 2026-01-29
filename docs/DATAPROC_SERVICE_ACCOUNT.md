@@ -113,12 +113,14 @@ python run_benchmark_dataproc.py \
 
 1. Upload the key file to a **restricted** GCS path (e.g. `gs://your-bucket/secrets/tpcdi-sa-key.json`).
 2. Ensure the **cluster’s default SA** (or the identity that runs the job) has **read** access to that object (e.g. bucket IAM or object ACL).
-3. Pass the **GCS path** as `--service-account-key-file`:
+3. From the project root, package the benchmark module: `zip -r benchmark.zip benchmark`.
+4. Pass the **GCS path** as `--service-account-key-file` and **`--py-files=benchmark.zip`**:
 
 ```bash
 gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
   --cluster=your-cluster-name \
   --region=us-central1 \
+  --py-files=benchmark.zip \
   -- \
   --load-type batch \
   --scale-factor 10 \
@@ -135,12 +137,14 @@ The GCS connector can resolve `gs://` paths for the key file when the cluster id
 
 1. Copy the key file to a path on the **driver node** (e.g. via an init action, startup script, or one-time copy to `/var/lib/tpcdi/sa-key.json`).
 2. Restrict file permissions so only the job user can read it (e.g. `chmod 600`).
-3. Pass that **local path** after the `--`:
+3. From the project root, package the benchmark module: `zip -r benchmark.zip benchmark`.
+4. Pass that **local path** after the `--` and **`--py-files=benchmark.zip`**:
 
 ```bash
 gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
   --cluster=your-cluster-name \
   --region=us-central1 \
+  --py-files=benchmark.zip \
   -- \
   --load-type batch \
   --scale-factor 10 \

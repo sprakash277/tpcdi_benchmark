@@ -6,13 +6,45 @@ Run this script on Dataproc to benchmark ETL performance.
 Note: This script does NOT generate TPC-DI raw data. Raw data must already exist
 in GCS at the path given by --raw-data-path (default: gs://<bucket>/tpcdi/sf=<sf>/).
 Generate data separately (e.g. TPC-DI DIGen + upload to GCS, or a separate data-gen job).
+
+When submitting via gcloud, you must provide the benchmark package with --py-files:
+  zip -r benchmark.zip benchmark
+  gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py --py-files=benchmark.zip ...
 """
 
 import sys
 from pathlib import Path
 
-# Add benchmark module to path
-sys.path.insert(0, str(Path(__file__).parent))
+def _ensure_benchmark_on_path():
+    """Ensure the benchmark package is importable (local run or Dataproc with --py-files)."""
+    try:
+        import benchmark  # noqa: F401
+        return
+    except ModuleNotFoundError:
+        pass
+    script_dir = Path(__file__).resolve().parent
+    # Local run: project root as parent of script
+    sys.path.insert(0, str(script_dir))
+    # Dataproc: script and benchmark.zip often in same staging dir; add zips so "benchmark" is importable
+    for z in script_dir.glob("*.zip"):
+        sys.path.insert(0, str(z))
+    try:
+        import benchmark  # noqa: F401
+        return
+    except ModuleNotFoundError:
+        pass
+    print(
+        "ERROR: Cannot import 'benchmark'. When submitting to Dataproc, pass the package with --py-files:\n"
+        "  zip -r benchmark.zip benchmark\n"
+        "  gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py --py-files=benchmark.zip \\\n"
+        "    --cluster=... --region=... -- \\\n"
+        "    --load-type batch --scale-factor 10 ...\n"
+        "For local runs, run from the project root or set PYTHONPATH to the project root.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+_ensure_benchmark_on_path()
 
 from benchmark.config import BenchmarkConfig, Platform, LoadType
 from benchmark.runner import run_benchmark

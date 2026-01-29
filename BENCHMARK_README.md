@@ -39,6 +39,7 @@ benchmark/
 2. **TPC-DI raw data must already exist in GCS** — `run_benchmark_dataproc.py` does **not** generate data (unlike the Databricks workflow, which can run data generation then benchmark). Generate data separately (e.g. TPC-DI DIGen, then upload to GCS).
 3. Data path: `gs://<bucket>/tpcdi/sf=<scale_factor>/`
 4. GCP project ID and region
+5. **Metastore (optional):** If you do **not** attach a [Dataproc Metastore](https://cloud.google.com/dataproc-metastore/docs), Spark uses the default (embedded/local) metastore and usually a local warehouse. The benchmark **runs**, but database and table metadata (and often data) are **ephemeral** — they are lost when the job or cluster ends. For **persistent** tables and metadata across runs, attach a Dataproc Metastore and configure a GCS warehouse. See **docs/DATAPROC_METASTORE.md**.
 
 ## Usage
 
@@ -92,11 +93,20 @@ python run_benchmark_databricks.py \
 
 **Important:** The Dataproc run does **not** create or generate TPC-DI data. Ensure raw data already exists at `gs://<bucket>/tpcdi/sf=<scale_factor>/` (or your `--raw-data-path`). On Databricks, the workflow can run data generation then benchmark in one job; on Dataproc you must generate/upload data separately before submitting the benchmark.
 
+**Package the benchmark module:** When submitting via `gcloud dataproc jobs submit pyspark`, only the main script is uploaded by default. The `benchmark` package must be provided with `--py-files`. From the **project root**:
+
+```bash
+zip -r benchmark.zip benchmark
+```
+
+Then pass `--py-files=benchmark.zip` (or `--py-files=gs://<bucket>/benchmark.zip` if you upload the zip to GCS) to every `gcloud dataproc jobs submit pyspark` command below.
+
 #### Submit as Spark Job
 ```bash
 gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
   --cluster=<cluster-name> \
   --region=us-central1 \
+  --py-files=benchmark.zip \
   -- \
   --load-type batch \
   --scale-factor 10 \
@@ -112,6 +122,7 @@ Optional: add `--log-detailed-stats` (before or after other args) to log per-tab
 gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
   --cluster=<cluster-name> \
   --region=us-central1 \
+  --py-files=benchmark.zip \
   -- \
   --load-type batch \
   --scale-factor 10 \
@@ -128,6 +139,7 @@ For incremental:
 gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
   --cluster=<cluster-name> \
   --region=us-central1 \
+  --py-files=benchmark.zip \
   -- \
   --load-type incremental \
   --scale-factor 10 \
@@ -183,6 +195,7 @@ The key file path must be a path that the **driver node** can read. Options:
   gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
     --cluster=<cluster-name> \
     --region=us-central1 \
+    --py-files=benchmark.zip \
     -- \
     --load-type batch \
     --scale-factor 10 \
@@ -194,7 +207,7 @@ The key file path must be a path that the **driver node** can read. Options:
   ```
 
 - **B. Key file on local disk**  
-  Copy the key to the cluster (e.g. via init action or a one-time copy to a fixed path) and use that path:
+  Copy the key to the cluster (e.g. via init action or a one-time copy to a fixed path). Use the same `gcloud dataproc jobs submit pyspark` command as in A above with `--py-files=benchmark.zip`, and pass the local path after `--`:
   ```bash
   --service-account-key-file=/var/lib/tpcdi/sa-key.json
   ```
@@ -321,6 +334,7 @@ The benchmark implements core TPC-DI transformations:
 - Verify GCS bucket permissions
 - Check that raw data is accessible from cluster
 - Verify project ID and region are correct
+- **Tables/database gone after job or cluster ends:** Without a Dataproc Metastore (and GCS warehouse), Spark uses the default metastore and warehouse; metadata and often data are ephemeral. See **docs/DATAPROC_METASTORE.md**.
 
 ## References
 
