@@ -15,7 +15,9 @@ class DataprocPlatform:
     """Platform adapter for Dataproc with GCS storage."""
     
     def __init__(self, spark: SparkSession, raw_data_path: str, 
-                 gcs_bucket: str, project_id: str):
+                 gcs_bucket: str, project_id: str,
+                 service_account_email: Optional[str] = None,
+                 service_account_key_file: Optional[str] = None):
         """
         Initialize Dataproc platform adapter.
         
@@ -24,6 +26,8 @@ class DataprocPlatform:
             raw_data_path: Base path to raw TPC-DI data in GCS (e.g., gs://bucket/tpcdi/sf=10)
             gcs_bucket: GCS bucket name
             project_id: GCP project ID
+            service_account_email: Optional service account email for GCS access
+            service_account_key_file: Optional path to service account JSON key file
         """
         self.spark = spark
         self.raw_data_path = raw_data_path.rstrip("/")
@@ -43,6 +47,29 @@ class DataprocPlatform:
             spark.sparkContext._jsc.hadoopConfiguration().set(
                 "fs.gs.project.id", project_id
             )
+            
+            # Configure service account authentication if provided
+            if service_account_email and service_account_key_file:
+                # Use service account key file authentication
+                spark.sparkContext._jsc.hadoopConfiguration().set(
+                    "fs.gs.auth.type", "SERVICE_ACCOUNT_JSON_KEYFILE"
+                )
+                spark.sparkContext._jsc.hadoopConfiguration().set(
+                    "fs.gs.auth.service.account.email", service_account_email
+                )
+                spark.sparkContext._jsc.hadoopConfiguration().set(
+                    "fs.gs.auth.service.account.keyfile", service_account_key_file
+                )
+                logger.info(f"Configured GCS access with service account: {service_account_email}")
+            elif service_account_email:
+                # Use service account email only (assumes cluster has access to impersonate)
+                spark.sparkContext._jsc.hadoopConfiguration().set(
+                    "fs.gs.auth.service.account.email", service_account_email
+                )
+                logger.info(f"Configured GCS access with service account email: {service_account_email}")
+            else:
+                # Use default authentication (cluster's service account or Application Default Credentials)
+                logger.info("Using default GCS authentication (cluster service account or ADC)")
         except Exception as e:
             logger.warning(f"Could not configure GCS connector: {e}")
         
@@ -111,23 +138,47 @@ class DataprocPlatform:
         return self.read_batch_files(1, file_pattern, schema=schema, **options)
     
     def write_table(self, df: DataFrame, table_name: str, mode: str = "overwrite",
-                   partition_by: Optional[list] = None, format: str = "parquet"):
+                   partition_by: Optional[list] = None, format: str = "delta"):
         """
         Write DataFrame to a table in the target database.
-        For Dataproc, we typically use Parquet format stored in GCS.
+        For Dataproc, we use Delta Lake format stored in GCS (Delta works on Dataproc).
         
         Args:
             df: DataFrame to write
             table_name: Target table name (database.schema.table)
             mode: Write mode (overwrite, append, etc.)
             partition_by: Optional list of columns to partition by
-            format: Table format (parquet, delta, etc.)
+            format: Table format (delta, parquet, etc.) - defaults to delta for SCD2 MERGE support
         """
         logger.info(f"Writing table: {table_name} (mode={mode}, format={format})")
         
-        # For Dataproc, we might write to GCS-backed Hive tables
-        # or use Spark SQL to create managed tables
-        writer = df.write.format(format).mode(mode)
+        # Check if table exists
+        table_exists = False
+        try:
+            table_exists = self.spark.catalog.tableExists(table_name)
+        except Exception as e:
+            logger.warning(f"Could not check if table {table_name} exists: {e}")
+        
+        # For Delta Lake with overwrite mode, drop table first to avoid schema merge conflicts
+        if mode == "overwrite" and format == "delta" and table_exists:
+            try:
+                logger.info(f"Table {table_name} exists. Dropping it before overwrite to avoid schema conflicts.")
+                self.spark.sql(f"DROP TABLE IF EXISTS {table_name}")
+            except Exception as e:
+                logger.warning(f"Could not drop table {table_name}: {e}. Proceeding with write.")
+        
+        # For append mode, if table doesn't exist, create it (treat as overwrite for first write)
+        actual_mode = mode
+        if mode == "append" and not table_exists:
+            logger.info(f"Table {table_name} does not exist. Creating it with first write.")
+            actual_mode = "overwrite"
+        
+        writer = df.write.format(format).mode(actual_mode)
+        
+        # For Delta append, enable schema merge in case of minor schema differences
+        if format == "delta" and mode == "append" and table_exists:
+            writer = writer.option("mergeSchema", "true")
+        
         if partition_by:
             writer = writer.partitionBy(*partition_by)
         

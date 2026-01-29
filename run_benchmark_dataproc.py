@@ -38,6 +38,10 @@ if __name__ == "__main__":
                        help="Batch ID for incremental loads (required for incremental)")
     parser.add_argument("--spark-master", 
                        help="Spark master URL (default: yarn for Dataproc)")
+    parser.add_argument("--service-account-email",
+                       help="Service account email for GCS access (optional)")
+    parser.add_argument("--service-account-key-file",
+                       help="Path to service account JSON key file for GCS access (optional)")
     parser.add_argument("--metrics-output",
                        help="Path to save metrics JSON (default: gs://<bucket>/tpcdi/metrics)")
     
@@ -67,6 +71,8 @@ if __name__ == "__main__":
         project_id=args.project_id,
         region=args.region,
         spark_master=args.spark_master or "yarn",
+        service_account_email=args.service_account_email,
+        service_account_key_file=args.service_account_key_file,
         metrics_output_path=metrics_output,
     )
     

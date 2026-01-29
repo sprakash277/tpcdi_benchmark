@@ -48,12 +48,25 @@ def create_spark_session(config: BenchmarkConfig) -> SparkSession:
             builder = builder.master(config.spark_master)
         
         # Configure for GCS
-        spark = builder.config("spark.hadoop.fs.gs.impl", 
+        spark_config = builder.config("spark.hadoop.fs.gs.impl", 
                               "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem") \
                       .config("spark.hadoop.fs.AbstractFileSystem.gs.impl",
                               "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS") \
-                      .config("spark.hadoop.fs.gs.project.id", config.project_id) \
-                      .getOrCreate()
+                      .config("spark.hadoop.fs.gs.project.id", config.project_id)
+        
+        # Configure service account authentication if provided
+        if config.service_account_email and config.service_account_key_file:
+            spark_config = spark_config.config("spark.hadoop.fs.gs.auth.type", 
+                                              "SERVICE_ACCOUNT_JSON_KEYFILE") \
+                                      .config("spark.hadoop.fs.gs.auth.service.account.email",
+                                              config.service_account_email) \
+                                      .config("spark.hadoop.fs.gs.auth.service.account.keyfile",
+                                              config.service_account_key_file)
+        elif config.service_account_email:
+            spark_config = spark_config.config("spark.hadoop.fs.gs.auth.service.account.email",
+                                              config.service_account_email)
+        
+        spark = spark_config.getOrCreate()
         
         logger.info("Created Dataproc SparkSession with GCS support")
         return spark
@@ -100,7 +113,9 @@ def create_platform_adapter(config: BenchmarkConfig, spark: SparkSession):
         return DatabricksPlatform(spark, raw_root, use_volume=is_volume)
     elif config.platform == Platform.DATAPROC:
         return DataprocPlatform(spark, config.raw_data_path, 
-                               config.gcs_bucket, config.project_id)
+                               config.gcs_bucket, config.project_id,
+                               service_account_email=config.service_account_email,
+                               service_account_key_file=config.service_account_key_file)
     else:
         raise ValueError(f"Unsupported platform: {config.platform}")
 
@@ -181,6 +196,26 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
                     logger.warning(f"Could not get metrics for {table}: {e}")
             metrics.finish_step(rows=sum(silver_row_counts.values()),
                                metadata={"table_counts": silver_row_counts})
+            
+            # Gold layer: Transform Silver to Gold star schema
+            metrics.start_step("gold_etl")
+            from benchmark.etl.gold import GoldETL
+            gold_etl = GoldETL(platform)
+            gold_etl.run_gold_load(db_or_catalog, config.target_schema)
+            
+            gold_tables = ["gold_dim_customer", "gold_dim_account", "gold_dim_company",
+                          "gold_dim_security", "gold_dim_date", "gold_dim_trade_type",
+                          "gold_dim_status_type", "gold_dim_industry",
+                          "gold_fact_trade", "gold_fact_market_history"]
+            gold_row_counts = {}
+            for table in gold_tables:
+                table_name = f"{db_or_catalog}.{config.target_schema}.{table}"
+                try:
+                    gold_row_counts[table] = platform.get_table_count(table_name)
+                except Exception as e:
+                    logger.warning(f"Could not get metrics for {table}: {e}")
+            metrics.finish_step(rows=sum(gold_row_counts.values()),
+                               metadata={"table_counts": gold_row_counts})
         
         elif config.load_type == LoadType.INCREMENTAL:
             metrics.start_step(f"bronze_incremental_batch{config.batch_id}")
@@ -203,6 +238,13 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
                 except Exception as e:
                     logger.warning(f"Could not get metrics for {table}: {e}")
             metrics.finish_step(rows=sum(row_counts.values()), metadata={"table_counts": row_counts})
+            
+            # Gold layer: Refresh Gold tables from updated Silver
+            metrics.start_step(f"gold_incremental_batch{config.batch_id}")
+            from benchmark.etl.gold import GoldETL
+            gold_etl = GoldETL(platform)
+            gold_etl.run_gold_load(db_or_catalog, config.target_schema)
+            metrics.finish_step()
         
         else:
             raise ValueError(f"Unsupported load type: {config.load_type}")

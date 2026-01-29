@@ -37,6 +37,8 @@ class BenchmarkConfig:
     gcs_bucket: Optional[str] = None  # For Dataproc
     project_id: Optional[str] = None  # For Dataproc
     region: Optional[str] = None  # For Dataproc
+    service_account_email: Optional[str] = None  # For Dataproc: service account email for GCS access
+    service_account_key_file: Optional[str] = None  # For Dataproc: path to service account JSON key file
     enable_metrics: bool = True
     metrics_output_path: Optional[str] = None
     

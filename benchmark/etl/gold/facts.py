@@ -1,0 +1,258 @@
+"""
+Gold layer fact table loaders.
+
+Fact tables join Silver facts with Gold dimensions to create denormalized star schema.
+"""
+
+import logging
+from pyspark.sql import DataFrame
+from pyspark.sql.functions import col, to_date, current_timestamp, sum as spark_sum, count
+
+from benchmark.etl.gold.base import GoldLoaderBase
+
+logger = logging.getLogger(__name__)
+
+
+class GoldFactTrade(GoldLoaderBase):
+    """Gold fact table: FactTrade (denormalized trades with dimension keys)."""
+    
+    def load(self, silver_trade_table: str, target_table: str,
+             dim_customer_table: str, dim_account_table: str,
+             dim_security_table: str, dim_date_table: str,
+             dim_trade_type_table: str) -> DataFrame:
+        """
+        Create FactTrade by joining silver_trades with dimension tables.
+        
+        Args:
+            silver_trade_table: silver_trades table name
+            target_table: gold.FactTrade table name
+            dim_customer_table: gold.DimCustomer table name
+            dim_account_table: gold.DimAccount table name
+            dim_security_table: gold.DimSecurity table name
+            dim_date_table: gold.DimDate table name
+            dim_trade_type_table: gold.DimTradeType table name
+        """
+        logger.info(f"Loading gold.FactTrade from {silver_trade_table}")
+        
+        # Get trades from Silver (fact tables don't have is_current, use all records)
+        try:
+            silver_trades = self._select_current_version(silver_trade_table)
+        except Exception:
+            # If no is_current column, use all records
+            silver_trades = self.spark.table(silver_trade_table)
+        
+        # Read dimension tables
+        dim_customer = self.spark.table(dim_customer_table)
+        dim_account = self.spark.table(dim_account_table)
+        dim_security = self.spark.table(dim_security_table)
+        dim_date = self.spark.table(dim_date_table)
+        dim_trade_type = self.spark.table(dim_trade_type_table)
+        
+        # Join with dimensions to get surrogate keys
+        # Note: silver_trades has account_id, join to account to get customer_id
+        fact_df = silver_trades \
+            .join(dim_date, 
+                  to_date(col("trade_dts")) == dim_date["date_value"], 
+                  "left") \
+            .join(dim_account,
+                  col("account_id") == dim_account["account_id"],
+                  "left") \
+            .join(dim_customer,
+                  dim_account["customer_id"] == dim_customer["customer_id"],
+                  "left") \
+            .join(dim_security,
+                  col("symbol") == dim_security["symbol"],
+                  "left") \
+            .join(dim_trade_type,
+                  col("trade_type_id") == dim_trade_type["trade_type_id"],
+                  "left") \
+            .select(
+                # Surrogate keys
+                dim_date["sk_date_id"].alias("sk_date_id"),
+                dim_customer["sk_customer_id"].alias("sk_customer_id"),
+                dim_account["sk_account_id"].alias("sk_account_id"),
+                dim_security["sk_security_id"].alias("sk_security_id"),
+                dim_trade_type["sk_trade_type_id"].alias("sk_trade_type_id"),
+                
+                # Fact measures
+                col("trade_id"),
+                col("trade_dts"),
+                col("trade_price"),
+                col("quantity").alias("trade_quantity"),
+                (col("trade_price") * col("quantity")).alias("trade_amount"),
+                col("commission"),
+                col("charge"),
+                col("tax"),
+                col("status_id"),
+                col("is_cash"),
+                col("exec_name"),
+                
+                # Metadata
+                col("batch_id"),
+                current_timestamp().alias("etl_timestamp"),
+            )
+        
+        return self._write_gold_table(fact_df, target_table, mode="overwrite")
+
+
+class GoldFactMarketHistory(GoldLoaderBase):
+    """Gold fact table: FactMarketHistory (daily market data with dimension keys)."""
+    
+    def load(self, silver_daily_market_table: str, target_table: str,
+             dim_date_table: str, dim_security_table: str) -> DataFrame:
+        """
+        Create FactMarketHistory by joining silver_daily_market with dimensions.
+        
+        Args:
+            silver_daily_market_table: silver_daily_market table name
+            target_table: gold.FactMarketHistory table name
+            dim_date_table: gold.DimDate table name
+            dim_security_table: gold.DimSecurity table name
+        """
+        logger.info(f"Loading gold.FactMarketHistory from {silver_daily_market_table}")
+        
+        # Get daily market data from Silver (fact tables don't have is_current)
+        silver_dm = self.spark.table(silver_daily_market_table)
+        
+        # Read dimension tables
+        dim_date = self.spark.table(dim_date_table)
+        dim_security = self.spark.table(dim_security_table)
+        
+        # Join with dimensions
+        fact_df = silver_dm \
+            .join(dim_date,
+                  col("dm_date") == dim_date["date_value"],
+                  "left") \
+            .join(dim_security,
+                  col("dm_s_symb") == dim_security["symbol"],
+                  "left") \
+            .select(
+                # Surrogate keys
+                dim_date["sk_date_id"].alias("sk_date_id"),
+                dim_security["sk_security_id"].alias("sk_security_id"),
+                
+                # Fact measures
+                col("dm_date").alias("market_date"),
+                col("dm_s_symb").alias("symbol"),
+                col("dm_close").alias("close_price"),
+                col("dm_high").alias("high_price"),
+                col("dm_low").alias("low_price"),
+                col("dm_vol").alias("volume"),
+                
+                # Metadata
+                col("batch_id"),
+                current_timestamp().alias("etl_timestamp"),
+            )
+        
+        return self._write_gold_table(fact_df, target_table, mode="overwrite")
+
+
+class GoldFactCashBalances(GoldLoaderBase):
+    """Gold fact table: FactCashBalances (cash transaction aggregates)."""
+    
+    def load(self, silver_cash_transaction_table: str, target_table: str,
+             dim_date_table: str, dim_account_table: str) -> DataFrame:
+        """
+        Create FactCashBalances by aggregating silver_cash_transaction.
+        
+        Args:
+            silver_cash_transaction_table: silver_cash_transaction table name
+            target_table: gold.FactCashBalances table name
+            dim_date_table: gold.DimDate table name
+            dim_account_table: gold.DimAccount table name
+        """
+        logger.info(f"Loading gold.FactCashBalances from {silver_cash_transaction_table}")
+        
+        # Note: silver_cash_transaction may not exist yet
+        # This is a placeholder for when cash transaction loader is implemented
+        try:
+            silver_ct = self.spark.table(silver_cash_transaction_table)
+            
+            dim_date = self.spark.table(dim_date_table)
+            dim_account = self.spark.table(dim_account_table)
+            
+            # Aggregate cash transactions by account and date
+            fact_df = silver_ct \
+                .join(dim_date,
+                      to_date(col("transaction_date")) == col("date_value"),
+                      "left") \
+                .join(dim_account,
+                      col("account_id") == dim_account["account_id"],
+                      "left") \
+                .groupBy(
+                    col("sk_date_id"),
+                    col("sk_account_id"),
+                    col("account_id"),
+                ) \
+                .agg(
+                    spark_sum("amount").alias("cash_balance"),
+                    count("transaction_type").alias("transaction_count")
+                ) \
+                .select(
+                    col("sk_date_id"),
+                    col("sk_account_id"),
+                    col("account_id"),
+                    col("cash_balance"),
+                    col("transaction_count"),
+                    current_timestamp().alias("etl_timestamp"),
+                )
+            
+            return self._write_gold_table(fact_df, target_table, mode="overwrite")
+        except Exception as e:
+            logger.warning(f"Could not load FactCashBalances: {e}")
+            return None
+
+
+class GoldFactHoldings(GoldLoaderBase):
+    """Gold fact table: FactHoldings (current holdings with dimension keys)."""
+    
+    def load(self, silver_holding_history_table: str, target_table: str,
+             dim_date_table: str, dim_account_table: str,
+             dim_security_table: str) -> DataFrame:
+        """
+        Create FactHoldings from silver_holding_history.
+        
+        Args:
+            silver_holding_history_table: silver_holding_history table name
+            target_table: gold.FactHoldings table name
+            dim_date_table: gold.DimDate table name
+            dim_account_table: gold.DimAccount table name
+            dim_security_table: gold.DimSecurity table name
+        """
+        logger.info(f"Loading gold.FactHoldings from {silver_holding_history_table}")
+        
+        # Note: silver_holding_history may not exist yet
+        try:
+            silver_hh = self.spark.table(silver_holding_history_table)
+            
+            dim_date = self.spark.table(dim_date_table)
+            dim_account = self.spark.table(dim_account_table)
+            dim_security = self.spark.table(dim_security_table)
+            
+            # Get current holdings (latest by account_id, security_id)
+            fact_df = silver_hh \
+                .join(dim_date,
+                      to_date(col("holding_date")) == col("date_value"),
+                      "left") \
+                .join(dim_account,
+                      col("account_id") == dim_account["account_id"],
+                      "left") \
+                .join(dim_security,
+                      col("symbol") == dim_security["symbol"],
+                      "left") \
+                .select(
+                    col("sk_date_id"),
+                    col("sk_account_id"),
+                    col("sk_security_id"),
+                    col("account_id"),
+                    col("symbol"),
+                    col("quantity"),
+                    col("purchase_price"),
+                    col("purchase_date"),
+                    current_timestamp().alias("etl_timestamp"),
+                )
+            
+            return self._write_gold_table(fact_df, target_table, mode="overwrite")
+        except Exception as e:
+            logger.warning(f"Could not load FactHoldings: {e}")
+            return None
