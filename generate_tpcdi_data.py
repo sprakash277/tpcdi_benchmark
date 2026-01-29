@@ -356,11 +356,28 @@ def generate_tpcdi_data(
 def create_volume_if_needed(
     catalog: str, schema: str, volume_name: str, spark_session: Optional[SparkSession]
 ) -> None:
-    """Create catalog, schema, and volume if they do not exist."""
+    """Ensure catalog exists; create schema and volume if they do not exist.
+    Does not create the catalog — if it does not exist, exits gracefully with an error.
+    """
     if not IN_DATABRICKS or spark_session is None:
         return
-    spark_session.sql(f"CREATE CATALOG IF NOT EXISTS {catalog}")
-    spark_session.sql(f"GRANT ALL PRIVILEGES ON CATALOG {catalog} TO `account users`")
+    # Check if catalog exists; do not create it
+    try:
+        existing = [row.catalog for row in spark_session.sql("SHOW CATALOGS").collect()]
+        if catalog not in existing:
+            msg = (
+                f"Catalog '{catalog}' does not exist. "
+                "Please create the catalog (e.g. in Data > Catalogs) and retry."
+            )
+            print(f"ERROR: {msg}")
+            raise RuntimeError(msg)
+    except RuntimeError:
+        raise
+    except Exception as e:
+        print(f"ERROR: Could not check catalog existence: {e}")
+        raise RuntimeError(
+            f"Could not verify catalog '{catalog}'. Please ensure the catalog exists."
+        ) from e
     spark_session.sql(
         f"CREATE DATABASE IF NOT EXISTS {catalog}.{schema} "
         "COMMENT 'Schema for TPC-DI Raw Files Volume'"
