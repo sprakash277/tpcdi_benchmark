@@ -148,8 +148,12 @@ class ParseCustomerMgmtChunk:
         )
         try:
             spark.sql(create_uc_sql)
+            logger.info(f"Created/replaced UC Python UDTF: {catalog}.{schema}.{udtf_name}")
         except Exception as e:
-            logger.warning(f"Could not create UC UDTF, falling back to session-scoped: {e}")
+            logger.warning(
+                f"Could not create UC UDTF (requires DBR 17.1+ or serverless), "
+                f"falling back to session-scoped registration: {e}"
+            )
             @udtf(returnType="action_ordinal: int, action_xml: string")
             class ParseCustomerMgmtChunk:
                 def eval(self, chunk_id: int, chunk_content: str) -> Iterator[tuple]:
