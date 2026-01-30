@@ -10,7 +10,7 @@ Gold layer provides business-ready, query-optimized tables:
 import logging
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import col
 
@@ -21,6 +21,18 @@ if TYPE_CHECKING:
 from benchmark.etl.table_timing import end_table as table_timing_end, is_detailed as table_timing_is_detailed
 
 logger = logging.getLogger(__name__)
+
+
+def _get_table_size_bytes(platform, table_name: str) -> Optional[int]:
+    """Return table size in bytes from platform if available; else None."""
+    try:
+        get_mb = getattr(platform, "get_table_size_mb", None)
+        if get_mb:
+            mb = get_mb(table_name)
+            return int(mb * 1024 * 1024) if mb else None
+    except Exception as e:
+        logger.debug(f"Could not get table size for {table_name}: {e}")
+    return None
 
 
 class GoldLoaderBase:
@@ -94,6 +106,7 @@ class GoldLoaderBase:
         if table_timing_is_detailed():
             logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
             logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: {mode}")
-        table_timing_end(target_table, row_count)
-        
+        bytes_processed = _get_table_size_bytes(self.platform, target_table)
+        table_timing_end(target_table, row_count, bytes_processed=bytes_processed)
+
         return df

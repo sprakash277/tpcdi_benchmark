@@ -1,9 +1,8 @@
 """
 Table-level timing for ETL load tracking.
 
-Tracks start/end time and row count per table, and emits a final job summary
-with: job start time, job end time, total duration, tables loaded, time spent per table,
-records loaded per table.
+Tracks start/end time, row count, and optional bytes per table. When log_detailed_stats
+is True, emits per-table and job-level performance: duration, rows, bytes, rows/sec, MB/sec.
 """
 
 import logging
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 _job_start_time: Optional[float] = None
 _job_end_time: Optional[float] = None
 _table_starts: Dict[str, float] = {}  # table_name -> start_time
-_table_records: List[Dict] = []  # list of {table, start_time, end_time, duration_sec, row_count}
+_table_records: List[Dict] = []  # list of {table, start_time, end_time, duration_sec, row_count, bytes_processed?}
 _log_detailed_stats: bool = False  # When False, only log job start/end/total duration for performance comparison
 
 
@@ -63,8 +62,8 @@ def start_table(table_name: str):
         logger.info(f"[TIMING] Table load started: {table_name} at {start_dt}")
 
 
-def end_table(table_name: str, row_count: int):
-    """Record end of table load (after write). Call when write for this table completes."""
+def end_table(table_name: str, row_count: int, bytes_processed: Optional[int] = None):
+    """Record end of table load (after write). Optionally pass bytes written for throughput stats."""
     end_time = time.time()
     start_time = _table_starts.get(table_name)
     if start_time is None:
@@ -81,9 +80,16 @@ def end_table(table_name: str, row_count: int):
         "end_datetime": end_dt,
         "duration_seconds": duration,
         "row_count": row_count,
+        "bytes_processed": bytes_processed,
     })
     if _log_detailed_stats:
-        logger.info(f"[TIMING] Table load completed: {table_name} - Start: {start_dt}, End: {end_dt}, Duration: {duration:.2f}s, Rows: {row_count}")
+        extra = f", Bytes: {bytes_processed / (1024 * 1024):.2f} MB" if bytes_processed else ""
+        rows_sec = row_count / duration if duration > 0 else 0
+        mb_sec = (bytes_processed / (1024 * 1024)) / duration if bytes_processed and duration > 0 else None
+        throughput = f", Throughput: {rows_sec:.1f} rows/s"
+        if mb_sec is not None:
+            throughput += f", {mb_sec:.2f} MB/s"
+        logger.info(f"[TIMING] Table load completed: {table_name} - Start: {start_dt}, End: {end_dt}, Duration: {duration:.2f}s, Rows: {row_count}{extra}{throughput}")
     # Remove so we don't leak if same table loaded again
     _table_starts.pop(table_name, None)
 
@@ -93,6 +99,7 @@ def get_summary() -> Dict:
     job_start = _job_start_time
     job_end = _job_end_time or time.time()
     total_duration = (job_end - job_start) if job_start else 0.0
+    total_bytes = sum(r.get("bytes_processed") or 0 for r in _table_records)
     return {
         "job_start_time": job_start,
         "job_end_time": job_end,
@@ -102,6 +109,7 @@ def get_summary() -> Dict:
         "tables_loaded": [r["table"] for r in _table_records],
         "table_details": _table_records,
         "total_records_loaded": sum(r["row_count"] for r in _table_records),
+        "total_bytes_processed": total_bytes,
     }
 
 
@@ -109,7 +117,8 @@ def log_final_summary():
     """
     Emit final job summary log.
     - Always: job start time, end time, total duration (for performance comparison).
-    - If log_detailed_stats is True: also tables loaded, time spent per table, records loaded per table.
+    - If log_detailed_stats is True: per-table duration, rows, bytes (MB), rows/s, MB/s;
+      job-level totals and overall throughput.
     """
     summary = get_summary()
     job_start_dt = summary["job_start_datetime"] or "N/A"
@@ -120,16 +129,30 @@ def log_final_summary():
     logger.info("[JOB SUMMARY]")
     logger.info(f"  Job start time:     {job_start_dt}")
     logger.info(f"  Job end time:       {job_end_dt}")
-    logger.info(f"  Total duration:     {total_dur:.2f}s")
+    logger.info(f"  Total duration:    {total_dur:.2f}s")
 
     if _log_detailed_stats:
         tables = summary["tables_loaded"]
         details = summary["table_details"]
         total_rows = summary["total_records_loaded"]
+        total_bytes = summary.get("total_bytes_processed") or 0
+        total_mb = total_bytes / (1024 * 1024)
+        rows_per_sec = total_rows / total_dur if total_dur > 0 else 0
+        mb_per_sec = total_mb / total_dur if total_dur > 0 and total_bytes else 0
+
         logger.info(f"  Tables loaded:      {len(tables)}")
-        logger.info(f"  Total records:      {total_rows}")
-        logger.info("  Tables (time spent, records):")
+        logger.info(f"  Total records:      {total_rows:,}")
+        logger.info(f"  Total data size:    {total_mb:.2f} MB")
+        logger.info(f"  Overall throughput: {rows_per_sec:,.1f} rows/s, {mb_per_sec:.2f} MB/s")
+        logger.info("  Per-table (duration, rows, size, throughput):")
         for d in details:
-            logger.info(f"    - {d['table']}: {d['duration_seconds']:.2f}s, {d['row_count']} rows")
+            dur = d["duration_seconds"]
+            rows = d["row_count"]
+            b = d.get("bytes_processed")
+            row_s = rows / dur if dur > 0 else 0
+            mb_s = (b / (1024 * 1024)) / dur if b and dur > 0 else None
+            size_str = f", {b / (1024 * 1024):.2f} MB" if b else ""
+            tp_str = f", {row_s:,.1f} rows/s" + (f", {mb_s:.2f} MB/s" if mb_s is not None else "")
+            logger.info(f"    - {d['table']}: {dur:.2f}s, {rows:,} rows{size_str}{tp_str}")
 
     logger.info("=" * 60)

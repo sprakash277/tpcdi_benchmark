@@ -11,7 +11,7 @@ from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, lit, when, to_date
 from pyspark.sql.types import IntegerType
 
-from benchmark.etl.silver.base import SilverLoaderBase
+from benchmark.etl.silver.base import SilverLoaderBase, _get_table_size_bytes
 from benchmark.etl.table_timing import end_table as table_timing_end, is_detailed as table_timing_is_detailed
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ class SilverDate(SilverLoaderBase):
             logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
             logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: overwrite")
         logger.info(f"Loaded silver_date: {row_count} rows")
-        table_timing_end(target_table, row_count)
+        table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
         return silver_df
 
 
@@ -102,7 +102,7 @@ class SilverStatusType(SilverLoaderBase):
             logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
             logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: overwrite")
         logger.info(f"Loaded silver_status_type: {row_count} rows")
-        table_timing_end(target_table, row_count)
+        table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
         return silver_df
 
 
@@ -140,7 +140,7 @@ class SilverTradeType(SilverLoaderBase):
             logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
             logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: overwrite")
         logger.info(f"Loaded silver_trade_type: {row_count} rows")
-        table_timing_end(target_table, row_count)
+        table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
         return silver_df
 
 
@@ -178,5 +178,5 @@ class SilverIndustry(SilverLoaderBase):
             logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
             logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: overwrite")
         logger.info(f"Loaded silver_industry: {row_count} rows")
-        table_timing_end(target_table, row_count)
+        table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
         return silver_df

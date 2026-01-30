@@ -21,6 +21,18 @@ from benchmark.etl.table_timing import end_table as table_timing_end, is_detaile
 logger = logging.getLogger(__name__)
 
 
+def _get_table_size_bytes(platform, table_name: str) -> Optional[int]:
+    """Return table size in bytes from platform if available; else None."""
+    try:
+        get_mb = getattr(platform, "get_table_size_mb", None)
+        if get_mb:
+            mb = get_mb(table_name)
+            return int(mb * 1024 * 1024) if mb else None
+    except Exception as e:
+        logger.debug(f"Could not get table size for {table_name}: {e}")
+    return None
+
+
 class SilverLoaderBase:
     """
     Base class for Silver layer data loaders.
@@ -178,7 +190,7 @@ class SilverLoaderBase:
         if table_timing_is_detailed():
             logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
             logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: {mode}")
-        table_timing_end(target_table, row_count)
+        table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
         
         return df
     
@@ -240,7 +252,7 @@ class SilverLoaderBase:
             if table_timing_is_detailed():
                 logger.info(f"[TIMING] Completed SCD Type 2 for {target_table} at {end_datetime}")
                 logger.info(f"[TIMING] {target_table} (SCD Type 2) - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s")
-            table_timing_end(target_table, row_count)
+            table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
             return incoming_df
         
         # Align schema: Read existing table and ensure incoming schema matches
@@ -322,7 +334,7 @@ class SilverLoaderBase:
             if table_timing_is_detailed():
                 logger.info(f"[TIMING] Completed SCD Type 2 for {target_table} at {end_datetime}")
                 logger.info(f"[TIMING] {target_table} (SCD Type 2) - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s")
-            table_timing_end(target_table, row_count)
+            table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
             return incoming_df
         
         # Step 2: Insert new versions (exclude D: close-only, no insert)
@@ -353,7 +365,7 @@ class SilverLoaderBase:
             logger.info(f"[TIMING] Completed SCD Type 2 for {target_table} at {end_datetime}")
             logger.info(f"[TIMING] {target_table} (SCD Type 2) - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows inserted: {row_count}")
         logger.info(f"SCD Type 2 applied to {target_table}: {row_count} new versions inserted")
-        table_timing_end(target_table, row_count)
+        table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
         return incoming_df
     
     def _upsert_fact_table(self, incoming_df: DataFrame, target_table: str,
@@ -406,7 +418,7 @@ class SilverLoaderBase:
             if table_timing_is_detailed():
                 logger.info(f"[TIMING] Completed upsert for {target_table} at {end_datetime}")
                 logger.info(f"[TIMING] {target_table} (upsert) - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s")
-            table_timing_end(target_table, row_count)
+            table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
             return incoming_df
         
         # Create temp view for incoming data
@@ -463,6 +475,6 @@ class SilverLoaderBase:
         if table_timing_is_detailed():
             logger.info(f"[TIMING] Completed upsert for {target_table} at {end_datetime}")
             logger.info(f"[TIMING] {target_table} (upsert) - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}")
-        table_timing_end(target_table, row_count)
+        table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
         
         return incoming_df
