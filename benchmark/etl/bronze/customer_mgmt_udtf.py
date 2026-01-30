@@ -2,9 +2,9 @@
 Parallel parsing of CustomerMgmt.xml using a Python UDTF on Databricks/Spark 3.5+.
 
 Splits the XML file into chunks (by Action elements), then uses a UDTF with
-LATERAL VIEW to parse each chunk in parallel. Registers the UDTF in the passed
-catalog and schema so Databricks can resolve it (avoids ROUTINE_NOT_FOUND in default).
-Falls back to spark-xml read if this path fails.
+LATERAL VIEW to parse each chunk in parallel. Creates or replaces a Unity Catalog
+(UC) Python UDTF in the passed catalog and schema via CREATE OR REPLACE FUNCTION,
+then uses that function in the lateral view. Falls back to spark-xml read if this path fails.
 """
 
 import logging
@@ -103,26 +103,69 @@ def read_customer_mgmt_with_udtf(
     ).repartition(num_partitions)
     chunks_df.createOrReplaceTempView("_customer_mgmt_chunks")
 
-    # 4) Register UDTF in the passed catalog and schema so SQL resolves it (not default).
-    @udtf(returnType="action_ordinal: int, action_xml: string")
-    class ParseCustomerMgmtChunk:
-        def eval(self, chunk_id: int, chunk_content: str) -> Iterator[tuple]:
-            if not chunk_content:
-                return
-            parts = chunk_content.split(ACTION_BOUNDARY)
-            for i, action_xml in enumerate(parts):
-                action_xml = action_xml.strip()
-                if action_xml:
-                    yield (i, action_xml)
-
+    # 4) Create or replace Unity Catalog (UC) Python UDTF in the passed catalog and schema.
+    # LATERAL VIEW must use unqualified name (qualified names unsupported); we set USE CATALOG/SCHEMA before calling.
     udtf_name = "parse_customer_mgmt_chunk"
-    if catalog and schema:
-        spark.sql(f"USE CATALOG `{catalog}`")
-        spark.sql(f"USE SCHEMA `{schema}`")
-    elif schema:
-        spark.sql(f"USE SCHEMA `{schema}`")
-    # Register in current catalog/schema; LATERAL VIEW must use unqualified name (qualified names unsupported).
-    spark.udtf.register(udtf_name, ParseCustomerMgmtChunk)
+    if not catalog or not schema:
+        # Fallback: session-scoped registration when catalog/schema not provided
+        @udtf(returnType="action_ordinal: int, action_xml: string")
+        class ParseCustomerMgmtChunk:
+            def eval(self, chunk_id: int, chunk_content: str) -> Iterator[tuple]:
+                if not chunk_content:
+                    return
+                parts = chunk_content.split(ACTION_BOUNDARY)
+                for i, action_xml in enumerate(parts):
+                    action_xml = action_xml.strip()
+                    if action_xml:
+                        yield (i, action_xml)
+
+        if schema:
+            spark.sql(f"USE SCHEMA `{schema}`")
+        spark.udtf.register(udtf_name, ParseCustomerMgmtChunk)
+    else:
+        # UC Python UDTF: CREATE OR REPLACE FUNCTION catalog.schema.parse_customer_mgmt_chunk
+        # Python body must match ACTION_BOUNDARY and eval logic (no $$ inside the AS $$ block).
+        _PY_UDTF_BODY = r'''
+ACTION_BOUNDARY = "\n<!--ACTION_BOUNDARY-->\n"
+
+class ParseCustomerMgmtChunk:
+    def eval(self, chunk_id: int, chunk_content: str):
+        if not chunk_content:
+            return
+        parts = chunk_content.split(ACTION_BOUNDARY)
+        for i, action_xml in enumerate(parts):
+            ax = action_xml.strip()
+            if ax:
+                yield (i, ax)
+'''
+        create_uc_sql = (
+            f"CREATE OR REPLACE FUNCTION `{catalog}`.`{schema}`.`{udtf_name}`("
+            "chunk_id INT, chunk_content STRING)\n"
+            "RETURNS TABLE(action_ordinal INT, action_xml STRING)\n"
+            "LANGUAGE PYTHON\n"
+            "HANDLER 'ParseCustomerMgmtChunk'\n"
+            "AS $$" + _PY_UDTF_BODY + "$$;"
+        )
+        try:
+            spark.sql(create_uc_sql)
+        except Exception as e:
+            logger.warning(f"Could not create UC UDTF, falling back to session-scoped: {e}")
+            @udtf(returnType="action_ordinal: int, action_xml: string")
+            class ParseCustomerMgmtChunk:
+                def eval(self, chunk_id: int, chunk_content: str) -> Iterator[tuple]:
+                    if not chunk_content:
+                        return
+                    parts = chunk_content.split(ACTION_BOUNDARY)
+                    for i, action_xml in enumerate(parts):
+                        action_xml = action_xml.strip()
+                        if action_xml:
+                            yield (i, action_xml)
+            spark.sql(f"USE CATALOG `{catalog}`")
+            spark.sql(f"USE SCHEMA `{schema}`")
+            spark.udtf.register(udtf_name, ParseCustomerMgmtChunk)
+        else:
+            spark.sql(f"USE CATALOG `{catalog}`")
+            spark.sql(f"USE SCHEMA `{schema}`")
 
     # 5) LATERAL VIEW: each chunk row produces multiple (action_ordinal, action_xml) rows.
     lateral_sql = f"""
