@@ -94,4 +94,33 @@ if __name__ == "__main__":
         print(f"Total Rows Processed: {result['metrics']['summary']['total_rows_processed']:,}")
         print(f"Throughput: {result['metrics']['summary']['throughput_rows_per_second']:.2f} rows/sec")
         print(f"Data Size: {result['metrics']['summary']['total_bytes_processed'] / (1024*1024):.2f} MB")
+    if args.log_detailed_stats:
+        try:
+            from benchmark.etl.table_timing import get_summary as get_table_summary
+            tsum = get_table_summary()
+            details = tsum.get("table_details") or []
+            if details:
+                total_rows = tsum.get("total_records_loaded") or 0
+                total_bytes = tsum.get("total_bytes_processed") or 0
+                total_dur = tsum.get("total_duration_seconds") or 0
+                total_mb = total_bytes / (1024 * 1024)
+                rows_per_sec = total_rows / total_dur if total_dur > 0 else 0
+                mb_per_sec = total_mb / total_dur if total_dur > 0 and total_bytes else 0
+                print("\nTable-level stats:")
+                print(f"  Tables loaded:      {len(details)}")
+                print(f"  Total records:      {total_rows:,}")
+                print(f"  Total data size:    {total_mb:.2f} MB")
+                print(f"  Overall throughput: {rows_per_sec:,.1f} rows/s, {mb_per_sec:.2f} MB/s")
+                print("  Per-table (duration, rows, size, throughput):")
+                for d in details:
+                    dur = d.get("duration_seconds") or 0
+                    rows = d.get("row_count") or 0
+                    b = d.get("bytes_processed")
+                    row_s = rows / dur if dur > 0 else 0
+                    mb_s = (b / (1024 * 1024)) / dur if b and dur > 0 else None
+                    size_str = f", {b / (1024 * 1024):.2f} MB" if b else ""
+                    tp_str = f", {row_s:,.1f} rows/s" + (f", {mb_s:.2f} MB/s" if mb_s is not None else "")
+                    print(f"    - {d.get('table', '?')}: {dur:.2f}s, {rows:,} rows{size_str}{tp_str}")
+        except Exception as e:
+            print(f"\n  (Table-level stats unavailable: {e})")
     print("="*80)

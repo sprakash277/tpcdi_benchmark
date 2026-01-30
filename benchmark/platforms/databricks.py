@@ -132,9 +132,11 @@ class DatabricksPlatform:
 
     def get_table_size_mb(self, table_name: str) -> float:
         try:
+            # Quote multi-part table name (catalog.schema.table) so DESCRIBE DETAIL parses correctly
+            quoted = ".".join(f"`{p}`" for p in table_name.split("."))
             result = self.spark.sql(
                 f"SELECT SUM(size) / (1024 * 1024) as size_mb "
-                f"FROM (SELECT size FROM DESCRIBE DETAIL {table_name})"
+                f"FROM (SELECT size FROM DESCRIBE DETAIL {quoted})"
             ).first()
             return result.size_mb if result and result.size_mb else 0.0
         except Exception as e:
