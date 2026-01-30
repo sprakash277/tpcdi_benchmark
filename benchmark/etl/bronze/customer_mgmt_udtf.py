@@ -119,19 +119,16 @@ def read_customer_mgmt_with_udtf(
     if catalog and schema:
         spark.sql(f"USE CATALOG `{catalog}`")
         spark.sql(f"USE SCHEMA `{schema}`")
-        qualified_udtf = f"`{catalog}`.`{schema}`.`{udtf_name}`"
     elif schema:
         spark.sql(f"USE SCHEMA `{schema}`")
-        qualified_udtf = f"`{schema}`.`{udtf_name}`"
-    else:
-        qualified_udtf = udtf_name
+    # Register in current catalog/schema; LATERAL VIEW must use unqualified name (qualified names unsupported).
     spark.udtf.register(udtf_name, ParseCustomerMgmtChunk)
 
     # 5) LATERAL VIEW: each chunk row produces multiple (action_ordinal, action_xml) rows.
     lateral_sql = f"""
         SELECT c.chunk_id, p.action_ordinal, p.action_xml
         FROM _customer_mgmt_chunks c
-        LATERAL VIEW {qualified_udtf}(c.chunk_id, c.chunk_content) p AS action_ordinal, action_xml
+        LATERAL VIEW {udtf_name}(c.chunk_id, c.chunk_content) p AS action_ordinal, action_xml
     """
     parsed_rows = spark.sql(lateral_sql)
 
