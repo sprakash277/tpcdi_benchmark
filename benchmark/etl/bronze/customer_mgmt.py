@@ -53,12 +53,18 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
         if use_udtf:
             try:
                 from benchmark.etl.bronze import customer_mgmt_udtf
+                # Derive catalog and schema from target_table so UDTF is registered there (avoids ROUTINE_NOT_FOUND).
+                parts = target_table.split(".")
+                udtf_catalog = parts[0] if len(parts) >= 3 else None
+                udtf_schema = parts[1] if len(parts) >= 3 else (parts[0] if len(parts) == 2 else None)
                 df = customer_mgmt_udtf.read_customer_mgmt_with_udtf(
                     self.spark,
                     full_path,
                     num_chunks=udtf_num_chunks,
                     row_tag="TPCDI:Action",
                     root_tag="TPCDI:Actions",
+                    catalog=udtf_catalog,
+                    schema=udtf_schema,
                 )
                 if df is not None:
                     logger.info("Successfully read CustomerMgmt.xml via UDTF (parallel parsing)")

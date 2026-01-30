@@ -1,9 +1,10 @@
 """
-Parallel parsing of CustomerMgmt.xml using a Python UDTF on Databricks.
+Parallel parsing of CustomerMgmt.xml using a Python UDTF on Databricks/Spark 3.5+.
 
-Splits the XML file into chunks (by Action elements), then uses a UDTF to parse
-each chunk in parallel and yield one row per Action. Use when Spark 3.5+ and
-Databricks to parallelize parsing; falls back to spark-xml read if UDTF unavailable.
+Splits the XML file into chunks (by Action elements), then uses a UDTF with
+LATERAL VIEW to parse each chunk in parallel. Registers the UDTF in the passed
+catalog and schema so Databricks can resolve it (avoids ROUTINE_NOT_FOUND in default).
+Falls back to spark-xml read if this path fails.
 """
 
 import logging
@@ -51,9 +52,12 @@ def read_customer_mgmt_with_udtf(
     num_chunks: int = 64,
     row_tag: str = "TPCDI:Action",
     root_tag: Optional[str] = "TPCDI:Actions",
+    catalog: Optional[str] = None,
+    schema: Optional[str] = None,
 ) -> Optional["DataFrame"]:
     """
-    Read CustomerMgmt.xml using a UDTF to parse chunks in parallel.
+    Read CustomerMgmt.xml using a UDTF (LATERAL VIEW) to parse chunks in parallel.
+    Registers the UDTF in the given catalog and schema so SQL can resolve it.
     Requires Spark 3.5+ (e.g. Databricks DBR 14.3+). Returns a DataFrame
     with the same schema as spark-xml read (nested struct per Action).
     """
@@ -99,7 +103,7 @@ def read_customer_mgmt_with_udtf(
     ).repartition(num_partitions)
     chunks_df.createOrReplaceTempView("_customer_mgmt_chunks")
 
-    # 4) UDTF that takes chunk_content and yields (action_ordinal, action_xml)
+    # 4) Register UDTF in the passed catalog and schema so SQL resolves it (not default).
     @udtf(returnType="action_ordinal: int, action_xml: string")
     class ParseCustomerMgmtChunk:
         def eval(self, chunk_id: int, chunk_content: str) -> Iterator[tuple]:
@@ -111,14 +115,23 @@ def read_customer_mgmt_with_udtf(
                 if action_xml:
                     yield (i, action_xml)
 
-    spark.udtf.register("parse_customer_mgmt_chunk", ParseCustomerMgmtChunk)
+    udtf_name = "parse_customer_mgmt_chunk"
+    if catalog and schema:
+        spark.sql(f"USE CATALOG `{catalog}`")
+        spark.sql(f"USE SCHEMA `{schema}`")
+        qualified_udtf = f"`{catalog}`.`{schema}`.`{udtf_name}`"
+    elif schema:
+        spark.sql(f"USE SCHEMA `{schema}`")
+        qualified_udtf = f"`{schema}`.`{udtf_name}`"
+    else:
+        qualified_udtf = udtf_name
+    spark.udtf.register(udtf_name, ParseCustomerMgmtChunk)
 
-    # 5) Lateral join: each chunk row produces multiple (action_ordinal, action_xml) rows.
-    # Use LATERAL VIEW ... AS (Databricks SQL requires VIEW; plain LATERAL causes PARSE_SYNTAX_ERROR).
-    lateral_sql = """
+    # 5) LATERAL VIEW: each chunk row produces multiple (action_ordinal, action_xml) rows.
+    lateral_sql = f"""
         SELECT c.chunk_id, p.action_ordinal, p.action_xml
         FROM _customer_mgmt_chunks c
-        LATERAL VIEW parse_customer_mgmt_chunk(c.chunk_id, c.chunk_content) p AS action_ordinal, action_xml
+        LATERAL VIEW {qualified_udtf}(c.chunk_id, c.chunk_content) p AS action_ordinal, action_xml
     """
     parsed_rows = spark.sql(lateral_sql)
 
