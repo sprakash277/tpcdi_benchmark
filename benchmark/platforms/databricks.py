@@ -131,14 +131,15 @@ class DatabricksPlatform:
         return result.cnt if result else 0
 
     def get_table_size_mb(self, table_name: str) -> float:
+        """Get approximate table size in MB. Runs DESCRIBE DETAIL separately (Databricks SQL does not allow it in a subquery)."""
         try:
-            # Quote multi-part table name (catalog.schema.table) so DESCRIBE DETAIL parses correctly
             quoted = ".".join(f"`{p}`" for p in table_name.split("."))
-            result = self.spark.sql(
-                f"SELECT SUM(size) / (1024 * 1024) as size_mb "
-                f"FROM (SELECT size FROM DESCRIBE DETAIL {quoted})"
-            ).first()
-            return result.size_mb if result and result.size_mb else 0.0
+            detail_df = self.spark.sql(f"DESCRIBE DETAIL {quoted}")
+            row = detail_df.first()
+            if row is None:
+                return 0.0
+            size = getattr(row, "size", None)
+            return (size / (1024 * 1024)) if size is not None else 0.0
         except Exception as e:
             logger.warning(f"Could not get table size: {e}")
             return 0.0
