@@ -113,11 +113,12 @@ def read_customer_mgmt_with_udtf(
 
     spark.udtf.register("parse_customer_mgmt_chunk", ParseCustomerMgmtChunk)
 
-    # 5) Lateral join: each chunk row produces multiple (action_ordinal, action_xml) rows
+    # 5) Lateral join: each chunk row produces multiple (action_ordinal, action_xml) rows.
+    # Use LATERAL VIEW ... AS (Databricks SQL requires VIEW; plain LATERAL causes PARSE_SYNTAX_ERROR).
     lateral_sql = """
         SELECT c.chunk_id, p.action_ordinal, p.action_xml
         FROM _customer_mgmt_chunks c
-        LATERAL parse_customer_mgmt_chunk(c.chunk_id, c.chunk_content) p
+        LATERAL VIEW parse_customer_mgmt_chunk(c.chunk_id, c.chunk_content) p AS action_ordinal, action_xml
     """
     parsed_rows = spark.sql(lateral_sql)
 
