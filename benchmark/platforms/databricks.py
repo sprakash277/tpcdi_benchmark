@@ -140,3 +140,25 @@ class DatabricksPlatform:
         except Exception as e:
             logger.warning(f"Could not get table size: {e}")
             return 0.0
+
+    def get_raw_input_size_bytes(self, batch_id: int) -> int:
+        """Sum file sizes under raw_data_path/Batch{batch_id}/ for throughput metrics."""
+        try:
+            batch_path = f"{self.raw_data_path}/Batch{batch_id}"
+            if self.raw_data_path.startswith("/Volumes/") and not batch_path.startswith("dbfs:"):
+                batch_path = "dbfs:" + batch_path
+            jvm = self.spark.sparkContext._jvm
+            path = jvm.org.apache.hadoop.fs.Path(batch_path)
+            fs = path.getFileSystem(self.spark.sparkContext._jsc.hadoopConfiguration())
+            total = 0
+            for status in fs.listStatus(path) or []:
+                if status.isDirectory():
+                    for child in fs.listStatus(status.getPath()) or []:
+                        if not child.isDirectory():
+                            total += child.getLen()
+                else:
+                    total += status.getLen()
+            return int(total)
+        except Exception as e:
+            logger.warning(f"Could not get raw input size for Batch{batch_id}: {e}")
+            return 0

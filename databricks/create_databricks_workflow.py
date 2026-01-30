@@ -270,12 +270,39 @@ def main():
     parser.add_argument("--spark-version", default="14.3.x-scala2.12",
                        choices=SPARK_VERSIONS,
                        help="Databricks Runtime (Spark) version")
+    # Instance type options per cloud (must match selected --cloud)
+    CLOUD_NODE_OPTIONS = {
+        "AWS": [
+            "i3.xlarge", "i3.2xlarge", "i3.4xlarge",
+            "m5d.xlarge", "m5d.2xlarge", "m5d.4xlarge",
+            "r5d.xlarge", "r5d.2xlarge", "r5d.4xlarge",
+        ],
+        "GCP": [
+            "c2-standard-4", "c2-standard-8", "c2-standard-16", "c2-standard-30",
+            "n2d-standard-4", "n2d-standard-8", "n2d-standard-16", "n2d-standard-32",
+            "n2d-standard-48", "n2d-standard-64", "n2d-standard-80", "n2d-standard-96",
+            "n2d-highmem-4", "n2d-highmem-8", "n2d-highmem-16", "n2d-highmem-32",
+            "n2d-highmem-48", "n2d-highmem-64", "n2d-highmem-80", "n2d-highmem-96",
+        ],
+        "Azure": [
+            "Standard_E4s_v3", "Standard_E8s_v3", "Standard_E16s_v3", "Standard_E32s_v3",
+            "Standard_D4s_v3", "Standard_D8s_v3", "Standard_D16s_v3", "Standard_D32s_v3",
+            "Standard_L4s_v2", "Standard_L8s_v2", "Standard_L16s_v2", "Standard_L32s_v2",
+        ],
+    }
+    DEFAULT_NODE_TYPES = {
+        "AWS": ("i3.xlarge", "i3.xlarge"),
+        "GCP": ("c2-standard-16", "c2-standard-16"),
+        "Azure": ("Standard_E8s_v3", "Standard_E8s_v3"),
+    }
     parser.add_argument("--cloud", default="AWS", choices=["AWS", "GCP", "Azure"],
-                       help="Cloud (sets default worker/driver node type if --node-type-id not set)")
+                       help="Cloud (instance types are restricted to this cloud)")
     parser.add_argument("--node-type-id", default=None,
-                       help="Worker node type (default: AWS i3.xlarge, GCP c2-standard-16, Azure Standard_E8s_v3; GCP: n2d-standard-*, c2-standard-*, n2d-highmem-*)")
+                       help="Worker node type; must be valid for selected --cloud (use --list-node-types to see options)")
     parser.add_argument("--driver-node-type-id", default=None,
-                       help="Driver node type (default: same as worker for selected cloud)")
+                       help="Driver node type; must be valid for selected --cloud")
+    parser.add_argument("--list-node-types", action="store_true",
+                       help="Print allowed instance types for each cloud and exit")
     parser.add_argument("--num-workers", type=int, default=2,
                        help="Number of worker nodes")
     parser.add_argument("--use-existing-cluster", 
@@ -291,13 +318,23 @@ def main():
     
     args = parser.parse_args()
 
-    # Default instance types per cloud: (worker, driver)
-    # AWS: i3.xlarge; GCP: c2-standard-16 or n2d-highmem-16; Azure: Standard_E8s_v3
-    DEFAULT_NODE_TYPES = {
-        "AWS": ("i3.xlarge", "i3.xlarge"),           # or i3.2xlarge for SF 100+
-        "GCP": ("c2-standard-16", "c2-standard-16"), # or n2d-highmem-16, n2d-standard-16
-        "Azure": ("Standard_E8s_v3", "Standard_E8s_v3"),  # or Standard_D8s_v3
-    }
+    if args.list_node_types:
+        for c in ["AWS", "GCP", "Azure"]:
+            opts = CLOUD_NODE_OPTIONS[c]
+            default = DEFAULT_NODE_TYPES[c][0]
+            print(f"{c}: {', '.join(opts)} (default: {default})")
+        return 0
+
+    allowed = CLOUD_NODE_OPTIONS.get(args.cloud, CLOUD_NODE_OPTIONS["AWS"])
+    if args.node_type_id and args.node_type_id not in allowed:
+        print(f"Error: --node-type-id '{args.node_type_id}' is not valid for cloud '{args.cloud}'.")
+        print(f"Allowed for {args.cloud}: {', '.join(allowed)}")
+        return 1
+    if args.driver_node_type_id and args.driver_node_type_id not in allowed:
+        print(f"Error: --driver-node-type-id '{args.driver_node_type_id}' is not valid for cloud '{args.cloud}'.")
+        print(f"Allowed for {args.cloud}: {', '.join(allowed)}")
+        return 1
+
     node_type_id = args.node_type_id or DEFAULT_NODE_TYPES[args.cloud][0]
     driver_node_type_id = args.driver_node_type_id or DEFAULT_NODE_TYPES[args.cloud][1]
 

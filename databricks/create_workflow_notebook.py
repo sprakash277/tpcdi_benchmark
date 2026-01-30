@@ -13,23 +13,38 @@
 # MAGIC %md
 # MAGIC ## Configuration
 # MAGIC
-# MAGIC **Cloud** sets default Worker/Driver node types when left blank:
-# MAGIC - **AWS**: `i3.xlarge` (4 vCPU, 30.5 GB, NVMe SSD)
-# MAGIC - **GCP**: use dropdown (n2d-standard-*, c2-standard-*, n2d-highmem-*); default `c2-standard-16` (16 vCPU, 64 GB, compute-optimized)
-# MAGIC - **Azure**: `Standard_E8s_v3` (8 vCPU, 64 GB, memory-optimized; recommended for TPC-DI)
+# MAGIC 1. Select **Cloud** first (AWS, GCP, or Azure).
+# MAGIC 2. **Re-run the next cell** to refresh Worker/Driver instance type dropdowns for that cloud (only types valid for the selected cloud are shown).
 
 # COMMAND ----------
 
-# GCP node type options: n2d-standard, n2d-highmem, c2-standard (default c2-standard-16)
-GCP_NODE_TYPE_OPTIONS = [
-    "c2-standard-4", "c2-standard-8", "c2-standard-16", "c2-standard-30",
-    "n2d-standard-4", "n2d-standard-8", "n2d-standard-16", "n2d-standard-32",
-    "n2d-standard-48", "n2d-standard-64", "n2d-standard-80", "n2d-standard-96",
-    "n2d-highmem-4", "n2d-highmem-8", "n2d-highmem-16", "n2d-highmem-32",
-    "n2d-highmem-48", "n2d-highmem-64", "n2d-highmem-80", "n2d-highmem-96",
-]
+# Instance type options per cloud (only these are valid for each cloud)
+CLOUD_NODE_OPTIONS = {
+    "AWS": [
+        "i3.xlarge", "i3.2xlarge", "i3.4xlarge",
+        "m5d.xlarge", "m5d.2xlarge", "m5d.4xlarge",
+        "r5d.xlarge", "r5d.2xlarge", "r5d.4xlarge",
+    ],
+    "GCP": [
+        "c2-standard-4", "c2-standard-8", "c2-standard-16", "c2-standard-30",
+        "n2d-standard-4", "n2d-standard-8", "n2d-standard-16", "n2d-standard-32",
+        "n2d-standard-48", "n2d-standard-64", "n2d-standard-80", "n2d-standard-96",
+        "n2d-highmem-4", "n2d-highmem-8", "n2d-highmem-16", "n2d-highmem-32",
+        "n2d-highmem-48", "n2d-highmem-64", "n2d-highmem-80", "n2d-highmem-96",
+    ],
+    "Azure": [
+        "Standard_E4s_v3", "Standard_E8s_v3", "Standard_E16s_v3", "Standard_E32s_v3",
+        "Standard_D4s_v3", "Standard_D8s_v3", "Standard_D16s_v3", "Standard_D32s_v3",
+        "Standard_L4s_v2", "Standard_L8s_v2", "Standard_L16s_v2", "Standard_L32s_v2",
+    ],
+}
+DEFAULT_NODE_TYPES = {
+    "AWS": ("i3.xlarge", "i3.xlarge"),
+    "GCP": ("c2-standard-16", "c2-standard-16"),
+    "Azure": ("Standard_E8s_v3", "Standard_E8s_v3"),
+}
 
-# Widgets for workflow creation
+# Widgets: job name, paths, Spark version, cloud, num workers
 dbutils.widgets.text("job_name", "TPC-DI-Benchmark", "Job Name")
 dbutils.widgets.text("data_gen_notebook", "generate_tpcdi_data_notebook", "Data Generation Notebook Path")
 dbutils.widgets.text("benchmark_notebook", "benchmark_databricks_notebook", "Benchmark Notebook Path")
@@ -48,43 +63,47 @@ dbutils.widgets.dropdown(
     ],
     "Cluster Spark Version (DBR)"
 )
-dbutils.widgets.dropdown("cloud", "AWS", ["AWS", "GCP", "Azure"], "Cloud (sets default Worker/Driver node types)")
-dbutils.widgets.text("node_type_id", "", "Worker Node Type (AWS/Azure: blank = cloud default)")
-dbutils.widgets.dropdown("gcp_node_type_id", "c2-standard-16", GCP_NODE_TYPE_OPTIONS, "GCP Worker Node Type (n2d/c2)")
-dbutils.widgets.text("driver_node_type_id", "", "Driver Node Type (AWS/Azure: blank = cloud default)")
-dbutils.widgets.dropdown("gcp_driver_node_type_id", "c2-standard-16", GCP_NODE_TYPE_OPTIONS, "GCP Driver Node Type (n2d/c2)")
+dbutils.widgets.dropdown("cloud", "AWS", ["AWS", "GCP", "Azure"], "Cloud (pick first; then re-run next cell for instance types)")
 dbutils.widgets.text("num_workers", "2", "Number of Workers")
 dbutils.widgets.text("existing_cluster_id", "", "Existing Cluster ID (optional)")
+
+# COMMAND ----------
+
+# Re-run this cell after changing Cloud to update Worker/Driver dropdowns to that cloud's instance types only
+cloud = dbutils.widgets.get("cloud")
+options = CLOUD_NODE_OPTIONS.get(cloud, CLOUD_NODE_OPTIONS["AWS"])
+default_worker = DEFAULT_NODE_TYPES.get(cloud, ("i3.xlarge", "i3.xlarge"))[0]
+default_driver = DEFAULT_NODE_TYPES.get(cloud, ("i3.xlarge", "i3.xlarge"))[1]
+# Ensure defaults are in the options list
+if default_worker not in options:
+    default_worker = options[0]
+if default_driver not in options:
+    default_driver = options[0]
+
+try:
+    dbutils.widgets.remove("node_type_id")
+except Exception:
+    pass
+try:
+    dbutils.widgets.remove("driver_node_type_id")
+except Exception:
+    pass
+dbutils.widgets.dropdown("node_type_id", default_worker, options, "Worker Node Type (" + cloud + ")")
+dbutils.widgets.dropdown("driver_node_type_id", default_driver, options, "Driver Node Type (" + cloud + ")")
+print(f"Instance type options updated for cloud: {cloud} ({len(options)} types)")
 
 # COMMAND ----------
 
 import json
 from pathlib import Path
 
-# Default instance types per cloud: (worker, driver)
-# AWS: i3.xlarge; GCP: c2-standard-16 or n2d-highmem-16; Azure: Standard_E8s_v3
-DEFAULT_NODE_TYPES = {
-    "AWS": ("i3.xlarge", "i3.xlarge"),           # or i3.2xlarge for SF 100+
-    "GCP": ("c2-standard-16", "c2-standard-16"), # or n2d-highmem-16, n2d-standard-16
-    "Azure": ("Standard_E8s_v3", "Standard_E8s_v3"),  # or Standard_D8s_v3
-}
-
 job_name = dbutils.widgets.get("job_name")
 data_gen_notebook = dbutils.widgets.get("data_gen_notebook")
 benchmark_notebook = dbutils.widgets.get("benchmark_notebook")
 spark_version = dbutils.widgets.get("spark_version")
 cloud = dbutils.widgets.get("cloud")
-_node_type_id = dbutils.widgets.get("node_type_id").strip()
-_driver_node_type_id = dbutils.widgets.get("driver_node_type_id").strip()
-gcp_node_type_id = dbutils.widgets.get("gcp_node_type_id")
-gcp_driver_node_type_id = dbutils.widgets.get("gcp_driver_node_type_id")
-
-if cloud == "GCP":
-    node_type_id = gcp_node_type_id
-    driver_node_type_id = gcp_driver_node_type_id
-else:
-    node_type_id = _node_type_id or DEFAULT_NODE_TYPES[cloud][0]
-    driver_node_type_id = _driver_node_type_id or DEFAULT_NODE_TYPES[cloud][1]
+node_type_id = dbutils.widgets.get("node_type_id")
+driver_node_type_id = dbutils.widgets.get("driver_node_type_id")
 num_workers = int(dbutils.widgets.get("num_workers"))
 existing_cluster_id = dbutils.widgets.get("existing_cluster_id").strip()
 

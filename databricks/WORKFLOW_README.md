@@ -20,9 +20,10 @@ All parameters are configurable via workflow parameters, allowing you to run the
    - **Data Generation Notebook**: Path to `generate_tpcdi_data_notebook` (same dir; default)
    - **Benchmark Notebook**: Path to `benchmark_databricks_notebook` (same dir; default)
    - **Cluster Spark Version (DBR)**: Dropdown (13.3.x–16.4.x, standard and Photon)
-   - **Node types**, **Number of workers**
-   - **Existing Cluster ID**: (Optional) Use existing cluster instead of creating new
-3. Run all cells
+   - **Cloud**: Choose **AWS**, **GCP**, or **Azure** first. Then **re-run the next cell** so the Worker/Driver dropdowns show only instance types valid for that cloud.
+   - **Worker Node Type** / **Driver Node Type**: Dropdowns are populated from the selected cloud (e.g. GCP shows only n2d/c2 types; AWS shows i3/m5d/r5d; Azure shows Standard_E/D/L).
+   - **Number of workers**, **Existing Cluster ID** (optional)
+3. Run all cells (after changing Cloud, re-run the instance-type cell to refresh the dropdowns)
 4. The workflow will be created and you'll get a job ID
 
 ### Option 2: Using Python Script
@@ -43,7 +44,13 @@ python databricks/create_databricks_workflow.py \
   --output-json workflow.json
 ```
 
-Run from project root. Use `--workspace-path` as the Databricks path to the `databricks/` folder (e.g. `/Workspace/Repos/<org>/<repo>/databricks`).
+Run from project root. Instance types are restricted by `--cloud`: use `--cloud GCP` and `--node-type-id`/`--driver-node-type-id` only from the allowed list for that cloud. Use `--list-node-types` to print allowed types per cloud:
+
+```bash
+python databricks/create_databricks_workflow.py --list-node-types
+```
+
+Use `--workspace-path` as the Databricks path to the `databricks/` folder (e.g. `/Workspace/Repos/<org>/<repo>/databricks`).
 
 Or create directly via API:
 ```bash

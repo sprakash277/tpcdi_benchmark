@@ -216,7 +216,9 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
                     bronze_row_counts[table] = platform.get_table_count(table_name)
                 except Exception as e:
                     logger.warning(f"Could not get metrics for {table}: {e}")
-            metrics.finish_step(rows=sum(bronze_row_counts.values()), 
+            bronze_bytes = getattr(platform, "get_raw_input_size_bytes", lambda bid: 0)(1)
+            metrics.finish_step(rows=sum(bronze_row_counts.values()),
+                               bytes=bronze_bytes if bronze_bytes else None,
                                metadata={"table_counts": bronze_row_counts})
             
             metrics.start_step("silver_etl")
@@ -266,7 +268,8 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             from benchmark.etl.bronze import BronzeETL
             bronze_etl = BronzeETL(platform)
             bronze_etl.run_bronze_batch_load(config.batch_id, db_or_catalog, effective_schema)
-            metrics.finish_step()
+            inc_batch_bytes = getattr(platform, "get_raw_input_size_bytes", lambda bid: 0)(config.batch_id)
+            metrics.finish_step(bytes=inc_batch_bytes if inc_batch_bytes else None)
             
             metrics.start_step(f"silver_incremental_batch{config.batch_id}")
             from benchmark.etl.silver import SilverETL
