@@ -97,6 +97,9 @@ logging.getLogger('benchmark').setLevel(logging.DEBUG)
 logging.getLogger('benchmark.runner').setLevel(logging.DEBUG)
 logging.getLogger('benchmark.platforms').setLevel(logging.DEBUG)
 logging.getLogger('benchmark.platforms.databricks').setLevel(logging.DEBUG)
+# Suppress py4j (PySpark JVM bridge) DEBUG/INFO logs
+logging.getLogger('py4j').setLevel(logging.WARNING)
+logging.getLogger('py4j.clientserver').setLevel(logging.WARNING)
 
 # Get parameters (from widgets or workflow parameters)
 # Workflow parameters override widget defaults

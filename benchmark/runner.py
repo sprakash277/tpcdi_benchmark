@@ -25,6 +25,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Suppress py4j (PySpark JVM bridge) DEBUG/INFO logs
+logging.getLogger("py4j").setLevel(logging.WARNING)
+logging.getLogger("py4j.clientserver").setLevel(logging.WARNING)
+
 
 def create_spark_session(config: BenchmarkConfig) -> SparkSession:
     """
