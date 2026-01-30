@@ -24,6 +24,8 @@ if __name__ == "__main__":
                        help="TPC-DI scale factor (e.g., 10, 100, 1000)")
     parser.add_argument("--output-path", default="dbfs:/mnt/tpcdi",
                        help="Raw data location: DBFS or Volume base path (default: dbfs:/mnt/tpcdi)")
+    parser.add_argument("--cloud", choices=["AWS", "GCP", "Azure"],
+                       help="Cloud provider (for informational purposes)")
     parser.add_argument("--target-database", default="tpcdi_warehouse",
                        help="Target database name (default: tpcdi_warehouse)")
     parser.add_argument("--target-schema", default="dw",
@@ -38,6 +40,16 @@ if __name__ == "__main__":
                        help="Log per-table timing and records; default is only job start/end/total duration")
     
     args = parser.parse_args()
+    
+    # Recommended instance types per cloud for TPC-DI ETL workload
+    DEFAULT_NODE_TYPES = {
+        "AWS": ("i3.xlarge", "i3.xlarge"),           # or i3.2xlarge for SF 100+
+        "GCP": ("c2-standard-16", "c2-standard-16"), # or n2d-highmem-16, n2d-standard-16
+        "Azure": ("Standard_E8s_v3", "Standard_E8s_v3"),  # or Standard_D8s_v3
+    }
+    
+    if args.cloud:
+        print(f"Cloud: {args.cloud} | Recommended: Worker/Driver = {DEFAULT_NODE_TYPES[args.cloud][0]}")
     
     # output_path = raw data base; runner appends /sf={scale_factor}
     config = BenchmarkConfig(

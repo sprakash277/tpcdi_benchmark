@@ -14,17 +14,19 @@
 # MAGIC ## Configuration
 # MAGIC
 # MAGIC **Cloud** sets default Worker/Driver node types when left blank:
-# MAGIC - **AWS**: `i3.xlarge`
-# MAGIC - **GCP**: use dropdown (n2d-standard-* and c2-standard-*); default `n2d-standard-16`
-# MAGIC - **Azure**: `Standard_DS4_v2` (8 vCPU, 28 GB; recommended for Spark)
+# MAGIC - **AWS**: `i3.xlarge` (4 vCPU, 30.5 GB, NVMe SSD)
+# MAGIC - **GCP**: use dropdown (n2d-standard-*, c2-standard-*, n2d-highmem-*); default `c2-standard-16` (16 vCPU, 64 GB, compute-optimized)
+# MAGIC - **Azure**: `Standard_E8s_v3` (8 vCPU, 64 GB, memory-optimized; recommended for TPC-DI)
 
 # COMMAND ----------
 
-# GCP node type options: all n2d-standard-* and c2-standard-* (default n2d-standard-16)
+# GCP node type options: n2d-standard, n2d-highmem, c2-standard (default c2-standard-16)
 GCP_NODE_TYPE_OPTIONS = [
+    "c2-standard-4", "c2-standard-8", "c2-standard-16", "c2-standard-30",
     "n2d-standard-4", "n2d-standard-8", "n2d-standard-16", "n2d-standard-32",
     "n2d-standard-48", "n2d-standard-64", "n2d-standard-80", "n2d-standard-96",
-    "c2-standard-4", "c2-standard-8", "c2-standard-16", "c2-standard-30",
+    "n2d-highmem-4", "n2d-highmem-8", "n2d-highmem-16", "n2d-highmem-32",
+    "n2d-highmem-48", "n2d-highmem-64", "n2d-highmem-80", "n2d-highmem-96",
 ]
 
 # Widgets for workflow creation
@@ -48,9 +50,9 @@ dbutils.widgets.dropdown(
 )
 dbutils.widgets.dropdown("cloud", "AWS", ["AWS", "GCP", "Azure"], "Cloud (sets default Worker/Driver node types)")
 dbutils.widgets.text("node_type_id", "", "Worker Node Type (AWS/Azure: blank = cloud default)")
-dbutils.widgets.dropdown("gcp_node_type_id", "n2d-standard-16", GCP_NODE_TYPE_OPTIONS, "GCP Worker Node Type (n2d/c2)")
+dbutils.widgets.dropdown("gcp_node_type_id", "c2-standard-16", GCP_NODE_TYPE_OPTIONS, "GCP Worker Node Type (n2d/c2)")
 dbutils.widgets.text("driver_node_type_id", "", "Driver Node Type (AWS/Azure: blank = cloud default)")
-dbutils.widgets.dropdown("gcp_driver_node_type_id", "n2d-standard-16", GCP_NODE_TYPE_OPTIONS, "GCP Driver Node Type (n2d/c2)")
+dbutils.widgets.dropdown("gcp_driver_node_type_id", "c2-standard-16", GCP_NODE_TYPE_OPTIONS, "GCP Driver Node Type (n2d/c2)")
 dbutils.widgets.text("num_workers", "2", "Number of Workers")
 dbutils.widgets.text("existing_cluster_id", "", "Existing Cluster ID (optional)")
 
@@ -60,11 +62,11 @@ import json
 from pathlib import Path
 
 # Default instance types per cloud: (worker, driver)
-# AWS: i3.xlarge; GCP: from dropdown (default n2d-standard-16); Azure: Standard_DS4_v2
+# AWS: i3.xlarge; GCP: c2-standard-16 or n2d-highmem-16; Azure: Standard_E8s_v3
 DEFAULT_NODE_TYPES = {
-    "AWS": ("i3.xlarge", "i3.xlarge"),
-    "GCP": ("n2d-standard-16", "n2d-standard-16"),  # from GCP dropdown; default n2d-standard-16
-    "Azure": ("Standard_DS4_v2", "Standard_DS4_v2"),
+    "AWS": ("i3.xlarge", "i3.xlarge"),           # or i3.2xlarge for SF 100+
+    "GCP": ("c2-standard-16", "c2-standard-16"), # or n2d-highmem-16, n2d-standard-16
+    "Azure": ("Standard_E8s_v3", "Standard_E8s_v3"),  # or Standard_D8s_v3
 }
 
 job_name = dbutils.widgets.get("job_name")

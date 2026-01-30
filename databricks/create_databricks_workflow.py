@@ -273,7 +273,7 @@ def main():
     parser.add_argument("--cloud", default="AWS", choices=["AWS", "GCP", "Azure"],
                        help="Cloud (sets default worker/driver node type if --node-type-id not set)")
     parser.add_argument("--node-type-id", default=None,
-                       help="Worker node type (default: AWS i3.xlarge, GCP n2d-standard-16, Azure Standard_DS4_v2; GCP: n2d-standard-* or c2-standard-*)")
+                       help="Worker node type (default: AWS i3.xlarge, GCP c2-standard-16, Azure Standard_E8s_v3; GCP: n2d-standard-*, c2-standard-*, n2d-highmem-*)")
     parser.add_argument("--driver-node-type-id", default=None,
                        help="Driver node type (default: same as worker for selected cloud)")
     parser.add_argument("--num-workers", type=int, default=2,
@@ -292,11 +292,11 @@ def main():
     args = parser.parse_args()
 
     # Default instance types per cloud: (worker, driver)
-    # AWS: i3.xlarge; GCP: n2d-standard-16 (all n2d-standard-* and c2-standard-* available); Azure: Standard_DS4_v2
+    # AWS: i3.xlarge; GCP: c2-standard-16 or n2d-highmem-16; Azure: Standard_E8s_v3
     DEFAULT_NODE_TYPES = {
-        "AWS": ("i3.xlarge", "i3.xlarge"),
-        "GCP": ("n2d-standard-16", "n2d-standard-16"),
-        "Azure": ("Standard_DS4_v2", "Standard_DS4_v2"),
+        "AWS": ("i3.xlarge", "i3.xlarge"),           # or i3.2xlarge for SF 100+
+        "GCP": ("c2-standard-16", "c2-standard-16"), # or n2d-highmem-16, n2d-standard-16
+        "Azure": ("Standard_E8s_v3", "Standard_E8s_v3"),  # or Standard_D8s_v3
     }
     node_type_id = args.node_type_id or DEFAULT_NODE_TYPES[args.cloud][0]
     driver_node_type_id = args.driver_node_type_id or DEFAULT_NODE_TYPES[args.cloud][1]
