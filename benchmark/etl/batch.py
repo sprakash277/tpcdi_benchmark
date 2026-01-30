@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, when, trim, upper, regexp_replace, lit, current_timestamp, split, element_at, size, explode
 from pyspark.sql.types import StringType, StructType, StructField
-from pyspark.sql.functions import udf
 
 if TYPE_CHECKING:
     from benchmark.platforms.databricks import DatabricksPlatform
