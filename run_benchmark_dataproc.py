@@ -122,18 +122,40 @@ if __name__ == "__main__":
     )
     
     result = run_benchmark(config)
-    
-    print("\n" + "="*80)
-    print("BENCHMARK RESULTS")
-    print("="*80)
+
+    # Same summary format as Databricks (benchmark_databricks_notebook.py)
+    print("\n" + "=" * 80)
+    print("TPC-DI BENCHMARK RESULTS - DATAPROC")
+    print("=" * 80)
     print(f"Platform: {result['config']['platform']}")
     print(f"Load Type: {result['config']['load_type']}")
     print(f"Scale Factor: {result['config']['scale_factor']}")
-    if result['config']['batch_id']:
+    if result['config'].get('batch_id'):
         print(f"Batch ID: {result['config']['batch_id']}")
-    print(f"\nTotal Duration: {result['metrics']['total_duration_seconds']:.2f} seconds")
-    if result['metrics']['summary']:
-        print(f"Total Rows Processed: {result['metrics']['summary']['total_rows_processed']:,}")
-        print(f"Throughput: {result['metrics']['summary']['throughput_rows_per_second']:.2f} rows/sec")
-        print(f"Data Size: {result['metrics']['summary']['total_bytes_processed'] / (1024*1024):.2f} MB")
-    print("="*80)
+    total_dur = result['metrics'].get('total_duration_seconds')
+    print(f"\nTotal Duration: {total_dur:.2f} seconds" if total_dur is not None else "\nTotal Duration: N/A")
+    summary = result['metrics'].get('summary')
+    if summary:
+        print("\nSummary:")
+        print(f"  Total Steps: {summary.get('total_steps', 0)}")
+        print(f"  Completed Steps: {summary.get('completed_steps', 0)}")
+        print(f"  Failed Steps: {summary.get('failed_steps', 0)}")
+        print(f"  Total Rows Processed: {summary.get('total_rows_processed', 0):,}")
+        total_bytes = summary.get('total_bytes_processed') or 0
+        print(f"  Total Data Size: {total_bytes / (1024 * 1024):.2f} MB")
+        print(f"  Throughput: {summary.get('throughput_rows_per_second', 0):.2f} rows/sec")
+        print(f"  Data Throughput: {summary.get('throughput_mb_per_second', 0):.2f} MB/sec")
+
+    print("\nStep Details:")
+    for step in result['metrics'].get('steps', []):
+        status_icon = "✓" if step.get('status') == "completed" else "✗" if step.get('status') == "failed" else "○"
+        dur = step.get('duration_seconds')
+        dur_str = f"{dur:.2f}s" if dur is not None else "N/A"
+        print(f"  {status_icon} {step.get('step_name', '?')}: {dur_str}", end="")
+        if step.get('rows_processed') is not None:
+            print(f" ({step['rows_processed']:,} rows)", end="")
+        if step.get('status') == "failed" and step.get('error_message'):
+            print(f" - ERROR: {step['error_message']}", end="")
+        print()
+
+    print("=" * 80)

@@ -6,13 +6,149 @@ This guide describes how to run the benchmark on **Dataproc**: prerequisites, al
 
 ## Prerequisites
 
-1. **Dataproc cluster** with GCS connector installed.
+1. **Dataproc cluster** with GCS connector installed. To create a custom VPC, subnet (with Private Google Access), internal firewall, and a cluster in that subnet, see **§0. Infrastructure: VPC, Subnet, Firewall, and Cluster**.
 2. **TPC-DI raw data** must already exist in GCS. `run_benchmark_dataproc.py` does **not** generate data. Generate separately (e.g. TPC-DI DIGen, then upload to GCS).
 3. Data path: `gs://<bucket>/tpcdi/sf=<scale_factor>/` (or your `--raw-data-path`).
 4. GCP **project ID** and **region**.
 5. **Metastore (optional):** Without a [Dataproc Metastore](https://cloud.google.com/dataproc-metastore/docs), Spark uses the default metastore. The benchmark sets the warehouse to GCS (`gs://<bucket>/spark-warehouse`) and uses two-part table names (`database.table`) and Parquet by default. See **../docs/DATAPROC_METASTORE.md**.
 
-**How this guide is structured:** §1 lists all parameters (gcloud + script). §2 explains which are mandatory vs optional. §3 describes what each parameter means. §4–§5 cover setup and run commands (batch, incremental, `--log-detailed-stats`). §6 explains running with a service account. §7 gives a full example with SA. The end section covers Dataproc-specific troubleshooting.
+**How this guide is structured:** §0 documents optional infrastructure (VPC, subnet, firewall, cluster). §1 lists all parameters (gcloud + script). §2 explains which are mandatory vs optional. §3 describes what each parameter means. §4–§5 cover setup and run commands. §6 explains running with a service account. §7 gives a full example with SA. The end section covers Dataproc-specific troubleshooting.
+
+---
+
+## 0. Infrastructure: VPC, Subnet, Firewall, and Cluster (optional)
+
+If you want a **dedicated network** for TPC-DI (e.g. a private-style cluster with `--no-address`), create a custom VPC, a subnet with **Private Google Access**, an internal firewall, then create the Dataproc cluster in that subnet. Run these in order.
+
+**Variables** — set these or substitute in the commands below:
+
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `PROJECT_ID` | `gcp-sandbox-field-eng` | GCP project ID |
+| `REGION` | `us-central1` | GCP region for subnet and cluster |
+| `ZONE` | `us-central1-b` | GCP zone for cluster (e.g. `REGION-a` or `REGION-b`) |
+| `VPC_NAME` | `tpcdi-vpc` | Custom VPC name |
+| `SUBNET_NAME` | `tpcdi-subnet` | Subnet name |
+| `SUBNET_RANGE` | `10.10.0.0/24` | CIDR for the subnet |
+| `FIREWALL_RULE_NAME` | `allow-tpcdi-internal` | Firewall rule name (internal traffic) |
+| `CLUSTER_NAME` | `tpcdi-benchmark` | Dataproc cluster name |
+
+### Step 1: Create the custom VPC
+
+```bash
+gcloud compute networks create "${VPC_NAME}" \
+  --project="${PROJECT_ID}" \
+  --subnet-mode=custom \
+  --bgp-routing-mode=regional
+```
+
+- `--subnet-mode=custom`: you create subnets manually (required for a single regional subnet).
+- `--bgp-routing-mode=regional`: recommended for regional subnets.
+
+### Step 2: Create the subnet with Private Google Access
+
+**Private Google Access** is required when using `--no-address` on the cluster so that nodes can reach Google APIs (e.g. GCS, BigQuery) without public IPs.
+
+```bash
+gcloud compute networks subnets create "${SUBNET_NAME}" \
+  --project="${PROJECT_ID}" \
+  --network="${VPC_NAME}" \
+  --region="${REGION}" \
+  --range="${SUBNET_RANGE}" \
+  --enable-private-ip-google-access
+```
+
+- `--range`: CIDR for the subnet (e.g. `10.10.0.0/24`).
+- `--enable-private-ip-google-access`: allows private IPs in this subnet to reach Google APIs via Private Google Access.
+
+### Step 3: Create the internal firewall rule
+
+Allow traffic between nodes in the subnet (required for Spark/YARN and cluster communication).
+
+```bash
+gcloud compute firewall-rules create "${FIREWALL_RULE_NAME}" \
+  --project="${PROJECT_ID}" \
+  --network="${VPC_NAME}" \
+  --action=ALLOW \
+  --direction=INGRESS \
+  --rules=tcp:0-65535,udp:0-65535,icmp \
+  --source-ranges="${SUBNET_RANGE}"
+```
+
+- `--source-ranges`: restrict to your subnet so only internal traffic is allowed.
+
+### Step 4: Create the Dataproc cluster in the subnet
+
+Create the cluster in the new subnet. Use `--no-address` so worker/driver nodes do not get external IPs (they use Private Google Access for GCS etc.).
+
+```bash
+gcloud dataproc clusters create "${CLUSTER_NAME}" \
+  --project="${PROJECT_ID}" \
+  --region="${REGION}" \
+  --zone="${ZONE}" \
+  --image-version=2.3-debian12 \
+  --master-machine-type=n4-standard-16 \
+  --master-boot-disk-type=hyperdisk-balanced \
+  --master-boot-disk-size=100 \
+  --num-workers=2 \
+  --worker-machine-type=n4-standard-16 \
+  --worker-boot-disk-type=hyperdisk-balanced \
+  --worker-boot-disk-size=200 \
+  --subnet="${SUBNET_NAME}" \
+  --no-address \
+  --optional-components=DELTA \
+  --enable-component-gateway \
+  --scopes=cloud-platform
+```
+
+| Option | Purpose |
+|--------|--------|
+| `--subnet` | Subnet name (must be in `REGION` and belong to your VPC). |
+| `--no-address` | No external IPs; requires Private Google Access on the subnet. |
+| `--optional-components=DELTA` | Install Delta Lake (omit if you use `--format parquet` only). |
+| `--enable-component-gateway` | Web UIs accessible via secure gateway. |
+| `--scopes=cloud-platform` | Full cloud scope for GCS and other APIs. |
+
+Adjust `--master-machine-type`, `--worker-machine-type`, `--num-workers`, and disk sizes as needed. Then run the benchmark with `--cluster=${CLUSTER_NAME}` as in §5 and §7.
+
+**One-shot example** (replace placeholders):
+
+```bash
+export PROJECT_ID=gcp-sandbox-field-eng
+export REGION=us-central1
+export ZONE=us-central1-b
+export VPC_NAME=sumit-tpcdi-vpc
+export SUBNET_NAME=sumit-tpcdi-subnet
+export SUBNET_RANGE=10.10.0.0/24
+export FIREWALL_RULE_NAME=allow-tpcdi-internal
+export CLUSTER_NAME=sumitbnchmark4
+
+# 1. VPC
+gcloud compute networks create "${VPC_NAME}" \
+  --project="${PROJECT_ID}" --subnet-mode=custom --bgp-routing-mode=regional
+
+# 2. Subnet (Private Google Access)
+gcloud compute networks subnets create "${SUBNET_NAME}" \
+  --project="${PROJECT_ID}" --network="${VPC_NAME}" --region="${REGION}" \
+  --range="${SUBNET_RANGE}" --enable-private-ip-google-access
+
+# 3. Internal firewall
+gcloud compute firewall-rules create "${FIREWALL_RULE_NAME}" \
+  --project="${PROJECT_ID}" --network="${VPC_NAME}" \
+  --action=ALLOW --direction=INGRESS \
+  --rules=tcp:0-65535,udp:0-65535,icmp --source-ranges="${SUBNET_RANGE}"
+
+# 4. Cluster
+gcloud dataproc clusters create "${CLUSTER_NAME}" \
+  --project="${PROJECT_ID}" --region="${REGION}" --zone="${ZONE}" \
+  --image-version=2.3-debian12 \
+  --master-machine-type=n4-standard-16 --master-boot-disk-type=hyperdisk-balanced --master-boot-disk-size=100 \
+  --num-workers=2 --worker-machine-type=n4-standard-16 --worker-boot-disk-type=hyperdisk-balanced --worker-boot-disk-size=200 \
+  --subnet="${SUBNET_NAME}" --no-address \
+  --optional-components=DELTA --enable-component-gateway --scopes=cloud-platform
+```
+
+A script that runs these steps with the same variables is in **dataproc/create_dataproc_infra.sh** (see script header for usage).
 
 ---
 
@@ -109,7 +245,7 @@ If omitted, these use the defaults in §1:
 | `--save-metrics` | Save metrics JSON to GCS (default). |
 | `--no-save-metrics` | Do not save metrics; results still printed to stdout. |
 | `--metrics-output` | GCS directory for metrics JSON. Default `gs://<gcs-bucket>/tpcdi/metrics`. |
-| `--log-detailed-stats` | Log per-table timing and row counts; otherwise job-level summary only. |
+| `--log-detailed-stats` | Log per-table timing and row counts; otherwise job-level summary only. Same detailed stats as Databricks (per-table start/end, duration, rows; final [JOB SUMMARY] with tables and time spent). Output appears in the job driver logs (e.g. Cloud Console job output or `gcloud dataproc jobs wait <job-id>`). |
 | `--format` | **parquet** (default) or **delta**. With `--format delta`, the benchmark adds the Delta package. |
 
 ---
