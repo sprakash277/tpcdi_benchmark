@@ -8,8 +8,7 @@ import logging
 import time
 from datetime import datetime
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, trim, substring
-from pyspark.sql.types import LongType
+from pyspark.sql.functions import col, trim, substring, expr
 
 from benchmark.etl.silver.base import SilverLoaderBase, _get_table_size_bytes
 from benchmark.etl.table_timing import end_table as table_timing_end, is_detailed as table_timing_is_detailed
@@ -83,10 +82,10 @@ class SilverCompanies(SilverLoaderBase):
             col("_load_timestamp").alias("load_timestamp"),
         )
         
-        # Add surrogate key based on CIK
+        # Add surrogate key based on CIK (try_cast tolerates malformed input)
         silver_df = silver_df.withColumn(
-            "sk_company_id", 
-            col("cik").cast(LongType())
+            "sk_company_id",
+            expr("try_cast(cik AS BIGINT)")
         )
         
         # Log timing (detailed only when log_detailed_stats is True)

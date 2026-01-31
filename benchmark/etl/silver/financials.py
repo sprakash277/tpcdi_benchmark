@@ -8,8 +8,7 @@ import logging
 import time
 from datetime import datetime
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, trim, substring
-from pyspark.sql.types import IntegerType, LongType, DoubleType
+from pyspark.sql.functions import col, trim, substring, expr
 
 from benchmark.etl.silver.base import SilverLoaderBase, _get_table_size_bytes
 from benchmark.etl.table_timing import end_table as table_timing_end, is_detailed as table_timing_is_detailed
@@ -65,20 +64,20 @@ class SilverFinancials(SilverLoaderBase):
         
         silver_df = fin_df.select(
             trim(substring(col("raw_line"), 1, 15)).alias("pts"),
-            trim(substring(col("raw_line"), 19, 4)).cast(IntegerType()).alias("year"),
-            trim(substring(col("raw_line"), 23, 1)).cast(IntegerType()).alias("quarter"),
+            expr("try_cast(trim(substring(raw_line, 19, 4)) AS INT)").alias("year"),
+            expr("try_cast(trim(substring(raw_line, 23, 1)) AS INT)").alias("quarter"),
             trim(substring(col("raw_line"), 24, 10)).alias("qtr_start_date"),
             trim(substring(col("raw_line"), 34, 17)).alias("posting_date"),
-            trim(substring(col("raw_line"), 51, 17)).cast(DoubleType()).alias("revenue"),
-            trim(substring(col("raw_line"), 68, 17)).cast(DoubleType()).alias("earnings"),
-            trim(substring(col("raw_line"), 85, 17)).cast(DoubleType()).alias("eps"),
-            trim(substring(col("raw_line"), 102, 17)).cast(DoubleType()).alias("diluted_eps"),
-            trim(substring(col("raw_line"), 119, 17)).cast(DoubleType()).alias("margin"),
-            trim(substring(col("raw_line"), 136, 17)).cast(DoubleType()).alias("inventory"),
-            trim(substring(col("raw_line"), 153, 17)).cast(DoubleType()).alias("assets"),
-            trim(substring(col("raw_line"), 170, 17)).cast(DoubleType()).alias("liabilities"),
-            trim(substring(col("raw_line"), 187, 17)).cast(LongType()).alias("sh_out"),
-            trim(substring(col("raw_line"), 204, 10)).cast(LongType()).alias("diluted_sh_out"),
+            expr("try_cast(trim(substring(raw_line, 51, 17)) AS DOUBLE)").alias("revenue"),
+            expr("try_cast(trim(substring(raw_line, 68, 17)) AS DOUBLE)").alias("earnings"),
+            expr("try_cast(trim(substring(raw_line, 85, 17)) AS DOUBLE)").alias("eps"),
+            expr("try_cast(trim(substring(raw_line, 102, 17)) AS DOUBLE)").alias("diluted_eps"),
+            expr("try_cast(trim(substring(raw_line, 119, 17)) AS DOUBLE)").alias("margin"),
+            expr("try_cast(trim(substring(raw_line, 136, 17)) AS DOUBLE)").alias("inventory"),
+            expr("try_cast(trim(substring(raw_line, 153, 17)) AS DOUBLE)").alias("assets"),
+            expr("try_cast(trim(substring(raw_line, 170, 17)) AS DOUBLE)").alias("liabilities"),
+            expr("try_cast(trim(substring(raw_line, 187, 17)) AS BIGINT)").alias("sh_out"),
+            expr("try_cast(trim(substring(raw_line, 204, 10)) AS BIGINT)").alias("diluted_sh_out"),
             trim(substring(col("raw_line"), 214, 60)).alias("co_name_or_cik"),
             col("_batch_id").alias("batch_id"),
             col("_load_timestamp").alias("load_timestamp"),

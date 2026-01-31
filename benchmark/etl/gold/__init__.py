@@ -91,7 +91,7 @@ class GoldETL:
         self.fact_holdings = GoldFactHoldings(platform)
         
         logger.info("Initialized GoldETL orchestrator")
-    
+
     def run_gold_load(self, target_database: str, target_schema: str):
         """
         Run full Gold layer load.
@@ -133,7 +133,7 @@ class GoldETL:
             f"{prefix}.silver_companies",
             f"{prefix}.gold_dim_company"
         )
-        
+
         table_timing_start(f"{prefix}.gold_dim_security")
         self.dim_security.load(
             f"{prefix}.silver_securities",
@@ -173,7 +173,7 @@ class GoldETL:
             dim_date_table=f"{prefix}.gold_dim_date",
             dim_trade_type_table=f"{prefix}.gold_dim_trade_type",
         )
-        
+
         table_timing_start(f"{prefix}.gold_fact_market_history")
         self.fact_market_history.load(
             f"{prefix}.silver_daily_market",

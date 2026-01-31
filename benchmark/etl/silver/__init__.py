@@ -107,16 +107,22 @@ class SilverETL:
             table_timing_start(f"{prefix}.silver_industry")
             self.industry.load(f"{prefix}.bronze_industry", f"{prefix}.silver_industry")
             
-            # FINWIRE parsing (Batch1 only)
+            # FINWIRE parsing (Batch1 only) - each loader in its own try so one failure doesn't block others
             try:
                 table_timing_start(f"{prefix}.silver_companies")
                 self.companies.load(f"{prefix}.bronze_finwire", f"{prefix}.silver_companies")
+            except Exception as e:
+                logger.warning(f"silver_companies skipped: {e}")
+            try:
                 table_timing_start(f"{prefix}.silver_securities")
                 self.securities.load(f"{prefix}.bronze_finwire", f"{prefix}.silver_securities")
+            except Exception as e:
+                logger.warning(f"silver_securities skipped: {e}")
+            try:
                 table_timing_start(f"{prefix}.silver_financials")
                 self.financials.load(f"{prefix}.bronze_finwire", f"{prefix}.silver_financials")
             except Exception as e:
-                logger.warning(f"FINWIRE parsing skipped: {e}")
+                logger.warning(f"silver_financials skipped: {e}")
         
         # Customer and Account data: Different sources for Batch 1 vs Batch 2+
         # Batch 1: bronze_customer_mgmt (XML)
