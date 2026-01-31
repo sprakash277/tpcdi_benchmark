@@ -12,7 +12,7 @@ TPC-DI Format Differences:
 import logging
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
-    col, lit, when, to_date, to_timestamp, explode, current_timestamp, coalesce, trim
+    col, lit, when, to_date, to_timestamp, explode, current_timestamp, coalesce, trim, expr
 )
 from pyspark.sql.types import LongType, IntegerType, TimestampType
 
@@ -263,10 +263,10 @@ class SilverCustomers(SilverLoaderBase):
             batch_id: Batch number
             has_record_type: Whether record_type (I/U/D) exists (incremental); used for SCD2
         """
-        # Build select list conditionally
+        # Build select list conditionally (try_cast tolerates '' -> NULL for malformed input)
         select_cols = [
-            col("c_id").cast(LongType()).alias("sk_customer_id"),
-            col("c_id").cast(LongType()).alias("customer_id"),
+            expr("try_cast(c_id AS BIGINT)").alias("sk_customer_id"),
+            expr("try_cast(c_id AS BIGINT)").alias("customer_id"),
             col("c_tax_id").alias("tax_id"),
         ]
         
@@ -283,7 +283,7 @@ class SilverCustomers(SilverLoaderBase):
             when(col("c_gndr").isin("M", "m"), "Male")
                 .when(col("c_gndr").isin("F", "f"), "Female")
                 .otherwise("Unknown").alias("gender"),
-            col("c_tier").cast(IntegerType()).alias("tier"),
+            expr("try_cast(c_tier AS INT)").alias("tier"),
             to_date(col("c_dob"), "yyyy-MM-dd").alias("dob"),
             col("c_adline1").alias("address_line1"),
             col("c_adline2").alias("address_line2"),
