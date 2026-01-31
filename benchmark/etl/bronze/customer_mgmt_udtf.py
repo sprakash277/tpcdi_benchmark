@@ -105,6 +105,11 @@ def read_customer_mgmt_with_udtf(
 
     # 4) Create or replace Unity Catalog (UC) Python UDTF in the passed catalog and schema.
     # LATERAL VIEW must use unqualified name (qualified names unsupported); we set USE CATALOG/SCHEMA before calling.
+    # Save and restore session catalog/schema so we don't affect downstream ETL (e.g. silver_industry).
+    will_change_context = bool(catalog and schema) or bool(schema)
+    saved_catalog = spark.sql("SELECT current_catalog()").first()[0] if will_change_context else None
+    saved_schema = spark.sql("SELECT current_schema()").first()[0] if will_change_context else None
+
     udtf_name = "parse_customer_mgmt_chunk"
     if not catalog or not schema:
         # Fallback: session-scoped registration when catalog/schema not provided
@@ -171,13 +176,21 @@ class ParseCustomerMgmtChunk:
             spark.sql(f"USE CATALOG `{catalog}`")
             spark.sql(f"USE SCHEMA `{schema}`")
 
-    # 5) LATERAL VIEW: each chunk row produces multiple (action_ordinal, action_xml) rows.
+    # 5) LATERAL join: each chunk row produces multiple (action_ordinal, action_xml) rows.
+    # Use LATERAL tvf(args) AS alias (modern syntax); LATERAL VIEW can cause NOT_A_SCALAR_FUNCTION for UC UDTFs.
     lateral_sql = f"""
         SELECT c.chunk_id, p.action_ordinal, p.action_xml
-        FROM _customer_mgmt_chunks c
-        LATERAL VIEW {udtf_name}(c.chunk_id, c.chunk_content) p AS action_ordinal, action_xml
+        FROM _customer_mgmt_chunks c, LATERAL {udtf_name}(c.chunk_id, c.chunk_content) AS p
     """
     parsed_rows = spark.sql(lateral_sql)
+
+    # Restore session catalog/schema so downstream ETL (silver, etc.) is unaffected
+    if saved_catalog is not None and saved_schema is not None:
+        try:
+            spark.sql(f"USE CATALOG `{saved_catalog}`")
+            spark.sql(f"USE SCHEMA `{saved_schema}`")
+        except Exception as e:
+            logger.warning(f"Could not restore catalog/schema: {e}")
 
     # 6) Parse action_xml into struct using from_xml (Spark 4.0+ / DBR 14.3+ with spark-xml)
     try:
