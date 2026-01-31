@@ -26,7 +26,7 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
         self,
         batch_id: int,
         target_table: str,
-        use_udtf: bool = True,
+        use_udtf: bool = False,
         udtf_num_chunks: int = 64,
     ) -> DataFrame:
         """
