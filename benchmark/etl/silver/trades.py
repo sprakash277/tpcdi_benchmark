@@ -7,7 +7,7 @@ Implements UPSERT/MERGE for CDC (Change Data Capture) on incremental loads.
 
 import logging
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, lit, when, to_timestamp, coalesce
+from pyspark.sql.functions import col, lit, when, to_timestamp, coalesce, expr
 from pyspark.sql.types import LongType, IntegerType, DoubleType
 
 from benchmark.etl.silver.base import SilverLoaderBase
@@ -106,8 +106,18 @@ class SilverTrades(SilverLoaderBase):
                 elif alias_name == "is_cash":
                     select_cols.append(when(col(f"_c{col_idx}") == "1", lit(True)).otherwise(lit(False)).alias(alias_name))
                 elif cast_type:
-                    default_val = "0" if is_numeric else ""
-                    select_cols.append(coalesce(col(f"_c{col_idx}"), lit(default_val)).cast(cast_type()).alias(alias_name))
+                    if cast_type == LongType:
+                        sql_type = "BIGINT"
+                    elif cast_type == IntegerType:
+                        sql_type = "INT"
+                    elif cast_type == DoubleType:
+                        sql_type = "DOUBLE"
+                    else:
+                        sql_type = "DOUBLE"
+                    default_val = "0" if is_numeric else "0"
+                    select_cols.append(
+                        expr(f"coalesce(try_cast(trim(_c{col_idx}) AS {sql_type}), {default_val})").alias(alias_name)
+                    )
                 else:
                     select_cols.append(coalesce(col(f"_c{col_idx}"), lit("")).alias(alias_name))
             else:
@@ -117,7 +127,7 @@ class SilverTrades(SilverLoaderBase):
                 elif alias_name == "is_cash":
                     select_cols.append(lit(False).alias(alias_name))
                 elif cast_type:
-                    select_cols.append(lit("0").cast(cast_type()).alias(alias_name))
+                    select_cols.append(lit(0 if is_numeric else 0.0).cast(cast_type()).alias(alias_name))
                 else:
                     select_cols.append(lit("").alias(alias_name))
         
