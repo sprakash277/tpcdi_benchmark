@@ -131,13 +131,12 @@ def read_customer_mgmt_with_udtf(
         # UC Python UDTF: CREATE OR REPLACE FUNCTION catalog.schema.parse_customer_mgmt_chunk
         # Python body must match ACTION_BOUNDARY and eval logic (no $$ inside the AS $$ block).
         _PY_UDTF_BODY = r'''
-ACTION_BOUNDARY = "\n<!--ACTION_BOUNDARY-->\n"
-
 class ParseCustomerMgmtChunk:
     def eval(self, chunk_id: int, chunk_content: str):
         if not chunk_content:
             return
-        parts = chunk_content.split(ACTION_BOUNDARY)
+        boundary = "\n<!--ACTION_BOUNDARY-->\n"
+        parts = chunk_content.split(boundary)
         for i, action_xml in enumerate(parts):
             ax = action_xml.strip()
             if ax:
