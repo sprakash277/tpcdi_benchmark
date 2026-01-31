@@ -94,8 +94,9 @@ class SilverLoaderBase:
         
         select_parts = []
         for i in range(num_cols):
+            # Use get() to tolerate out-of-bounds (returns NULL); element_at() throws INVALID_ARRAY_INDEX
             select_parts.append(
-                f"TRIM(COALESCE(element_at(split(raw_line, '\\\\|'), {i+1}), '')) AS _c{i}"
+                f"TRIM(COALESCE(get(split(raw_line, '\\\\|'), {i}), '')) AS _c{i}"
             )
         
         # Keep metadata columns
