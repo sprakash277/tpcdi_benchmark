@@ -14,3 +14,7 @@ build/
 .DS_Store
 
 # TPC-DI tools (user-downloaded; do not commit)
+
+# Contest scoring - keep data local so it persists across git pull / server restart
+contest-scoring/data.json
+contest-scoring/server.log

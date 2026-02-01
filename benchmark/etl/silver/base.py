@@ -145,7 +145,7 @@ class SilverLoaderBase:
         select_parts = []
         for i in range(num_cols):
             select_parts.append(
-                f"TRIM(COALESCE(element_at(split(raw_line, ','), {i+1}), '')) AS _c{i}"
+                f"TRIM(COALESCE(get(split(raw_line, ','), {i}), '')) AS _c{i}"
             )
         select_parts.extend(["_load_timestamp", "_source_file", "_batch_id"])
         

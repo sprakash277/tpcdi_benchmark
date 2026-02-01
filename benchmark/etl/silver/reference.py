@@ -8,7 +8,7 @@ import logging
 import time
 from datetime import datetime
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, lit, when, to_date
+from pyspark.sql.functions import col, lit, when, to_date, coalesce, expr
 from pyspark.sql.types import IntegerType
 
 from benchmark.etl.silver.base import SilverLoaderBase, _get_table_size_bytes
@@ -83,6 +83,8 @@ class SilverStatusType(SilverLoaderBase):
         silver_df = parsed_df.select(
             col("_c0").alias("st_id"),
             col("_c1").alias("st_name"),
+            col("_batch_id").alias("batch_id"),
+            col("_load_timestamp").alias("load_timestamp"),
         )
         
         # Log timing (detailed only when log_detailed_stats is True)
@@ -121,6 +123,8 @@ class SilverTradeType(SilverLoaderBase):
             col("_c1").alias("tt_name"),
             when(col("_c2") == "1", lit(True)).otherwise(lit(False)).alias("tt_is_sell"),
             when(col("_c3") == "1", lit(True)).otherwise(lit(False)).alias("tt_is_mrkt"),
+            col("_batch_id").alias("batch_id"),
+            col("_load_timestamp").alias("load_timestamp"),
         )
         
         # Log timing (detailed only when log_detailed_stats is True)
@@ -148,17 +152,19 @@ class SilverIndustry(SilverLoaderBase):
     """Silver layer loader for Industry."""
     
     def load(self, bronze_table: str, target_table: str) -> DataFrame:
-        """Parse Industry.txt (IN_ID|IN_NAME|IN_SC_ID|IN_SC_NAME)."""
+        """Parse Industry.txt. Format: IN_ID|IN_NAME|IN_SC_ID or IN_ID|IN_NAME|IN_SC_ID|IN_SC_NAME (3 or 4 cols)."""
         logger.info(f"Loading silver_industry from {bronze_table}")
         
         bronze_df = self.spark.table(bronze_table)
-        parsed_df = self._parse_pipe_delimited(bronze_df, 4)
+        parsed_df = self._parse_pipe_delimited(bronze_df, 4)  # get() tolerates 3 cols
         
         silver_df = parsed_df.select(
             col("_c0").alias("in_id"),
             col("_c1").alias("in_name"),
             col("_c2").alias("in_sc_id"),
-            col("_c3").alias("in_sc_name"),
+            coalesce(col("_c3"), lit("")).alias("in_sc_name"),  # empty when 3-col format
+            col("_batch_id").alias("batch_id"),
+            col("_load_timestamp").alias("load_timestamp"),
         )
         
         # Log timing (detailed only when log_detailed_stats is True)
@@ -178,5 +184,72 @@ class SilverIndustry(SilverLoaderBase):
             logger.info(f"[TIMING] Completed load for {target_table} at {end_datetime}")
             logger.info(f"[TIMING] {target_table} - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s, Rows: {row_count}, Mode: overwrite")
         logger.info(f"Loaded silver_industry: {row_count} rows")
+        table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
+        return silver_df
+
+
+class SilverTaxRate(SilverLoaderBase):
+    """Silver layer loader for TaxRate."""
+
+    def load(self, bronze_table: str, target_table: str) -> DataFrame:
+        """Parse TaxRate.txt (TX_ID|TX_NAME|TX_RATE)."""
+        logger.info(f"Loading silver_tax_rate from {bronze_table}")
+
+        bronze_df = self.spark.table(bronze_table)
+        parsed_df = self._parse_pipe_delimited(bronze_df, 3)
+
+        silver_df = parsed_df.select(
+            col("_c0").alias("tx_id"),
+            col("_c1").alias("tx_name"),
+            expr("try_cast(trim(_c2) AS DOUBLE)").alias("tx_rate"),
+            col("_batch_id").alias("batch_id"),
+            col("_load_timestamp").alias("load_timestamp"),
+        )
+
+        start_time = time.time()
+        start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Starting load for {target_table} at {start_datetime}")
+
+        self.platform.write_table(silver_df, target_table, mode="overwrite")
+
+        end_time = time.time()
+        row_count = silver_df.count()
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Completed load for {target_table}")
+
+        logger.info(f"Loaded silver_tax_rate: {row_count} rows")
+        table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
+        return silver_df
+
+
+class SilverWatchHistory(SilverLoaderBase):
+    """Silver layer loader for WatchHistory."""
+
+    def load(self, bronze_table: str, target_table: str, batch_id: int) -> DataFrame:
+        """Parse WatchHistory.txt (WH_W_ID|WH_S_SYMB|WH_DTS|WH_ACTION)."""
+        logger.info(f"Loading silver_watch_history from {bronze_table}")
+
+        bronze_df = self.spark.table(bronze_table)
+        bronze_df = bronze_df.filter(col("_batch_id") == batch_id)
+        parsed_df = self._parse_pipe_delimited(bronze_df, 4)
+
+        silver_df = parsed_df.select(
+            expr("try_cast(trim(_c0) AS BIGINT)").alias("wh_w_id"),
+            col("_c1").alias("wh_s_symb"),
+            col("_c2").alias("wh_dts"),
+            col("_c3").alias("wh_action"),
+            col("_batch_id").alias("batch_id"),
+            col("_load_timestamp").alias("load_timestamp"),
+        )
+
+        start_time = time.time()
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Starting load for {target_table}")
+
+        self.platform.write_table(silver_df, target_table, mode="overwrite")
+
+        row_count = silver_df.count()
+        logger.info(f"Loaded silver_watch_history: {row_count} rows")
         table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
         return silver_df

@@ -21,8 +21,10 @@ from benchmark.etl.silver.securities import SilverSecurities
 from benchmark.etl.silver.financials import SilverFinancials
 from benchmark.etl.silver.trades import SilverTrades
 from benchmark.etl.silver.daily_market import SilverDailyMarket
+from benchmark.etl.silver.holding_history import SilverHoldingHistory
 from benchmark.etl.silver.reference import (
-    SilverDate, SilverStatusType, SilverTradeType, SilverIndustry
+    SilverDate, SilverStatusType, SilverTradeType, SilverIndustry,
+    SilverTaxRate, SilverWatchHistory,
 )
 from benchmark.etl.table_timing import start_table as table_timing_start
 
@@ -42,10 +44,13 @@ __all__ = [
     "SilverFinancials",
     "SilverTrades",
     "SilverDailyMarket",
+    "SilverHoldingHistory",
     "SilverDate",
     "SilverStatusType",
     "SilverTradeType",
     "SilverIndustry",
+    "SilverTaxRate",
+    "SilverWatchHistory",
 ]
 
 
@@ -74,10 +79,13 @@ class SilverETL:
         self.financials = SilverFinancials(platform)
         self.trades = SilverTrades(platform)
         self.daily_market = SilverDailyMarket(platform)
+        self.holding_history = SilverHoldingHistory(platform)
         self.date = SilverDate(platform)
         self.status_type = SilverStatusType(platform)
         self.trade_type = SilverTradeType(platform)
         self.industry = SilverIndustry(platform)
+        self.tax_rate = SilverTaxRate(platform)
+        self.watch_history = SilverWatchHistory(platform)
         
         logger.info("Initialized SilverETL orchestrator")
     
@@ -106,7 +114,9 @@ class SilverETL:
             self.trade_type.load(f"{prefix}.bronze_trade_type", f"{prefix}.silver_trade_type")
             table_timing_start(f"{prefix}.silver_industry")
             self.industry.load(f"{prefix}.bronze_industry", f"{prefix}.silver_industry")
-            
+            table_timing_start(f"{prefix}.silver_tax_rate")
+            self.tax_rate.load(f"{prefix}.bronze_tax_rate", f"{prefix}.silver_tax_rate")
+
             # FINWIRE parsing (Batch1 only) - each loader in its own try so one failure doesn't block others
             try:
                 table_timing_start(f"{prefix}.silver_companies")
@@ -150,5 +160,26 @@ class SilverETL:
             self.daily_market.load(f"{prefix}.bronze_daily_market", f"{prefix}.silver_daily_market", batch_id)
         except Exception as e:
             logger.warning(f"Daily market data skipped: {e}")
-        
+
+        try:
+            table_timing_start(f"{prefix}.silver_watch_history")
+            self.watch_history.load(
+                f"{prefix}.bronze_watch_history",
+                f"{prefix}.silver_watch_history",
+                batch_id=batch_id,
+            )
+        except Exception as e:
+            logger.warning(f"Watch history data skipped: {e}")
+
+        try:
+            table_timing_start(f"{prefix}.silver_holding_history")
+            self.holding_history.load(
+                f"{prefix}.bronze_holding_history",
+                f"{prefix}.silver_holding_history",
+                silver_trades_table=f"{prefix}.silver_trades",
+                batch_id=batch_id,
+            )
+        except Exception as e:
+            logger.warning(f"Holding history data skipped: {e}")
+
         logger.info(f"Silver layer load completed for Batch{batch_id}")

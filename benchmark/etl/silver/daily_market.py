@@ -7,7 +7,7 @@ Implements append-only CDC for incremental loads.
 
 import logging
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, lit, to_date, concat_ws, coalesce
+from pyspark.sql.functions import col, lit, to_date, concat_ws, coalesce, expr
 from pyspark.sql.types import LongType, DoubleType
 
 from benchmark.etl.silver.base import SilverLoaderBase
@@ -93,16 +93,17 @@ class SilverDailyMarket(SilverLoaderBase):
                 if alias_name == "dm_date":
                     select_cols.append(to_date(col(f"_c{col_idx}")).alias(alias_name))
                 elif cast_type:
-                    default_val = "0" if is_numeric else ""
-                    select_cols.append(coalesce(col(f"_c{col_idx}"), lit(default_val)).cast(cast_type()).alias(alias_name))
+                    sql_type = "DOUBLE" if cast_type == DoubleType else "BIGINT"
+                    select_cols.append(
+                        expr(f"coalesce(try_cast(trim(_c{col_idx}) AS {sql_type}), 0)").alias(alias_name)
+                    )
                 else:
                     select_cols.append(coalesce(col(f"_c{col_idx}"), lit("")).alias(alias_name))
             else:
-                # Column doesn't exist, use default
                 if alias_name == "dm_date":
                     select_cols.append(lit(None).cast("date").alias(alias_name))
                 elif cast_type:
-                    select_cols.append(lit("0").cast(cast_type()).alias(alias_name))
+                    select_cols.append(lit(0).cast(cast_type()).alias(alias_name))
                 else:
                     select_cols.append(lit("").alias(alias_name))
         
