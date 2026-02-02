@@ -83,6 +83,10 @@ class DataprocPlatform:
             logger.warning(f"Could not configure GCS connector: {e}")
         
         logger.info(f"Initialized Dataproc platform with raw_data_path: {self.raw_data_path}")
+
+    def _resolve_path(self, relative_path: str) -> str:
+        """Resolve relative path against raw_data_path (e.g. gs://bucket/tpcdi/sf=10)."""
+        return f"{self.raw_data_path}/{relative_path}".replace("//", "/")
     
     def read_raw_file(self, file_path: str, schema: Optional[StructType] = None,
                      format: str = "csv", **options) -> DataFrame:
