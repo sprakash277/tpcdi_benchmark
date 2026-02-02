@@ -131,7 +131,10 @@ class BronzeETL:
         # Batch 2+: Customer.txt and Account.txt (pipe-delimited state snapshots)
         if batch_id == 1:
             table_timing_start(f"{prefix}.bronze_customer_mgmt")
-            self.customer_mgmt.load(batch_id, f"{prefix}.bronze_customer_mgmt")
+            # Use UDTF for parallel XML parsing on Databricks (Spark 3.5+)
+            from benchmark.platforms.databricks import DatabricksPlatform
+            use_udtf = isinstance(self.platform, DatabricksPlatform)
+            self.customer_mgmt.load(batch_id, f"{prefix}.bronze_customer_mgmt", use_udtf=use_udtf)
         else:
             # Incremental batches: pipe-delimited flat files
             table_timing_start(f"{prefix}.bronze_customer")

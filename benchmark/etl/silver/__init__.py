@@ -207,8 +207,12 @@ class SilverETL:
 
         # Silver DQ: run TPC-DI validation rules and log to gold_dim_messages
         try:
+            from benchmark.etl.table_timing import start_table as table_timing_start, end_table as table_timing_end
+            dq_table_name = f"{prefix}.silver_dq_validation"
+            table_timing_start(dq_table_name)
             dq = SilverDQRunner(self.platform)
             dq.run_silver_dq(batch_id, prefix, dim_messages_table=f"{prefix}.gold_dim_messages")
+            table_timing_end(dq_table_name, row_count=0)  # row_count=0 for non-data operations
         except Exception as e:
             logger.warning(f"Silver DQ run failed: {e}")
 

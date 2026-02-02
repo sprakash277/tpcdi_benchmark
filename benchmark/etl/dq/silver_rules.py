@@ -6,11 +6,14 @@ validity, consistency). Failures are logged to gold.dim_messages.
 """
 
 import logging
+import time
+from datetime import datetime
 from typing import Optional
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, count
 
 from benchmark.etl.dq.dim_messages import ensure_dim_messages_exists, log_message
+from benchmark.etl.table_timing import is_detailed as table_timing_is_detailed
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,11 @@ class SilverDQRunner:
             prefix: Table prefix (e.g. catalog.schema)
             dim_messages_table: Full name of dim_messages table (default: {prefix}.gold_dim_messages)
         """
+        start_time = time.time()
+        start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Starting Silver DQ validation for batch {batch_id} at {start_datetime}")
+        
         messages_table = dim_messages_table or f"{prefix}.gold_dim_messages"
         ensure_dim_messages_exists(self.spark, messages_table, self.platform)
 
@@ -72,7 +80,15 @@ class SilverDQRunner:
             logger.warning(f"Silver DQ silver_date failed: {e}")
             log("Silver_Date_Validation", f"DQ run failed: {e}", "Alert", f"{prefix}.silver_date")
 
-        logger.info(f"Silver DQ completed for batch_id={batch_id}, prefix={prefix}")
+        end_time = time.time()
+        end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        duration = end_time - start_time
+        
+        if table_timing_is_detailed():
+            logger.info(f"[TIMING] Completed Silver DQ validation for batch {batch_id} at {end_datetime}")
+            logger.info(f"[TIMING] Silver DQ - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s")
+        
+        logger.info(f"Silver DQ completed for batch_id={batch_id}, prefix={prefix} in {duration:.2f}s")
 
     def _run_customer_rules(self, prefix: str, batch_id: int, log, messages_table: str) -> None:
         source = f"{prefix}.silver_customers"
