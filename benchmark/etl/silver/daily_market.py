@@ -2,13 +2,13 @@
 Silver layer loader for Daily Market.
 
 Parses and cleans daily market data from bronze_daily_market.
-Implements append-only CDC for incremental loads.
+Implements SCD Type 2 for CDC on incremental loads.
 """
 
 import logging
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, lit, to_date, concat_ws, coalesce, expr
-from pyspark.sql.types import LongType, DoubleType
+from pyspark.sql.functions import col, lit, to_date, to_timestamp, concat_ws, coalesce, expr
+from pyspark.sql.types import LongType, DoubleType, TimestampType
 
 from benchmark.etl.silver.base import SilverLoaderBase
 
@@ -26,9 +26,9 @@ class SilverDailyMarket(SilverLoaderBase):
     
     CDC Handling:
     - Batch 1 (Historical): Full load, overwrite
-    - Batch 2+ (Incremental): Append new daily records
-      - Each (date, symbol) combination represents a unique market snapshot
-      - Incremental batches contain new trading days
+    - Batch 2+ (Incremental): SCD Type 2 on dm_key (dm_date + dm_s_symb)
+      - I/U: new version with is_current=true, effective_date=dm_date
+      - D: close current row only
     """
     
     def load(self, bronze_table: str, target_table: str, batch_id: int) -> DataFrame:
@@ -120,7 +120,29 @@ class SilverDailyMarket(SilverLoaderBase):
             concat_ws("_", col("dm_date").cast("string"), col("dm_s_symb"))
         )
         
+        # Add SCD Type 2 columns: effective_date, end_date, is_current
+        silver_df = silver_df.withColumn(
+            "effective_date",
+            to_timestamp(col("dm_date").cast("string"))
+        ).withColumn(
+            "end_date",
+            lit(None).cast(TimestampType())
+        ).withColumn(
+            "is_current",
+            when(col("record_type") == "D", lit(False)).otherwise(lit(True))
+        )
+        
         # Batch 1: Full historical load
-        # Batch 2+: Append new daily market data
-        # (Daily market data is typically append-only, each batch adds new trading days)
-        return self._write_silver_table(silver_df, target_table, batch_id)
+        # Batch 2+: Incremental SCD Type 2
+        if batch_id == 1:
+            return self._write_silver_table(silver_df, target_table, batch_id)
+        else:
+            logger.info(f"Applying SCD Type 2 CDC for daily_market batch {batch_id} (record_type I/U/D)")
+            return self._apply_scd_type2(
+                incoming_df=silver_df,
+                target_table=target_table,
+                key_column="dm_key",
+                effective_date_col="effective_date",
+                record_type_col="record_type",
+                exclude_record_types=["D"],
+            )

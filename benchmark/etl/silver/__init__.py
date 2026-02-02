@@ -22,6 +22,8 @@ from benchmark.etl.silver.financials import SilverFinancials
 from benchmark.etl.silver.trades import SilverTrades
 from benchmark.etl.silver.daily_market import SilverDailyMarket
 from benchmark.etl.silver.holding_history import SilverHoldingHistory
+from benchmark.etl.silver.prospect import SilverProspect
+from benchmark.etl.silver.cash_transaction import SilverCashTransaction
 from benchmark.etl.silver.reference import (
     SilverDate, SilverStatusType, SilverTradeType, SilverIndustry,
     SilverTaxRate, SilverWatchHistory,
@@ -45,6 +47,8 @@ __all__ = [
     "SilverTrades",
     "SilverDailyMarket",
     "SilverHoldingHistory",
+    "SilverProspect",
+    "SilverCashTransaction",
     "SilverDate",
     "SilverStatusType",
     "SilverTradeType",
@@ -80,6 +84,8 @@ class SilverETL:
         self.trades = SilverTrades(platform)
         self.daily_market = SilverDailyMarket(platform)
         self.holding_history = SilverHoldingHistory(platform)
+        self.prospect = SilverProspect(platform)
+        self.cash_transaction = SilverCashTransaction(platform)
         self.date = SilverDate(platform)
         self.status_type = SilverStatusType(platform)
         self.trade_type = SilverTradeType(platform)
@@ -160,6 +166,22 @@ class SilverETL:
             self.daily_market.load(f"{prefix}.bronze_daily_market", f"{prefix}.silver_daily_market", batch_id)
         except Exception as e:
             logger.warning(f"Daily market data skipped: {e}")
+
+        try:
+            table_timing_start(f"{prefix}.silver_prospect")
+            self.prospect.load(f"{prefix}.bronze_prospect", f"{prefix}.silver_prospect", batch_id)
+        except Exception as e:
+            logger.warning(f"Prospect data skipped: {e}")
+
+        try:
+            table_timing_start(f"{prefix}.silver_cash_transaction")
+            self.cash_transaction.load(
+                f"{prefix}.bronze_cash_transaction",
+                f"{prefix}.silver_cash_transaction",
+                batch_id,
+            )
+        except Exception as e:
+            logger.warning(f"Cash transaction data skipped: {e}")
 
         try:
             table_timing_start(f"{prefix}.silver_watch_history")

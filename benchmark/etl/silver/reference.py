@@ -8,7 +8,7 @@ import logging
 import time
 from datetime import datetime
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, lit, when, to_date, coalesce, expr
+from pyspark.sql.functions import col, lit, when, to_date, to_timestamp, concat_ws, coalesce, expr
 from pyspark.sql.types import IntegerType
 
 from benchmark.etl.silver.base import SilverLoaderBase, _get_table_size_bytes
@@ -224,32 +224,60 @@ class SilverTaxRate(SilverLoaderBase):
 
 
 class SilverWatchHistory(SilverLoaderBase):
-    """Silver layer loader for WatchHistory."""
+    """Silver layer loader for WatchHistory. Implements SCD Type 2 for incremental."""
 
     def load(self, bronze_table: str, target_table: str, batch_id: int) -> DataFrame:
-        """Parse WatchHistory.txt (WH_W_ID|WH_S_SYMB|WH_DTS|WH_ACTION)."""
+        """Parse WatchHistory.txt. Batch 1: WH_W_ID|WH_S_SYMB|WH_DTS|WH_ACTION. Batch 2+: record_type + 4 cols."""
         logger.info(f"Loading silver_watch_history from {bronze_table}")
 
         bronze_df = self.spark.table(bronze_table)
         bronze_df = bronze_df.filter(col("_batch_id") == batch_id)
-        parsed_df = self._parse_pipe_delimited(bronze_df, 4)
+        num_cols = 5 if batch_id > 1 else 4
+        parsed_df = self._parse_pipe_delimited(bronze_df, num_cols)
+
+        if batch_id > 1 and "_c0" in parsed_df.columns:
+            record_type_expr = col("_c0").alias("record_type")
+            col_offset = 1
+        else:
+            record_type_expr = lit("I").alias("record_type")
+            col_offset = 0
 
         silver_df = parsed_df.select(
-            expr("try_cast(trim(_c0) AS BIGINT)").alias("wh_w_id"),
-            col("_c1").alias("wh_s_symb"),
-            col("_c2").alias("wh_dts"),
-            col("_c3").alias("wh_action"),
+            record_type_expr,
+            expr("try_cast(trim(_c" + str(col_offset) + ") AS BIGINT)").alias("wh_w_id"),
+            col("_c" + str(col_offset + 1)).alias("wh_s_symb"),
+            col("_c" + str(col_offset + 2)).alias("wh_dts"),
+            col("_c" + str(col_offset + 3)).alias("wh_action"),
             col("_batch_id").alias("batch_id"),
             col("_load_timestamp").alias("load_timestamp"),
         )
 
-        start_time = time.time()
-        if table_timing_is_detailed():
-            logger.info(f"[TIMING] Starting load for {target_table}")
+        silver_df = silver_df.withColumn(
+            "wh_key",
+            concat_ws("_", col("wh_w_id").cast("string"), col("wh_s_symb"))
+        ).withColumn(
+            "effective_date",
+            to_timestamp(col("wh_dts"))
+        ).withColumn(
+            "end_date",
+            lit(None).cast("timestamp")
+        ).withColumn(
+            "is_current",
+            when(col("record_type") == "D", lit(False)).otherwise(lit(True))
+        )
 
-        self.platform.write_table(silver_df, target_table, mode="overwrite")
+        if batch_id == 1:
+            self.platform.write_table(silver_df, target_table, mode="overwrite")
+            row_count = silver_df.count()
+            table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
+            return silver_df
 
-        row_count = silver_df.count()
-        logger.info(f"Loaded silver_watch_history: {row_count} rows")
-        table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
-        return silver_df
+        logger.info(f"Applying SCD Type 2 CDC for watch_history batch {batch_id} (record_type I/U/D)")
+        return self._apply_scd_type2(
+            incoming_df=silver_df,
+            target_table=target_table,
+            key_column="wh_key",
+            effective_date_col="effective_date",
+            record_type_col="record_type",
+            exclude_record_types=["D"],
+        )

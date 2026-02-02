@@ -2,13 +2,13 @@
 Silver layer loader for Trades.
 
 Parses and cleans trade data from bronze_trade.
-Implements UPSERT/MERGE for CDC (Change Data Capture) on incremental loads.
+Implements SCD Type 2 for CDC (Change Data Capture) on incremental loads.
 """
 
 import logging
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, lit, when, to_timestamp, coalesce, expr
-from pyspark.sql.types import LongType, IntegerType, DoubleType
+from pyspark.sql.types import LongType, IntegerType, DoubleType, TimestampType
 
 from benchmark.etl.silver.base import SilverLoaderBase
 
@@ -27,9 +27,9 @@ class SilverTrades(SilverLoaderBase):
     
     CDC Handling:
     - Batch 1 (Historical): Full load, overwrite
-    - Batch 2+ (Incremental): UPSERT/MERGE on trade_id
-      - Trade records can have status updates (CMPT, CNCL, etc.)
-      - New trades are inserted, existing trades are updated
+    - Batch 2+ (Incremental): SCD Type 2 on trade_id
+      - I/U: new version with is_current=true, effective_date=trade_dts
+      - D: close current row (is_current=false, end_date set), no insert
     """
     
     def load(self, bronze_table: str, target_table: str, batch_id: int) -> DataFrame:
@@ -138,22 +138,29 @@ class SilverTrades(SilverLoaderBase):
         
         silver_df = parsed_df.select(*select_cols)
         
+        # Add SCD Type 2 columns: effective_date, end_date, is_current
+        silver_df = silver_df.withColumn(
+            "effective_date",
+            to_timestamp(col("trade_dts"))
+        ).withColumn(
+            "end_date",
+            lit(None).cast(TimestampType())
+        ).withColumn(
+            "is_current",
+            when(col("record_type") == "D", lit(False)).otherwise(lit(True))
+        )
+        
         # Batch 1: Full historical load (overwrite)
-        # Batch 2+: Incremental CDC with UPSERT
+        # Batch 2+: Incremental SCD Type 2
         if batch_id == 1:
             return self._write_silver_table(silver_df, target_table, batch_id)
         else:
-            # Incremental: Apply UPSERT (MERGE) logic
-            # Updates existing trades (status changes) and inserts new trades
-            logger.info(f"Applying UPSERT/MERGE CDC for trades batch {batch_id}")
-            update_columns = [
-                "trade_dts", "status_id", "trade_type_id", "is_cash", "symbol",
-                "quantity", "bid_price", "account_id", "exec_name", "trade_price",
-                "charge", "commission", "tax", "batch_id", "load_timestamp"
-            ]
-            return self._upsert_fact_table(
+            logger.info(f"Applying SCD Type 2 CDC for trades batch {batch_id} (record_type I/U/D)")
+            return self._apply_scd_type2(
                 incoming_df=silver_df,
                 target_table=target_table,
                 key_column="trade_id",
-                update_columns=update_columns
+                effective_date_col="effective_date",
+                record_type_col="record_type",
+                exclude_record_types=["D"],
             )

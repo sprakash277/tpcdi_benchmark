@@ -108,8 +108,8 @@ class GoldFactMarketHistory(GoldLoaderBase):
         """
         logger.info(f"Loading gold.FactMarketHistory from {silver_daily_market_table}")
         
-        # Get daily market data from Silver (fact tables don't have is_current)
-        silver_dm = self.spark.table(silver_daily_market_table)
+        # Get daily market data from Silver (use current versions when SCD2 applied)
+        silver_dm = self._select_current_version(silver_daily_market_table)
         
         # Read dimension tables
         dim_date = self.spark.table(dim_date_table)
@@ -218,9 +218,8 @@ class GoldFactHoldings(GoldLoaderBase):
         """
         logger.info(f"Loading gold.FactHoldings from {silver_holding_history_table}")
         
-        # Note: silver_holding_history may not exist yet
         try:
-            silver_hh = self.spark.table(silver_holding_history_table)
+            silver_hh = self._select_current_version(silver_holding_history_table)
             
             dim_date = self.spark.table(dim_date_table)
             dim_account = self.spark.table(dim_account_table)
