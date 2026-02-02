@@ -279,12 +279,13 @@ class GoldDimIndustry(GoldLoaderBase):
         
         silver_df = self.spark.table(silver_table)
         
+        # Spec 3.2.13 Industry: IN_ID, IN_NAME, IN_SC_ID only (no sector name in source)
         gold_df = silver_df.select(
             col("in_id").alias("sk_industry_id"),
             col("in_id").alias("industry_id"),
             col("in_name").alias("industry_name"),
             col("in_sc_id").alias("sector_id"),
-            col("in_sc_name").alias("sector_name"),
+            lit(None).cast("string").alias("sector_name"),  # Not in spec; leave empty or extend from lookup
             current_timestamp().alias("etl_timestamp"),
         )
         

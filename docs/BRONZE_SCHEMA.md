@@ -2,13 +2,19 @@
 
 Schema definitions for all Bronze layer tables. Bronze captures raw source data with minimal transformation (metadata columns only).
 
+**File format and delimiter (TPC-DI v1.1.0 Clause 2):**
+- **Pipe `|`**: Account.txt, CashTransaction.txt, Customer.txt, DailyMarket.txt, Date.txt, HoldingHistory.txt, Industry.txt, StatusType.txt, TaxRate.txt, Time.txt, Trade.txt, TradeHistory.txt, TradeType.txt, WatchHistory.txt.
+- **Comma `,`**: HR.csv, Prospect.csv.
+- **Fixed-width (no separator)**: FINWIRE*yyyyQq.
+- **XML**: CustomerMgmt.xml.
+
 Use `catalog.schema` prefix for Unity Catalog (e.g., `CREATE TABLE my_catalog.my_schema.bronze_trade`).
 
 ---
 
 ## Text-based Bronze Tables
 
-These tables store one raw line per row. Source files are read as text; `raw_line` holds the entire line.
+These tables store one raw line per row. Source files are read as text; `raw_line` holds the entire line. Silver layer parses using the delimiter above.
 
 ### bronze_trade
 **Source**: Trade.txt (pipe-delimited)

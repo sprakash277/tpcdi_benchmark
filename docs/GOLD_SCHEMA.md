@@ -2,6 +2,8 @@
 
 Schema definitions for all Gold layer tables. Gold contains the business-ready dimensional model (star schema) for analytics.
 
+**Target model (TPC-DI v1.1.0 Clause 3):** DimAccount, DimBroker, DimCompany, DimCustomer, DimDate, DimSecurity, DimTime, DimTrade, FactCashBalances, FactHoldings, FactMarketHistory, FactWatches, Industry, etc. This project uses `gold_dim_*` and `gold_fact_*` naming.
+
 Use `catalog.schema` prefix for Unity Catalog.
 
 ---

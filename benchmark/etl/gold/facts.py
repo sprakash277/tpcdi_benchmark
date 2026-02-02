@@ -168,7 +168,7 @@ class GoldFactCashBalances(GoldLoaderBase):
             dim_date = self.spark.table(dim_date_table)
             dim_account = self.spark.table(dim_account_table)
             
-            # Aggregate cash transactions by account and date (qualify columns to avoid ambiguity)
+            # Aggregate cash by account and date (spec: FactCashBalances Cash = sum of CT_AMT per account/date)
             fact_df = silver_ct \
                 .join(dim_date,
                       to_date(silver_ct["transaction_date"]) == dim_date["date_value"],
@@ -182,8 +182,8 @@ class GoldFactCashBalances(GoldLoaderBase):
                     dim_account["account_id"],
                 ) \
                 .agg(
-                    spark_sum("amount").alias("cash_balance"),
-                    count("transaction_type").alias("transaction_count")
+                    spark_sum("ct_amt").alias("cash_balance"),
+                    count("ct_ca_id").alias("transaction_count")
                 ) \
                 .select(
                     col("sk_date_id"),

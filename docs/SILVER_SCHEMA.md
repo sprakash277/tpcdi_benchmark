@@ -2,6 +2,8 @@
 
 Schema definitions for all Silver layer tables. Silver contains parsed, cleaned, and typed data. Tables with SCD Type 2 include `is_current`, `effective_date`, `end_date`, and `record_type`.
 
+**Source formats (TPC-DI v1.1.0 Clause 2):** Pipe-delimited files are parsed with `split(raw_line, '|')`; CSV with comma. Column names and counts follow the spec (see `docs/TPCDI_SPEC_ALIGNMENT.md`).
+
 Use `catalog.schema` prefix for Unity Catalog.
 
 ---
@@ -124,15 +126,15 @@ USING DELTA;
 ---
 
 ## silver_watch_history
-**Source**: bronze_watch_history. SCD Type 2 on `wh_key`.
+**Source**: bronze_watch_history. SCD Type 2 on `wh_key`. Spec 2.2.18: W_C_ID, W_S_SYMB, W_DTS, W_ACTION (pipe).
 
 ```sql
 CREATE TABLE silver_watch_history (
   record_type STRING,
-  wh_w_id BIGINT,
-  wh_s_symb STRING,
-  wh_dts STRING,
-  wh_action STRING,
+  w_c_id BIGINT,
+  w_s_symb STRING,
+  w_dts STRING,
+  w_action STRING,
   batch_id INT,
   load_timestamp TIMESTAMP,
   wh_key STRING,
@@ -146,15 +148,16 @@ USING DELTA;
 ---
 
 ## silver_cash_transaction
-**Source**: bronze_cash_transaction. SCD Type 2 on `ct_key`.
+**Source**: bronze_cash_transaction. SCD Type 2 on `ct_key`. Spec 2.2.5: CT_CA_ID, CT_DTS, CT_AMT, CT_NAME (pipe).
 
 ```sql
 CREATE TABLE silver_cash_transaction (
   record_type STRING,
+  ct_ca_id BIGINT,
   ct_dts STRING,
-  t_id BIGINT,
   ct_amt DOUBLE,
   ct_name STRING,
+  account_id BIGINT,
   batch_id INT,
   load_timestamp TIMESTAMP,
   transaction_date TIMESTAMP,
@@ -373,14 +376,13 @@ USING DELTA;
 ---
 
 ## silver_industry
-**Source**: bronze_industry.
+**Source**: bronze_industry. Spec 2.2.11: IN_ID|IN_NAME|IN_SC_ID (pipe, 3 columns only).
 
 ```sql
 CREATE TABLE silver_industry (
   in_id STRING,
   in_name STRING,
   in_sc_id STRING,
-  in_sc_name STRING,
   batch_id INT,
   load_timestamp TIMESTAMP
 )

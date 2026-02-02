@@ -149,20 +149,19 @@ class SilverTradeType(SilverLoaderBase):
 
 
 class SilverIndustry(SilverLoaderBase):
-    """Silver layer loader for Industry."""
+    """Silver layer loader for Industry. Spec 2.2.11: IN_ID|IN_NAME|IN_SC_ID (3 columns only)."""
     
     def load(self, bronze_table: str, target_table: str) -> DataFrame:
-        """Parse Industry.txt. Format: IN_ID|IN_NAME|IN_SC_ID or IN_ID|IN_NAME|IN_SC_ID|IN_SC_NAME (3 or 4 cols)."""
+        """Parse Industry.txt. Spec Table 2.2.11: IN_ID, IN_NAME, IN_SC_ID (pipe-delimited, 3 cols)."""
         logger.info(f"Loading silver_industry from {bronze_table}")
         
         bronze_df = self.spark.table(bronze_table)
-        parsed_df = self._parse_pipe_delimited(bronze_df, 4)  # get() tolerates 3 cols
+        parsed_df = self._parse_pipe_delimited(bronze_df, 3)
         
         silver_df = parsed_df.select(
             col("_c0").alias("in_id"),
             col("_c1").alias("in_name"),
             col("_c2").alias("in_sc_id"),
-            coalesce(col("_c3"), lit("")).alias("in_sc_name"),  # empty when 3-col format
             col("_batch_id").alias("batch_id"),
             col("_load_timestamp").alias("load_timestamp"),
         )
@@ -227,37 +226,37 @@ class SilverWatchHistory(SilverLoaderBase):
     """Silver layer loader for WatchHistory. Implements SCD Type 2 for incremental."""
 
     def load(self, bronze_table: str, target_table: str, batch_id: int) -> DataFrame:
-        """Parse WatchHistory.txt. Batch 1: WH_W_ID|WH_S_SYMB|WH_DTS|WH_ACTION. Batch 2+: record_type + 4 cols."""
+        """Parse WatchHistory.txt. Batch 1: W_C_ID|W_S_SYMB|W_DTS|W_ACTION (spec 2.2.18). Batch 2+: CDC_FLAG|CDC_DSN + 4 cols."""
         logger.info(f"Loading silver_watch_history from {bronze_table}")
 
         bronze_df = self.spark.table(bronze_table)
         bronze_df = bronze_df.filter(col("_batch_id") == batch_id)
-        num_cols = 5 if batch_id > 1 else 4
+        num_cols = 6 if batch_id > 1 else 4  # Spec: incremental has CDC_FLAG, CDC_DSN
         parsed_df = self._parse_pipe_delimited(bronze_df, num_cols)
 
         if batch_id > 1 and "_c0" in parsed_df.columns:
             record_type_expr = col("_c0").alias("record_type")
-            col_offset = 1
+            col_offset = 2  # skip CDC_FLAG, CDC_DSN
         else:
             record_type_expr = lit("I").alias("record_type")
             col_offset = 0
 
         silver_df = parsed_df.select(
             record_type_expr,
-            expr("try_cast(trim(_c" + str(col_offset) + ") AS BIGINT)").alias("wh_w_id"),
-            col("_c" + str(col_offset + 1)).alias("wh_s_symb"),
-            col("_c" + str(col_offset + 2)).alias("wh_dts"),
-            col("_c" + str(col_offset + 3)).alias("wh_action"),
+            expr("try_cast(trim(_c" + str(col_offset) + ") AS BIGINT)").alias("w_c_id"),   # Spec: W_C_ID = Customer identifier
+            col("_c" + str(col_offset + 1)).alias("w_s_symb"),
+            col("_c" + str(col_offset + 2)).alias("w_dts"),
+            col("_c" + str(col_offset + 3)).alias("w_action"),
             col("_batch_id").alias("batch_id"),
             col("_load_timestamp").alias("load_timestamp"),
         )
 
         silver_df = silver_df.withColumn(
             "wh_key",
-            concat_ws("_", col("wh_w_id").cast("string"), col("wh_s_symb"))
+            concat_ws("_", col("w_c_id").cast("string"), col("w_s_symb"))
         ).withColumn(
             "effective_date",
-            expr("try_cast(wh_dts AS TIMESTAMP)")
+            expr("try_cast(w_dts AS TIMESTAMP)")
         ).withColumn(
             "end_date",
             lit(None).cast("timestamp")
