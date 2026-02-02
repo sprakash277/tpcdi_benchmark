@@ -297,38 +297,57 @@ class SilverLoaderBase:
         incoming_df.createOrReplaceTempView("incoming_changes")
         incoming_keys.createOrReplaceTempView("incoming_keys")
         
-        # Step 1: Close out existing current records that have updates
-        # Update is_current=False, end_date=incoming.effective_date for matching keys
-        close_sql = f"""
-        MERGE INTO {target_table} AS target
-        USING (
-            SELECT {key_column}, MIN({effective_date_col}) as new_effective_date
-            FROM incoming_changes
-            GROUP BY {key_column}
-        ) AS updates
-        ON target.{key_column} = updates.{key_column} AND target.is_current = true
-        WHEN MATCHED THEN UPDATE SET
-            target.is_current = false,
-            target.end_date = updates.new_effective_date
-        """
+        # MERGE requires target to have is_current and end_date (SCD2 schema)
+        existing_field_names = existing_df.schema.fieldNames()
+        has_scd2_schema = "is_current" in existing_field_names and "end_date" in existing_field_names
         
-        try:
-            self.spark.sql(close_sql)
-            logger.info(f"Closed out existing records for updated keys in {target_table}")
-        except Exception as e:
-            logger.warning(f"MERGE failed (may not be Delta/Parquet): {e}. Using read-modify-write fallback for SCD2.")
-            # Fallback: Same SCD2 logic using DataFrame ops (works for Parquet, e.g. Dataproc)
+        # Step 1: Close out existing current records that have updates (or use fallback)
+        merge_ok = False
+        if has_scd2_schema:
+            close_sql = f"""
+            MERGE INTO {target_table} AS target
+            USING (
+                SELECT {key_column}, MIN({effective_date_col}) as new_effective_date
+                FROM incoming_changes
+                GROUP BY {key_column}
+            ) AS updates
+            ON target.{key_column} = updates.{key_column} AND target.is_current = true
+            WHEN MATCHED THEN UPDATE SET
+                target.is_current = false,
+                target.end_date = updates.new_effective_date
+            """
+            try:
+                self.spark.sql(close_sql)
+                logger.info(f"Closed out existing records for updated keys in {target_table}")
+                merge_ok = True
+            except Exception as e:
+                logger.warning(f"MERGE failed (may not be Delta/Parquet): {e}. Using read-modify-write fallback for SCD2.")
+        else:
+            logger.info(f"Target {target_table} has no is_current/end_date (legacy batch-1 schema). Using read-modify-write fallback for SCD2.")
+
+        if not merge_ok:
+            # Fallback: Same SCD2 logic using DataFrame ops (works for Parquet or legacy schema)
             updates_df = incoming_df.groupBy(key_column).agg(
                 spark_min(effective_date_col).alias("new_effective_date")
             )
             existing_alias = existing_df.alias("e")
             updates_alias = updates_df.alias("u")
-            existing_cols = [f for f in existing_df.schema.fieldNames() if f not in ("is_current", "end_date")]
-            existing_updated = existing_alias.join(updates_alias, col("e." + key_column) == col("u." + key_column), "left").select(
-                *[col("e." + f) for f in existing_cols],
-                when(col("e.is_current") & col("u.new_effective_date").isNotNull(), lit(False)).otherwise(col("e.is_current")).alias("is_current"),
-                when(col("e.is_current") & col("u.new_effective_date").isNotNull(), col("u.new_effective_date")).otherwise(col("e.end_date")).alias("end_date"),
-            )
+            has_scd2_cols = "is_current" in existing_field_names and "end_date" in existing_field_names
+            if has_scd2_cols:
+                existing_cols = [f for f in existing_field_names if f not in ("is_current", "end_date")]
+                existing_updated = existing_alias.join(updates_alias, col("e." + key_column) == col("u." + key_column), "left").select(
+                    *[col("e." + f) for f in existing_cols],
+                    when(col("e.is_current") & col("u.new_effective_date").isNotNull(), lit(False)).otherwise(col("e.is_current")).alias("is_current"),
+                    when(col("e.is_current") & col("u.new_effective_date").isNotNull(), col("u.new_effective_date")).otherwise(col("e.end_date")).alias("end_date"),
+                )
+            else:
+                # Legacy schema: table from batch 1 without is_current/end_date; treat all existing rows as current
+                existing_cols = list(existing_field_names)
+                existing_updated = existing_alias.join(updates_alias, col("e." + key_column) == col("u." + key_column), "left").select(
+                    *[col("e." + f) for f in existing_cols],
+                    when(col("u.new_effective_date").isNotNull(), lit(False)).otherwise(lit(True)).alias("is_current"),
+                    when(col("u.new_effective_date").isNotNull(), col("u.new_effective_date")).otherwise(lit(None).cast("timestamp")).alias("end_date"),
+                )
             append_df = incoming_df
             if record_type_col and exclude_record_types:
                 append_df = incoming_df.filter(~col(record_type_col).isin(*exclude_record_types))
@@ -349,7 +368,7 @@ class SilverLoaderBase:
             end_time = time.time()
             table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
             return incoming_df
-        
+
         # Step 2: Insert new versions (exclude D: close-only, no insert)
         append_df = incoming_df
         if record_type_col and exclude_record_types:
