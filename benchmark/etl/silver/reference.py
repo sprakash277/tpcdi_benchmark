@@ -257,7 +257,7 @@ class SilverWatchHistory(SilverLoaderBase):
             concat_ws("_", col("wh_w_id").cast("string"), col("wh_s_symb"))
         ).withColumn(
             "effective_date",
-            to_timestamp(col("wh_dts"))
+            expr("try_cast(wh_dts AS TIMESTAMP)")
         ).withColumn(
             "end_date",
             lit(None).cast("timestamp")
