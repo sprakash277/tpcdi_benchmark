@@ -332,17 +332,26 @@ class SilverLoaderBase:
             )
             existing_alias = existing_df.alias("e")
             updates_alias = updates_df.alias("u")
-            has_scd2_cols = "is_current" in existing_field_names and "end_date" in existing_field_names
+            # Use actual existing table schema (target may lack is_current/end_date from batch-1-only load)
+            existing_col_names = set(existing_df.schema.fieldNames())
+            has_scd2_cols = "is_current" in existing_col_names and "end_date" in existing_col_names
+            existing_updated = None
             if has_scd2_cols:
-                existing_cols = [f for f in existing_field_names if f not in ("is_current", "end_date")]
-                existing_updated = existing_alias.join(updates_alias, col("e." + key_column) == col("u." + key_column), "left").select(
-                    *[col("e." + f) for f in existing_cols],
-                    when(col("e.is_current") & col("u.new_effective_date").isNotNull(), lit(False)).otherwise(col("e.is_current")).alias("is_current"),
-                    when(col("e.is_current") & col("u.new_effective_date").isNotNull(), col("u.new_effective_date")).otherwise(col("e.end_date")).alias("end_date"),
-                )
-            else:
+                try:
+                    existing_cols = [f for f in existing_field_names if f not in ("is_current", "end_date")]
+                    existing_updated = existing_alias.join(updates_alias, col("e." + key_column) == col("u." + key_column), "left").select(
+                        *[col("e." + f) for f in existing_cols],
+                        when(col("e.is_current") & col("u.new_effective_date").isNotNull(), lit(False)).otherwise(col("e.is_current")).alias("is_current"),
+                        when(col("e.is_current") & col("u.new_effective_date").isNotNull(), col("u.new_effective_date")).otherwise(col("e.end_date")).alias("end_date"),
+                    )
+                    # Trigger analysis so we catch UNRESOLVED_COLUMN (e.g. e.is_current missing) here
+                    existing_updated.limit(0).count()
+                except Exception:
+                    has_scd2_cols = False
+                    existing_updated = None
+            if not has_scd2_cols or existing_updated is None:
                 # Legacy schema: table from batch 1 without is_current/end_date; treat all existing rows as current
-                existing_cols = list(existing_field_names)
+                existing_cols = list(existing_col_names)
                 existing_updated = existing_alias.join(updates_alias, col("e." + key_column) == col("u." + key_column), "left").select(
                     *[col("e." + f) for f in existing_cols],
                     when(col("u.new_effective_date").isNotNull(), lit(False)).otherwise(lit(True)).alias("is_current"),
