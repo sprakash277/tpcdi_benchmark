@@ -102,7 +102,7 @@ class SilverTrades(SilverLoaderBase):
             col_idx = idx + col_offset
             if col_exists(col_idx):
                 if alias_name == "trade_dts":
-                    select_cols.append(to_timestamp(col(f"_c{col_idx}")).alias(alias_name))
+                    select_cols.append(expr(f"try_cast(trim(_c{col_idx}) AS TIMESTAMP)").alias(alias_name))
                 elif alias_name == "is_cash":
                     select_cols.append(when(col(f"_c{col_idx}") == "1", lit(True)).otherwise(lit(False)).alias(alias_name))
                 elif cast_type:
@@ -138,10 +138,10 @@ class SilverTrades(SilverLoaderBase):
         
         silver_df = parsed_df.select(*select_cols)
         
-        # Add SCD Type 2 columns: effective_date, end_date, is_current
+        # Add SCD Type 2 columns: effective_date, end_date, is_current (use try_cast to avoid CAST_INVALID_INPUT from misaligned columns)
         silver_df = silver_df.withColumn(
             "effective_date",
-            to_timestamp(col("trade_dts"))
+            expr("try_cast(trade_dts AS TIMESTAMP)")
         ).withColumn(
             "end_date",
             lit(None).cast(TimestampType())

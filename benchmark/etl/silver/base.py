@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, lit, current_timestamp, coalesce, min as spark_min
+from pyspark.sql.functions import col, lit, when, current_timestamp, coalesce, min as spark_min
 
 if TYPE_CHECKING:
     from benchmark.platforms.databricks import DatabricksPlatform

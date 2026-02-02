@@ -7,7 +7,7 @@ Implements SCD Type 2 for CDC on incremental loads.
 
 import logging
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, lit, to_date, to_timestamp, concat_ws, coalesce, expr
+from pyspark.sql.functions import col, lit, when, to_date, to_timestamp, concat_ws, coalesce, expr
 from pyspark.sql.types import LongType, DoubleType, TimestampType
 
 from benchmark.etl.silver.base import SilverLoaderBase
