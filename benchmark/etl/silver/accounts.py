@@ -12,7 +12,7 @@ TPC-DI Format Differences:
 import logging
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
-    col, lit, when, to_date, to_timestamp, explode, current_timestamp, coalesce, trim
+    col, lit, when, to_date, to_timestamp, explode, current_timestamp, coalesce, trim, expr
 )
 from pyspark.sql.types import LongType, IntegerType, StringType, DateType, TimestampType
 
@@ -187,13 +187,14 @@ class SilverAccounts(SilverLoaderBase):
             return coalesce(trim(col(f"_c{i}")), lit(""))
         
         # Map per sample: I|43490|30470|16206|15280|...|CA_NAME|CA_TAX_ST|CA_ST_ID
+        # Use try_cast for numeric cols to tolerate empty strings from malformed input
         account_df = parsed_df.select(
             record_type_expr,
-            c(0 + data_offset).cast(LongType()).alias("ca_id"),
-            c(1 + data_offset).cast(LongType()).alias("ca_b_id"),
-            c(2 + data_offset).cast(LongType()).alias("c_id"),
+            expr("try_cast(trim(_c" + str(0 + data_offset) + ") AS BIGINT)").alias("ca_id"),
+            expr("try_cast(trim(_c" + str(1 + data_offset) + ") AS BIGINT)").alias("ca_b_id"),
+            expr("try_cast(trim(_c" + str(2 + data_offset) + ") AS BIGINT)").alias("c_id"),
             c(4 + data_offset).alias("ca_name"),   # skip _c(3+data_offset)
-            c(5 + data_offset).cast(IntegerType()).alias("ca_tax_st"),
+            expr("try_cast(trim(_c" + str(5 + data_offset) + ") AS INT)").alias("ca_tax_st"),
             c(6 + data_offset).alias("ca_st_id"),
             col("_batch_id").alias("batch_id"),
             col("_load_timestamp").alias("load_timestamp"),

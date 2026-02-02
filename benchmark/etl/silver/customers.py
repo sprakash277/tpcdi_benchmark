@@ -198,16 +198,17 @@ class SilverCustomers(SilverLoaderBase):
         
         # Map columns per sample: I|21790|15280|732-50-0322|ACTV|Keung|Mahmut|T||2|1946-02-17|...
         # Data indices: 0=C_ID, 1=skip, 2=C_TAX_ID, 3=C_ST_ID, 4–10=name,dob,addr, 11–16=city..ctry, 27–30=emails,tax
+        # Use try_cast for numeric cols to tolerate empty strings from malformed input
         customer_df = parsed_df.select(
             record_type_expr,
-            c(0 + data_offset).cast(LongType()).alias("c_id"),
+            expr("try_cast(trim(_c" + str(0 + data_offset) + ") AS BIGINT)").alias("c_id"),
             c(2 + data_offset).alias("c_tax_id"),
             c(3 + data_offset).alias("c_st_id"),
             c(4 + data_offset).alias("c_l_name"),
             c(5 + data_offset).alias("c_f_name"),
             c(6 + data_offset).alias("c_m_name"),
             c(7 + data_offset).alias("c_gndr"),
-            c(8 + data_offset).cast(IntegerType()).alias("c_tier"),
+            expr("try_cast(trim(_c" + str(8 + data_offset) + ") AS INT)").alias("c_tier"),
             c(9 + data_offset).alias("c_dob"),
             c(10 + data_offset).alias("c_adline1"),
             c(11 + data_offset).alias("c_adline2"),
