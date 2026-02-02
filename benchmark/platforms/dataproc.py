@@ -211,18 +211,39 @@ class DataprocPlatform:
         return result.cnt if result else 0
     
     def get_table_size_mb(self, table_name: str) -> float:
-        """Get approximate table size in MB. Runs DESCRIBE DETAIL separately, then uses size in Python (avoids subquery)."""
+        """Get approximate table size in MB. Uses table location + Hadoop FS to sum file sizes.
+        Skips DESCRIBE DETAIL because Dataproc's Delta/Spark can raise PARSE_SYNTAX_ERROR when
+        rewriting it to SELECT SUM(size) FROM (SELECT ... DESCRIBE DETAIL ...).
+        Uses DESCRIBE EXTENDED (standard Spark SQL) to get table location."""
         try:
-            quoted = ".".join(f"`{p}`" for p in table_name.split("."))
-            detail_df = self.spark.sql(f"DESCRIBE DETAIL {quoted}")
-            row = detail_df.first()
-            if row is None:
+            desc_df = self.spark.sql(f"DESCRIBE EXTENDED {table_name}")
+            loc_row = desc_df.filter("col_name = 'Location'").first()
+            if loc_row is None:
                 return 0.0
-            size = getattr(row, "size", None)
-            return (size / (1024 * 1024)) if size is not None else 0.0
+            location = getattr(loc_row, "data_type", None) or getattr(loc_row, "info_value", loc_row[1])
+            if not location or str(location).startswith("view:"):
+                return 0.0
+            total = self._sum_path_size_bytes(str(location))
+            return total / (1024 * 1024) if total else 0.0
         except Exception as e:
-            logger.warning(f"Could not get table size: {e}")
+            logger.warning(f"Could not get table size for {table_name}: {e}")
             return 0.0
+
+    def _sum_path_size_bytes(self, path: str) -> int:
+        """Recursively sum file sizes under path via Hadoop FS."""
+        try:
+            jvm = self.spark.sparkContext._jvm
+            hadoop_path = jvm.org.apache.hadoop.fs.Path(path)
+            fs = hadoop_path.getFileSystem(self.spark.sparkContext._jsc.hadoopConfiguration())
+            total = 0
+            for status in fs.listStatus(hadoop_path) or []:
+                if status.isDirectory():
+                    total += self._sum_path_size_bytes(status.getPath().toString())
+                else:
+                    total += status.getLen()
+            return int(total)
+        except Exception:
+            return 0
 
     def get_raw_input_size_bytes(self, batch_id: int) -> int:
         """Sum file sizes under raw_data_path/Batch{batch_id}/ for throughput metrics."""
