@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, lit, current_timestamp, coalesce
+from pyspark.sql.functions import col, lit, current_timestamp, coalesce, min as spark_min
 
 if TYPE_CHECKING:
     from benchmark.platforms.databricks import DatabricksPlatform
@@ -316,25 +316,37 @@ class SilverLoaderBase:
             self.spark.sql(close_sql)
             logger.info(f"Closed out existing records for updated keys in {target_table}")
         except Exception as e:
-            logger.warning(f"MERGE failed (may not be Delta): {e}. Falling back to append-only.")
-            # Fallback: just append (works for non-Delta tables)
+            logger.warning(f"MERGE failed (may not be Delta/Parquet): {e}. Using read-modify-write fallback for SCD2.")
+            # Fallback: Same SCD2 logic using DataFrame ops (works for Parquet, e.g. Dataproc)
+            updates_df = incoming_df.groupBy(key_column).agg(
+                spark_min(effective_date_col).alias("new_effective_date")
+            )
+            existing_alias = existing_df.alias("e")
+            updates_alias = updates_df.alias("u")
+            existing_cols = [f for f in existing_df.schema.fieldNames() if f not in ("is_current", "end_date")]
+            existing_updated = existing_alias.join(updates_alias, col("e." + key_column) == col("u." + key_column), "left").select(
+                *[col("e." + f) for f in existing_cols],
+                when(col("e.is_current") & col("u.new_effective_date").isNotNull(), lit(False)).otherwise(col("e.is_current")).alias("is_current"),
+                when(col("e.is_current") & col("u.new_effective_date").isNotNull(), col("u.new_effective_date")).otherwise(col("e.end_date")).alias("end_date"),
+            )
             append_df = incoming_df
             if record_type_col and exclude_record_types:
                 append_df = incoming_df.filter(~col(record_type_col).isin(*exclude_record_types))
-            
+            schema_names = [f.name for f in existing_updated.schema.fields]
+            append_select = append_df.select(*[col(c) for c in schema_names if c in append_df.columns])
+            combined = existing_updated.unionByName(append_select, allowMissingColumns=True)
             write_start = time.time()
-            self.platform.write_table(append_df, target_table, mode="append")
+            self.platform.write_table(combined, target_table, mode="overwrite")
             write_end = time.time()
             row_count = append_df.count()
             if table_timing_is_detailed():
-                logger.info(f"[TIMING] {target_table} (fallback append) - Duration: {write_end - write_start:.2f}s, Rows: {row_count}")
-            
+                logger.info(f"[TIMING] {target_table} (SCD2 fallback) - Duration: {write_end - write_start:.2f}s, Rows inserted: {row_count}")
+            try:
+                self.spark.catalog.dropTempView("incoming_changes")
+                self.spark.catalog.dropTempView("incoming_keys")
+            except Exception:
+                pass
             end_time = time.time()
-            end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            duration = end_time - start_time
-            if table_timing_is_detailed():
-                logger.info(f"[TIMING] Completed SCD Type 2 for {target_table} at {end_datetime}")
-                logger.info(f"[TIMING] {target_table} (SCD Type 2) - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s")
             table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
             return incoming_df
         

@@ -2,15 +2,14 @@
 Silver layer loader for Prospect.
 
 Parses prospect data from bronze_prospect (comma-delimited).
-Overwrite mode for all batches (no SCD Type 2).
+Batch 1: overwrite. Incremental (batch 2+): append only.
 """
 
 import logging
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, lit, coalesce
 
-from benchmark.etl.silver.base import SilverLoaderBase, _get_table_size_bytes
-from benchmark.etl.table_timing import end_table as table_timing_end
+from benchmark.etl.silver.base import SilverLoaderBase
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +17,7 @@ logger = logging.getLogger(__name__)
 class SilverProspect(SilverLoaderBase):
     """
     Silver layer loader for Prospect.
-    Parses comma-delimited Prospect.csv. Overwrite for all batches.
+    Parses comma-delimited Prospect.csv. Batch 1: overwrite. Incremental: append.
     """
 
     def load(self, bronze_table: str, target_table: str, batch_id: int) -> DataFrame:
@@ -60,7 +59,4 @@ class SilverProspect(SilverLoaderBase):
             col("_load_timestamp").alias("load_timestamp"),
         )
 
-        self.platform.write_table(silver_df, target_table, mode="overwrite")
-        row_count = silver_df.count()
-        table_timing_end(target_table, row_count, bytes_processed=_get_table_size_bytes(self.platform, target_table))
-        return silver_df
+        return self._write_silver_table(silver_df, target_table, batch_id)
