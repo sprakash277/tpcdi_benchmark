@@ -285,8 +285,10 @@ class SilverAccounts(SilverLoaderBase):
             col("load_timestamp").alias("load_timestamp"),
         ])
         
-        # Pass record_type through for SCD2 (exclude D from append)
+        # record_type: same schema for batch 1 and incremental (SCD2 append expects it)
         if has_record_type and "record_type" in account_df.columns:
             select_cols.append(col("record_type"))
+        else:
+            select_cols.append(lit("I").alias("record_type"))
         
         return account_df.select(*select_cols)
