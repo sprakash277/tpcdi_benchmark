@@ -207,7 +207,7 @@ class SilverETL:
 
         # Silver DQ: run TPC-DI validation rules and log to gold_dim_messages
         try:
-            from benchmark.etl.table_timing import start_table as table_timing_start, end_table as table_timing_end
+            from benchmark.etl.table_timing import end_table as table_timing_end
             dq_table_name = f"{prefix}.silver_dq_validation"
             table_timing_start(dq_table_name)
             dq = SilverDQRunner(self.platform)
