@@ -126,7 +126,16 @@ class SilverDailyMarket(SilverLoaderBase):
         else:
             # Exclude deletes from upsert payload; match/insert on dm_key only
             upsert_df = silver_df.filter(col("record_type") != "D")
-            logger.info(f"Applying Type 1 upsert for daily_market batch {batch_id} on dm_key (record_type D excluded)")
+            
+            # Deduplicate: keep latest record per dm_key (MERGE requires unique source keys)
+            from pyspark.sql.window import Window
+            from pyspark.sql.functions import row_number, desc
+            window_spec = Window.partitionBy("dm_key").orderBy(desc("load_timestamp"), desc("dm_date"))
+            upsert_df = upsert_df.withColumn("_rn", row_number().over(window_spec)) \
+                                 .filter(col("_rn") == 1) \
+                                 .drop("_rn")
+            
+            logger.info(f"Applying Type 1 upsert for daily_market batch {batch_id} on dm_key (record_type D excluded, deduped)")
             return self._upsert_fact_table(
                 incoming_df=upsert_df,
                 target_table=target_table,

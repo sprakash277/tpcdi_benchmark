@@ -68,12 +68,12 @@ class GoldFactTrade(GoldLoaderBase):
                   silver_trades["trade_type_id"] == dim_trade_type["trade_type_id"],
                   "left") \
             .select(
-                # Surrogate keys (placeholder -1 when dimension not yet arrived)
+                # Surrogate keys (placeholder -1 or "UNKNOWN" when dimension not yet arrived)
                 coalesce(dim_date["sk_date_id"], lit(-1)).alias("sk_date_id"),
                 coalesce(dim_customer["sk_customer_id"], lit(-1)).alias("sk_customer_id"),
                 coalesce(dim_account["sk_account_id"], lit(-1)).alias("sk_account_id"),
-                coalesce(dim_security["sk_security_id"], lit(-1)).alias("sk_security_id"),
-                coalesce(dim_trade_type["sk_trade_type_id"], lit(-1)).alias("sk_trade_type_id"),
+                coalesce(dim_security["sk_security_id"], lit("UNKNOWN")).alias("sk_security_id"),
+                coalesce(dim_trade_type["sk_trade_type_id"], lit("UNKNOWN")).alias("sk_trade_type_id"),
                 # Fact measures (from silver_trades)
                 silver_trades["trade_id"],
                 silver_trades["trade_dts"],
