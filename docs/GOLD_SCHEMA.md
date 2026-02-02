@@ -194,10 +194,26 @@ USING DELTA;
 
 ---
 
+### gold_dim_messages
+**Source**: Data Quality (DQ) layer. TPC-DI audit table for Silver DQ rule failures. Created automatically; Silver DQ appends rows when validation rules trigger.
+
+```sql
+CREATE TABLE gold_dim_messages (
+  message_timestamp TIMESTAMP,
+  batch_id INT,
+  component_name STRING,
+  message_text STRING,
+  severity STRING,
+  source_table STRING
+) USING DELTA;
+```
+
+---
+
 ## Fact Tables
 
 ### gold_fact_trade
-**Source**: silver_trades (current versions) joined with gold_dim_date, gold_dim_account, gold_dim_customer, gold_dim_security, gold_dim_trade_type.
+**Source**: silver_trades (current versions) joined with gold_dim_date, gold_dim_account, gold_dim_customer, gold_dim_security, gold_dim_trade_type. Late-arriving dim: placeholder rows (account_id/customer_id -1) in dimensions; `late_arriving_flag` true when trade arrived before account/customer.
 
 ```sql
 CREATE TABLE gold_fact_trade (
@@ -218,6 +234,7 @@ CREATE TABLE gold_fact_trade (
   is_cash BOOLEAN,
   exec_name STRING,
   batch_id INT,
+  late_arriving_flag BOOLEAN,
   etl_timestamp TIMESTAMP
 )
 USING DELTA;

@@ -6,7 +6,7 @@ Fact tables join Silver facts with Gold dimensions to create denormalized star s
 
 import logging
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, to_date, current_timestamp, sum as spark_sum, count
+from pyspark.sql.functions import col, to_date, current_timestamp, coalesce, lit, sum as spark_sum, count
 
 from benchmark.etl.gold.base import GoldLoaderBase
 
@@ -50,6 +50,7 @@ class GoldFactTrade(GoldLoaderBase):
         
         # Join with dimensions to get surrogate keys (qualify columns to avoid ambiguity)
         # Note: silver_trades has account_id, join to account to get customer_id
+        # Late-arriving dim: use placeholder -1 when account/customer not yet loaded; flag the row
         fact_df = silver_trades \
             .join(dim_date,
                   to_date(silver_trades["trade_dts"]) == dim_date["date_value"],
@@ -67,12 +68,12 @@ class GoldFactTrade(GoldLoaderBase):
                   silver_trades["trade_type_id"] == dim_trade_type["trade_type_id"],
                   "left") \
             .select(
-                # Surrogate keys
-                dim_date["sk_date_id"].alias("sk_date_id"),
-                dim_customer["sk_customer_id"].alias("sk_customer_id"),
-                dim_account["sk_account_id"].alias("sk_account_id"),
-                dim_security["sk_security_id"].alias("sk_security_id"),
-                dim_trade_type["sk_trade_type_id"].alias("sk_trade_type_id"),
+                # Surrogate keys (placeholder -1 when dimension not yet arrived)
+                coalesce(dim_date["sk_date_id"], lit(-1)).alias("sk_date_id"),
+                coalesce(dim_customer["sk_customer_id"], lit(-1)).alias("sk_customer_id"),
+                coalesce(dim_account["sk_account_id"], lit(-1)).alias("sk_account_id"),
+                coalesce(dim_security["sk_security_id"], lit(-1)).alias("sk_security_id"),
+                coalesce(dim_trade_type["sk_trade_type_id"], lit(-1)).alias("sk_trade_type_id"),
                 # Fact measures (from silver_trades)
                 silver_trades["trade_id"],
                 silver_trades["trade_dts"],
@@ -86,6 +87,8 @@ class GoldFactTrade(GoldLoaderBase):
                 silver_trades["is_cash"],
                 silver_trades["exec_name"],
                 silver_trades["batch_id"],
+                # Late-arriving fact: trade arrived before account/customer in a later batch
+                (dim_account["sk_account_id"].isNull() | dim_customer["sk_customer_id"].isNull()).alias("late_arriving_flag"),
                 current_timestamp().alias("etl_timestamp"),
             )
         

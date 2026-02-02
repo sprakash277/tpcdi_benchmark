@@ -32,6 +32,7 @@ from benchmark.etl.gold.facts import (
     GoldFactHoldings,
 )
 from benchmark.etl.table_timing import start_table as table_timing_start
+from benchmark.etl.dq.dim_messages import ensure_dim_messages_exists
 
 if TYPE_CHECKING:
     from benchmark.platforms.databricks import DatabricksPlatform
@@ -106,6 +107,9 @@ class GoldETL:
         prefix = ".".join(p for p in (target_database, target_schema) if p)
         
         logger.info("Starting Gold layer load")
+        
+        # Ensure DimMessages exists (Silver DQ may have already created it)
+        ensure_dim_messages_exists(self.platform.get_spark(), f"{prefix}.gold_dim_messages", self.platform)
         
         # Step 1: Load dimension tables (must be done first)
         logger.info("Loading Gold dimension tables...")

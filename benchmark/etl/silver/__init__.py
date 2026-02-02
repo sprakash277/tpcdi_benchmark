@@ -29,6 +29,7 @@ from benchmark.etl.silver.reference import (
     SilverTaxRate, SilverWatchHistory,
 )
 from benchmark.etl.table_timing import start_table as table_timing_start
+from benchmark.etl.dq.silver_rules import SilverDQRunner
 
 if TYPE_CHECKING:
     from benchmark.platforms.databricks import DatabricksPlatform
@@ -203,5 +204,12 @@ class SilverETL:
             )
         except Exception as e:
             logger.warning(f"Holding history data skipped: {e}")
+
+        # Silver DQ: run TPC-DI validation rules and log to gold_dim_messages
+        try:
+            dq = SilverDQRunner(self.platform)
+            dq.run_silver_dq(batch_id, prefix, dim_messages_table=f"{prefix}.gold_dim_messages")
+        except Exception as e:
+            logger.warning(f"Silver DQ run failed: {e}")
 
         logger.info(f"Silver layer load completed for Batch{batch_id}")

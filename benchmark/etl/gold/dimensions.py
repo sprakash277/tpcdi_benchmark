@@ -8,6 +8,10 @@ import logging
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, lit, current_timestamp
 
+# Placeholder IDs for late-arriving dimension (TPC-DI: trade arrives before account/customer)
+PLACEHOLDER_CUSTOMER_ID = -1
+PLACEHOLDER_ACCOUNT_ID = -1
+
 from benchmark.etl.gold.base import GoldLoaderBase
 
 logger = logging.getLogger(__name__)
@@ -56,7 +60,31 @@ class GoldDimCustomer(GoldLoaderBase):
             col("national_tax_id"),
             current_timestamp().alias("etl_timestamp"),
         )
-        
+        # Placeholder row for late-arriving facts (trade before customer exists)
+        placeholder_row = self.spark.range(1).select(
+            lit(PLACEHOLDER_CUSTOMER_ID).alias("sk_customer_id"),
+            lit(PLACEHOLDER_CUSTOMER_ID).alias("customer_id"),
+            lit("Unknown").alias("tax_id"),
+            lit("Unknown").alias("status"),
+            lit("Unknown").alias("last_name"),
+            lit("Unknown").alias("first_name"),
+            lit("Unknown").alias("middle_name"),
+            lit("Unknown").alias("gender"),
+            lit(1).alias("tier"),
+            lit(None).cast("date").alias("dob"),
+            lit("").alias("address_line1"),
+            lit("").alias("address_line2"),
+            lit("").alias("postal_code"),
+            lit("").alias("city"),
+            lit("").alias("state_prov"),
+            lit("").alias("country"),
+            lit("").alias("email1"),
+            lit("").alias("email2"),
+            lit("").alias("local_tax_id"),
+            lit("").alias("national_tax_id"),
+            current_timestamp().alias("etl_timestamp"),
+        )
+        gold_df = gold_df.unionByName(placeholder_row, allowMissingColumns=True)
         return self._write_gold_table(gold_df, target_table, mode="overwrite")
 
 
@@ -90,7 +118,18 @@ class GoldDimAccount(GoldLoaderBase):
             col("status_id"),
             current_timestamp().alias("etl_timestamp"),
         )
-        
+        # Placeholder row for late-arriving facts (trade before account exists)
+        placeholder_row = self.spark.range(1).select(
+            lit(PLACEHOLDER_ACCOUNT_ID).alias("sk_account_id"),
+            lit(PLACEHOLDER_ACCOUNT_ID).alias("account_id"),
+            lit(PLACEHOLDER_ACCOUNT_ID).alias("broker_id"),
+            lit(PLACEHOLDER_CUSTOMER_ID).alias("customer_id"),
+            lit("Unknown").alias("account_name"),
+            lit(0).alias("tax_status"),
+            lit("ACTV").alias("status_id"),
+            current_timestamp().alias("etl_timestamp"),
+        )
+        gold_df = gold_df.unionByName(placeholder_row, allowMissingColumns=True)
         return self._write_gold_table(gold_df, target_table, mode="overwrite")
 
 
