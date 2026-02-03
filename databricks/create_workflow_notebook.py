@@ -188,7 +188,8 @@ workflow = {
                     "target_catalog": "",
                     "batch_id": "",
                     "metrics_output": "dbfs:/mnt/tpcdi/metrics",
-                    "log_detailed_stats": "false"
+                    "log_detailed_stats": "false",
+                    "use_udtf_customer_mgmt": "auto"
                 }
             },
             "timeout_seconds": 0,
@@ -244,6 +245,11 @@ workflow = {
             "name": "log_detailed_stats",
             "default": "false",
             "description": "Log per-table timing and records; false = only job start/end/total duration"
+        },
+        {
+            "name": "use_udtf_customer_mgmt",
+            "default": "auto",
+            "description": "CustomerMgmt.xml: auto=UDTF on Databricks, true=UDTF, false=spark-xml"
         },
         {
             "name": "upload_threads",

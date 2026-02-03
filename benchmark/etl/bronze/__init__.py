@@ -10,7 +10,7 @@ No parsing, no type conversions - just raw capture.
 """
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 # Import individual loaders
 from benchmark.etl.bronze.customer_mgmt import BronzeCustomerMgmt
@@ -96,19 +96,27 @@ class BronzeETL:
         
         logger.info("Initialized BronzeETL orchestrator")
     
-    def run_bronze_batch_load(self, batch_id: int, target_database: str, target_schema: str):
+    def run_bronze_batch_load(
+        self,
+        batch_id: int,
+        target_database: str,
+        target_schema: str,
+        use_udtf_customer_mgmt: Optional[bool] = None,
+    ):
         """
         Run full Bronze layer load for a batch.
-        
+
         Args:
             batch_id: Batch number (1 for historical, 2+ for incremental)
             target_database: Target database/catalog name
             target_schema: Target schema name
+            use_udtf_customer_mgmt: If True use UDTF for CustomerMgmt.xml; if False use spark-xml;
+                if None (auto) use UDTF only when platform is Databricks.
         """
         prefix = ".".join(p for p in (target_database, target_schema) if p)
-        
+
         logger.info(f"Starting Bronze layer load for Batch{batch_id}")
-        
+
         # Reference data (Batch1 only)
         if batch_id == 1:
             table_timing_start(f"{prefix}.bronze_date")
@@ -125,15 +133,17 @@ class BronzeETL:
             self.industry.load(f"{prefix}.bronze_industry")
             table_timing_start(f"{prefix}.bronze_hr")
             self.hr.load(batch_id, f"{prefix}.bronze_hr")
-        
+
         # Customer/Account data: Different formats for Batch 1 vs Batch 2+
         # Batch 1: CustomerMgmt.xml (XML event log)
         # Batch 2+: Customer.txt and Account.txt (pipe-delimited state snapshots)
         if batch_id == 1:
             table_timing_start(f"{prefix}.bronze_customer_mgmt")
-            # Use UDTF for parallel XML parsing on Databricks (Spark 3.5+)
-            from benchmark.platforms.databricks import DatabricksPlatform
-            use_udtf = isinstance(self.platform, DatabricksPlatform)
+            if use_udtf_customer_mgmt is not None:
+                use_udtf = use_udtf_customer_mgmt
+            else:
+                from benchmark.platforms.databricks import DatabricksPlatform
+                use_udtf = isinstance(self.platform, DatabricksPlatform)
             self.customer_mgmt.load(batch_id, f"{prefix}.bronze_customer_mgmt", use_udtf=use_udtf)
         else:
             # Incremental batches: pipe-delimited flat files

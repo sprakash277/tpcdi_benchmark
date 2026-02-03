@@ -204,7 +204,10 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             metrics.start_step("bronze_etl")
             from benchmark.etl.bronze import BronzeETL
             bronze_etl = BronzeETL(platform)
-            bronze_etl.run_bronze_batch_load(1, db_or_catalog, effective_schema)
+            bronze_etl.run_bronze_batch_load(
+                1, db_or_catalog, effective_schema,
+                use_udtf_customer_mgmt=config.use_udtf_customer_mgmt,
+            )
             
             bronze_tables = ["bronze_customer_mgmt", "bronze_trade", "bronze_daily_market", 
                             "bronze_date", "bronze_status_type", "bronze_trade_type",
@@ -267,7 +270,10 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             metrics.start_step(f"bronze_incremental_batch{config.batch_id}")
             from benchmark.etl.bronze import BronzeETL
             bronze_etl = BronzeETL(platform)
-            bronze_etl.run_bronze_batch_load(config.batch_id, db_or_catalog, effective_schema)
+            bronze_etl.run_bronze_batch_load(
+                config.batch_id, db_or_catalog, effective_schema,
+                use_udtf_customer_mgmt=config.use_udtf_customer_mgmt,
+            )
             inc_batch_bytes = getattr(platform, "get_raw_input_size_bytes", lambda bid: 0)(config.batch_id)
             metrics.finish_step(bytes=inc_batch_bytes if inc_batch_bytes else None)
             
@@ -332,6 +338,8 @@ if __name__ == "__main__":
     parser.add_argument("--metrics-output", help="Path to save metrics JSON")
     parser.add_argument("--log-detailed-stats", action="store_true",
                         help="Log per-table timing and records; default is only job start/end/total duration")
+    parser.add_argument("--use-udtf-customer-mgmt", choices=["auto", "true", "false"], default="auto",
+                        help="CustomerMgmt.xml: auto=UDTF on Databricks, true=UDTF, false=spark-xml")
     
     args = parser.parse_args()
     
@@ -342,6 +350,7 @@ if __name__ == "__main__":
     if not raw_base:
         raise ValueError("Provide --raw-data-path or --output-path (Databricks)")
     
+    use_udtf = {"auto": None, "true": True, "false": False}[args.use_udtf_customer_mgmt]
     config = BenchmarkConfig(
         platform=Platform(args.platform),
         load_type=LoadType(args.load_type),
@@ -358,6 +367,7 @@ if __name__ == "__main__":
         spark_master=args.spark_master,
         metrics_output_path=args.metrics_output,
         log_detailed_stats=args.log_detailed_stats,
+        use_udtf_customer_mgmt=use_udtf,
     )
     
     result = run_benchmark(config)

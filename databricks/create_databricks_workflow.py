@@ -105,7 +105,8 @@ def create_workflow_definition(
                         "target_catalog": default_target_catalog,
                         "batch_id": "",
                         "metrics_output": default_metrics_output,
-                        "log_detailed_stats": "true" if default_log_detailed_stats else "false"
+                        "log_detailed_stats": "true" if default_log_detailed_stats else "false",
+                        "use_udtf_customer_mgmt": "auto"
                     }
                 },
                 "existing_cluster_id": None,
@@ -164,6 +165,11 @@ def create_workflow_definition(
                 "name": "log_detailed_stats",
                 "default": "true" if default_log_detailed_stats else "false",
                 "description": "Log per-table timing and records; false = only job start/end/total duration"
+            },
+            {
+                "name": "use_udtf_customer_mgmt",
+                "default": "auto",
+                "description": "CustomerMgmt.xml: auto=UDTF on Databricks, true=UDTF, false=spark-xml"
             },
             {
                 "name": "upload_threads",

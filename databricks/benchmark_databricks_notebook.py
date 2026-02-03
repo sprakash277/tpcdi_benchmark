@@ -53,6 +53,10 @@ try:
     dbutils.widgets.drop("log_detailed_stats")
 except Exception:
     pass
+try:
+    dbutils.widgets.drop("use_udtf_customer_mgmt")
+except Exception:
+    pass
 
 dbutils.widgets.dropdown("load_type", "batch", ["batch", "incremental"], "Load Type")
 dbutils.widgets.text("scale_factor", "10", "Scale Factor")
@@ -63,6 +67,7 @@ dbutils.widgets.text("target_catalog", "", "Target Catalog (Unity Catalog; optio
 dbutils.widgets.text("batch_id", "", "Batch ID (for incremental only)")
 dbutils.widgets.text("metrics_output", "dbfs:/mnt/tpcdi/metrics", "Metrics Output Path")
 dbutils.widgets.dropdown("log_detailed_stats", "false", ["true", "false"], "Log detailed stats (per-table timing/records); false = only job start/end/total duration")
+dbutils.widgets.dropdown("use_udtf_customer_mgmt", "auto", ["auto", "true", "false"], "CustomerMgmt.xml: auto=UDTF on Databricks, true=UDTF, false=spark-xml")
 
 # COMMAND ----------
 
@@ -118,6 +123,8 @@ target_catalog = dbutils.widgets.get("target_catalog").strip() or None
 batch_id_str = dbutils.widgets.get("batch_id").strip()
 metrics_output = dbutils.widgets.get("metrics_output").strip()
 log_detailed_stats = dbutils.widgets.get("log_detailed_stats") == "true"
+use_udtf_customer_mgmt_str = dbutils.widgets.get("use_udtf_customer_mgmt").strip().lower()
+use_udtf_customer_mgmt = {"auto": None, "true": True, "false": False}.get(use_udtf_customer_mgmt_str, None)
 
 # Parse batch_id for incremental loads
 batch_id = int(batch_id_str) if batch_id_str and load_type == "incremental" else None
@@ -137,6 +144,7 @@ config = BenchmarkConfig(
     batch_id=batch_id,
     metrics_output_path=metrics_output,
     log_detailed_stats=log_detailed_stats,
+    use_udtf_customer_mgmt=use_udtf_customer_mgmt,
 )
 
 result = run_benchmark(config)

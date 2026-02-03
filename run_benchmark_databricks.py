@@ -40,6 +40,8 @@ if __name__ == "__main__":
                        help="Path to save metrics JSON (default: dbfs:/mnt/tpcdi/metrics)")
     parser.add_argument("--log-detailed-stats", action="store_true",
                        help="Log per-table timing and records; default is only job start/end/total duration")
+    parser.add_argument("--use-udtf-customer-mgmt", choices=["auto", "true", "false"], default="auto",
+                       help="CustomerMgmt.xml: auto=UDTF on Databricks (default), true=UDTF, false=spark-xml")
     
     args = parser.parse_args()
 
@@ -64,6 +66,7 @@ if __name__ == "__main__":
     if args.cloud:
         print(f"Cloud: {args.cloud} | Recommended: Worker/Driver = {DEFAULT_NODE_TYPES[args.cloud][0]} | Allowed: {', '.join(CLOUD_NODE_OPTIONS[args.cloud])}")
     
+    use_udtf = {"auto": None, "true": True, "false": False}[args.use_udtf_customer_mgmt]
     # output_path = raw data base; runner appends /sf={scale_factor}
     config = BenchmarkConfig(
         platform=Platform.DATABRICKS,
@@ -77,6 +80,7 @@ if __name__ == "__main__":
         batch_id=args.batch_id,
         metrics_output_path=args.metrics_output,
         log_detailed_stats=args.log_detailed_stats,
+        use_udtf_customer_mgmt=use_udtf,
     )
     
     result = run_benchmark(config)

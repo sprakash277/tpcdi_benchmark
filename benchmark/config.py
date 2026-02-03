@@ -42,6 +42,7 @@ class BenchmarkConfig:
     enable_metrics: bool = True
     metrics_output_path: Optional[str] = None
     log_detailed_stats: bool = False  # If True, log per-table timing and records; else only job start/end/total duration
+    use_udtf_customer_mgmt: Optional[bool] = None  # Databricks: True=UDTF, False=spark-xml, None=auto (UDTF when platform is Databricks)
     def __post_init__(self):
         """Validate configuration."""
         if self.platform == Platform.DATAPROC:
