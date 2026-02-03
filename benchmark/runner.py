@@ -4,6 +4,7 @@ Orchestrates ETL execution on Databricks or Dataproc platforms.
 """
 
 import logging
+import re
 from typing import Optional
 from pyspark.sql import SparkSession
 
@@ -140,7 +141,11 @@ def create_platform_adapter(config: BenchmarkConfig, spark: SparkSession):
         
         return DatabricksPlatform(spark, raw_root)
     elif config.platform == Platform.DATAPROC:
-        return DataprocPlatform(spark, config.raw_data_path, 
+        # Build raw_root from base + /sf={scale_factor} (same pattern as Databricks)
+        base = config.raw_data_path.rstrip("/")
+        base = re.sub(r"/sf=\d+$", "", base) or base  # strip existing /sf=N so scale_factor is source of truth
+        raw_root = f"{base}/sf={config.scale_factor}"
+        return DataprocPlatform(spark, raw_root,
                                config.gcs_bucket, config.project_id,
                                service_account_email=config.service_account_email,
                                service_account_key_file=config.service_account_key_file,

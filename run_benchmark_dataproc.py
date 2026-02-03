@@ -63,7 +63,7 @@ if __name__ == "__main__":
     parser.add_argument("--region", default="us-central1",
                        help="GCP region (default: us-central1)")
     parser.add_argument("--raw-data-path", 
-                       help="Path to raw TPC-DI data in GCS (default: gs://<bucket>/tpcdi/sf=<sf>)")
+                       help="Base path to raw TPC-DI data in GCS; /sf=<scale_factor> is appended (default: gs://<bucket>/tpcdi)")
     parser.add_argument("--target-database", default="tpcdi_warehouse",
                        help="Target database name (default: tpcdi_warehouse)")
     parser.add_argument("--target-schema", default="dw",
@@ -95,11 +95,11 @@ if __name__ == "__main__":
     elif isinstance(args.log_detailed_stats, str):
         args.log_detailed_stats = args.log_detailed_stats.strip().lower() in ("true", "yes", "1")
 
-    # Construct raw data path
+    # Construct raw data path (base only; runner appends /sf={scale_factor} like Databricks)
     if args.raw_data_path:
-        raw_data_path = args.raw_data_path
+        raw_data_path = args.raw_data_path.rstrip("/")
     else:
-        raw_data_path = f"gs://{args.gcs_bucket}/tpcdi/sf={args.scale_factor}"
+        raw_data_path = f"gs://{args.gcs_bucket}/tpcdi"
     
     # Construct metrics output path (only used when save_metrics is True)
     if args.save_metrics:
