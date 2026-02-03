@@ -119,26 +119,34 @@ def create_platform_adapter(config: BenchmarkConfig, spark: SparkSession):
         Platform adapter instance
     """
     if config.platform == Platform.DATABRICKS:
-        # Use output_path as raw data input when provided (DBFS or Volume)
+        # Use output_path as raw data input when provided (DBFS or Volume or GCS)
         logger.info(f"[DEBUG create_platform_adapter] config.output_path='{config.output_path}'")
         logger.info(f"[DEBUG create_platform_adapter] config.raw_data_path='{config.raw_data_path}'")
-        
+
         base = (config.output_path or config.raw_data_path).rstrip("/")
         logger.info(f"[DEBUG create_platform_adapter] base (before normalization)='{base}'")
-        
+
         # Remove dbfs: prefix from Volume paths if accidentally added
         original_base = base
         if base.startswith("dbfs:/Volumes/"):
             base = base[5:]  # Remove "dbfs:" prefix
             logger.warning(f"[DEBUG create_platform_adapter] Removed 'dbfs:' prefix from Volume path: {original_base} -> {base}")
-        
+
         # Infer load type from path: dbfs -> DBFS, /Volumes/ -> Volume, gs:// -> GCS (handled by platform)
         raw_root = f"{base}/sf={config.scale_factor}"
-        
+
+        # When reading from GCS on Databricks, set bucket so connector does not throw "No bucket specified in GCS URI: null"
+        if raw_root.startswith("gs://"):
+            bucket_match = re.match(r"gs://([^/]+)", raw_root)
+            if bucket_match:
+                bucket = bucket_match.group(1)
+                spark.conf.set("spark.hadoop.fs.gs.bucket", bucket)
+                logger.info(f"Set spark.hadoop.fs.gs.bucket={bucket} for GCS reads on Databricks")
+
         logger.info(f"[DEBUG create_platform_adapter] Final values:")
         logger.info(f"  base='{base}'")
         logger.info(f"  raw_root='{raw_root}'")
-        
+
         return DatabricksPlatform(spark, raw_root)
     elif config.platform == Platform.DATAPROC:
         # Build raw_root from base + /sf={scale_factor} (same pattern as Databricks)

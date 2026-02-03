@@ -8,3 +8,6 @@ pyspark>=3.0.0
 #
 # Optional for local development:
 # google-cloud-storage>=2.0.0  # For GCS operations if needed
+
+# Optional for Databricks SQL / Apps:
+databricks-sql-connector
