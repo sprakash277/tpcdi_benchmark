@@ -1,10 +1,10 @@
 """
 Databricks platform adapter for TPC-DI benchmark.
 Handles DBFS, Unity Catalog Volume, and GCS paths.
+GCS access relies on cluster config (Spark config or UC external location).
 """
 
 import logging
-import re
 from typing import Optional
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import StructType
@@ -43,18 +43,6 @@ class DatabricksPlatform:
     def read_raw_file(self, file_path: str, schema: Optional[StructType] = None,
                       format: str = "csv", **options) -> DataFrame:
         full_path = self._resolve_path(file_path)
-        # Ensure GCS connector is configured before each gs:// read (same as direct spark.read.load)
-        if full_path.startswith("gs://"):
-            match = re.match(r"gs://([^/]+)", full_path)
-            if match:
-                bucket = match.group(1)
-                try:
-                    hadoop_conf = self.spark.sparkContext._jsc.hadoopConfiguration()
-                    hadoop_conf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
-                    hadoop_conf.set("fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
-                    hadoop_conf.set("fs.gs.bucket", bucket)
-                except Exception as e:
-                    logger.warning(f"Could not set GCS config before read: {e}")
         reader = self.spark.read.format(format)
         if schema:
             reader = reader.schema(schema)
