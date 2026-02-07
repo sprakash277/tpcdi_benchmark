@@ -135,13 +135,24 @@ def create_platform_adapter(config: BenchmarkConfig, spark: SparkSession):
         # Infer load type from path: dbfs -> DBFS, /Volumes/ -> Volume, gs:// -> GCS (handled by platform)
         raw_root = f"{base}/sf={config.scale_factor}"
 
-        # When reading from GCS on Databricks, set bucket so connector does not throw "No bucket specified in GCS URI: null"
+        # When reading from GCS on Databricks, configure the same Hadoop GCS connector as when you
+        # run spark.read.load("gs://...") manually (cluster Spark config). Otherwise the connector
+        # can see "No bucket specified in GCS URI: null" because only spark.conf was set.
         if raw_root.startswith("gs://"):
             bucket_match = re.match(r"gs://([^/]+)", raw_root)
             if bucket_match:
                 bucket = bucket_match.group(1)
-                spark.conf.set("spark.hadoop.fs.gs.bucket", bucket)
-                logger.info(f"Set spark.hadoop.fs.gs.bucket={bucket} for GCS reads on Databricks")
+                try:
+                    hadoop_conf = spark.sparkContext._jsc.hadoopConfiguration()
+                    hadoop_conf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
+                    hadoop_conf.set("fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
+                    hadoop_conf.set("fs.gs.bucket", bucket)
+                    if getattr(config, "project_id", None):
+                        hadoop_conf.set("fs.gs.project.id", config.project_id)
+                    spark.conf.set("spark.hadoop.fs.gs.bucket", bucket)
+                    logger.info(f"Configured GCS connector for Databricks: fs.gs.bucket={bucket}")
+                except Exception as e:
+                    logger.warning(f"Could not set GCS connector on Databricks: {e}")
 
         logger.info(f"[DEBUG create_platform_adapter] Final values:")
         logger.info(f"  base='{base}'")
