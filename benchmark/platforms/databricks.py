@@ -47,6 +47,7 @@ class DatabricksPlatform:
             reader = reader.schema(schema)
         for key, value in options.items():
             reader = reader.option(key, value)
+        print(f"Reading file: {full_path}")
         return reader.load(full_path)
 
     def read_batch_files(self, batch_id: int, file_pattern: str,
