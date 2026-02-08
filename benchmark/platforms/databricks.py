@@ -35,6 +35,9 @@ class DatabricksPlatform:
 
     def _resolve_path(self, relative_path: str) -> str:
         full = f"{self.raw_data_path}/{relative_path}".replace("//", "/")
+        # .replace("//", "/") also mangles gs:// to gs:/ — restore the scheme
+        if full.startswith("gs:/") and not full.startswith("gs://"):
+            full = "gs://" + full[4:]
         if full.startswith("dbfs:/Volumes/"):
             full = full[5:]
         return full
