@@ -19,18 +19,31 @@ from benchmark.etl.bronze.base import BronzeLoaderBase
 
 logger = logging.getLogger(__name__)
 
-# Schema file next to this module; created on first run when schema is inferred
-_SCHEMA_FILE = Path(__file__).resolve().parent / "customer_mgmt_schema.json"
+_SCHEMA_FILENAME = "customer_mgmt_schema.json"
 
 
 def _schema_path() -> Path:
-    return _SCHEMA_FILE
+    """Path to schema JSON. Use writable dir: module dir when not running from zip, else cwd or env."""
+    module_dir = Path(__file__).resolve().parent
+    # When run from a zip (e.g. Dataproc --py-files=benchmark.zip), module_dir is inside the zip and not writable
+    if module_dir.is_dir() and os.access(module_dir, os.W_OK):
+        return module_dir / _SCHEMA_FILENAME
+    fallback = os.environ.get("TPCDI_CUSTOMERMGMT_SCHEMA_DIR")
+    if fallback:
+        return Path(fallback).resolve() / _SCHEMA_FILENAME
+    return Path.cwd() / _SCHEMA_FILENAME
 
 
 def _load_customer_mgmt_schema() -> Optional[StructType]:
-    """Load CustomerMgmt schema from JSON file if it exists."""
-    path = _schema_path()
-    if not path.is_file():
+    """Load CustomerMgmt schema from JSON file if it exists (module dir or writable fallback)."""
+    module_dir = Path(__file__).resolve().parent
+    for path in [
+        module_dir / _SCHEMA_FILENAME,  # repo/module dir when not from zip
+        _schema_path(),  # writable fallback (cwd or env) when running from zip
+    ]:
+        if path.is_file():
+            break
+    else:
         return None
     try:
         with open(path, "r") as f:
@@ -48,6 +61,7 @@ def _save_customer_mgmt_schema(schema_json: str) -> None:
     """Save schema JSON to file for next run (avoids inference)."""
     path = _schema_path()
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
             f.write(schema_json)
         logger.info(f"Saved CustomerMgmt schema to {path} for next run")

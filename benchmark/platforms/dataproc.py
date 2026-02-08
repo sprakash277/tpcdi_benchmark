@@ -199,6 +199,24 @@ class DataprocPlatform:
         
         writer.saveAsTable(table_name)
     
+    def delete_target_database_path_if_exists(self, database_name: str) -> None:
+        """
+        Delete the GCS folder for the target database (spark-warehouse/{db}.db) if it exists.
+        Call before create_database for a clean batch run.
+        """
+        path_str = f"gs://{self.gcs_bucket}/spark-warehouse/{database_name}.db"
+        try:
+            hadoop_conf = self.spark.sparkContext._jsc.hadoopConfiguration()
+            path = self.spark.sparkContext._jvm.org.apache.hadoop.fs.Path(path_str)
+            fs = path.getFileSystem(hadoop_conf)
+            if fs.exists(path):
+                fs.delete(path, True)
+                logger.info(f"Deleted existing target folder: {path_str}")
+            else:
+                logger.debug(f"Target folder does not exist (no delete): {path_str}")
+        except Exception as e:
+            logger.warning(f"Could not delete target folder {path_str}: {e}")
+
     def create_database(self, database_name: str, if_not_exists: bool = True):
         """Create a database if it doesn't exist."""
         exists_clause = "IF NOT EXISTS" if if_not_exists else ""

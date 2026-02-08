@@ -199,6 +199,9 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
         elif config.platform == Platform.DATAPROC:
             # spark_catalog expects two-part names (database.table). Use single DB = target_database_target_schema.
             spark_db = f"{config.target_database}_{config.target_schema}"
+            # Delete target folder only for batch (not incremental) for a clean run
+            if config.load_type == LoadType.BATCH:
+                platform.delete_target_database_path_if_exists(spark_db)
             platform.create_database(spark_db)
             db_or_catalog = spark_db
             effective_schema = ""
