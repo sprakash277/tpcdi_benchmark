@@ -42,7 +42,13 @@ if __name__ == "__main__":
                        help="Log per-table timing and records; default is only job start/end/total duration")
     parser.add_argument("--use-udtf-customer-mgmt", choices=["auto", "true", "false"], default="auto",
                        help="CustomerMgmt.xml: auto=UDTF on Databricks (default), true=UDTF, false=spark-xml")
-    
+    parser.add_argument("--cluster-instance-type",
+                       help="Worker node type for metrics (e.g. i3.xlarge). If omitted, auto-detected from cluster tags when available.")
+    parser.add_argument("--cluster-worker-count", type=int,
+                       help="Number of worker instances for metrics. If omitted, auto-detected from Spark executors.")
+    parser.add_argument("--cluster-master-type",
+                       help="Driver node type for metrics (optional).")
+
     args = parser.parse_args()
 
     # Allowed instance types per cloud (must match create_workflow_notebook / create_databricks_workflow)
@@ -81,6 +87,9 @@ if __name__ == "__main__":
         metrics_output_path=args.metrics_output,
         log_detailed_stats=args.log_detailed_stats,
         use_udtf_customer_mgmt=use_udtf,
+        cluster_instance_type=args.cluster_instance_type,
+        cluster_worker_count=args.cluster_worker_count,
+        cluster_master_type=args.cluster_master_type,
     )
     
     result = run_benchmark(config)

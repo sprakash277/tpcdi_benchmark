@@ -62,10 +62,28 @@ class BenchmarkMetrics:
     total_duration_seconds: Optional[float] = None
     steps: List[StepMetrics] = None
     summary: Optional[Dict[str, Any]] = None
-    
+    # Cluster metadata (instance type, worker count) for comparison across runs
+    cluster_instance_type: Optional[str] = None
+    cluster_worker_count: Optional[int] = None
+    cluster_master_type: Optional[str] = None
+
     def __post_init__(self):
         if self.steps is None:
             self.steps = []
+
+    def set_cluster_info(
+        self,
+        instance_type: Optional[str] = None,
+        worker_count: Optional[int] = None,
+        master_type: Optional[str] = None,
+    ):
+        """Set cluster metadata (from config or auto-detection)."""
+        if instance_type is not None:
+            self.cluster_instance_type = instance_type
+        if worker_count is not None:
+            self.cluster_worker_count = worker_count
+        if master_type is not None:
+            self.cluster_master_type = master_type
     
     def finish(self):
         """Mark benchmark as completed."""
@@ -93,7 +111,7 @@ class BenchmarkMetrics:
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        return {
+        d = {
             "platform": self.platform,
             "load_type": self.load_type,
             "scale_factor": self.scale_factor,
@@ -106,6 +124,11 @@ class BenchmarkMetrics:
             "steps": [asdict(step) for step in self.steps],
             "summary": self.summary,
         }
+        if self.cluster_instance_type is not None or self.cluster_worker_count is not None or self.cluster_master_type is not None:
+            d["cluster_instance_type"] = self.cluster_instance_type
+            d["cluster_worker_count"] = self.cluster_worker_count
+            d["cluster_master_type"] = self.cluster_master_type
+        return d
     
     def save(self, output_path: str, service_account_key_file: Optional[str] = None):
         """Save metrics to file (JSON). Local paths use pathlib/open; gs:// paths write to temp then upload via gsutil.
@@ -169,6 +192,9 @@ class MetricsCollector:
             scale_factor=config.scale_factor,
             batch_id=config.batch_id,
             start_time=time.time(),
+            cluster_instance_type=getattr(config, "cluster_instance_type", None),
+            cluster_worker_count=getattr(config, "cluster_worker_count", None),
+            cluster_master_type=getattr(config, "cluster_master_type", None),
         )
         self.current_step: Optional[StepMetrics] = None
     

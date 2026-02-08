@@ -41,6 +41,9 @@ def row_from_metrics(data: dict, source_file: str) -> dict:
         "total_bytes_processed": summary.get("total_bytes_processed"),
         "throughput_rows_per_second": summary.get("throughput_rows_per_second"),
         "throughput_mb_per_second": summary.get("throughput_mb_per_second"),
+        "cluster_instance_type": data.get("cluster_instance_type", ""),
+        "cluster_worker_count": data.get("cluster_worker_count", ""),
+        "cluster_master_type": data.get("cluster_master_type", ""),
     }
 
 

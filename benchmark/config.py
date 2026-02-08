@@ -43,6 +43,10 @@ class BenchmarkConfig:
     metrics_output_path: Optional[str] = None
     log_detailed_stats: bool = False  # If True, log per-table timing and records; else only job start/end/total duration
     use_udtf_customer_mgmt: Optional[bool] = None  # Databricks: True=UDTF, False=spark-xml, None=auto (UDTF when platform is Databricks)
+    # Optional cluster metadata for metrics (logged in metrics JSON and aggregate CSV)
+    cluster_instance_type: Optional[str] = None  # Worker node type (e.g. n2d-standard-16, i3.xlarge)
+    cluster_worker_count: Optional[int] = None   # Number of worker instances
+    cluster_master_type: Optional[str] = None    # Master/driver node type (optional)
     def __post_init__(self):
         """Validate configuration."""
         if self.platform == Platform.DATAPROC:

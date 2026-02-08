@@ -86,7 +86,13 @@ if __name__ == "__main__":
                        help="Log per-table timing, bytes, and throughput (default: false). Use --log-detailed-stats or --log-detailed-stats true to enable.")
     parser.add_argument("--format", choices=["delta", "parquet"], default="parquet",
                        help="Table format for warehouse tables (default: parquet). Use delta only if Delta package is on cluster (e.g. --packages io.delta:delta-spark_2.12:3.0.0).")
-    
+    parser.add_argument("--cluster-instance-type",
+                       help="Worker instance type for metrics (e.g. n2d-standard-16). If omitted, auto-detected on Dataproc.")
+    parser.add_argument("--cluster-worker-count", type=int,
+                       help="Number of worker instances for metrics. If omitted, auto-detected from Spark executors.")
+    parser.add_argument("--cluster-master-type",
+                       help="Master/driver instance type for metrics (optional).")
+
     args = parser.parse_args()
 
     # Normalize --log-detailed-stats (accepts no value, true, or false)
@@ -118,6 +124,9 @@ if __name__ == "__main__":
         gcs_bucket=args.gcs_bucket,
         project_id=args.project_id,
         region=args.region,
+        cluster_instance_type=args.cluster_instance_type,
+        cluster_worker_count=args.cluster_worker_count,
+        cluster_master_type=args.cluster_master_type,
         spark_master=args.spark_master or "yarn",
         service_account_email=args.service_account_email,
         service_account_key_file=args.service_account_key_file,

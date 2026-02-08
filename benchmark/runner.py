@@ -5,7 +5,8 @@ Orchestrates ETL execution on Databricks or Dataproc platforms.
 
 import logging
 import re
-from typing import Optional
+import urllib.request
+from typing import Optional, Tuple
 from pyspark.sql import SparkSession
 
 from benchmark.config import BenchmarkConfig, Platform, LoadType
@@ -162,6 +163,81 @@ def create_platform_adapter(config: BenchmarkConfig, spark: SparkSession):
         raise ValueError(f"Unsupported platform: {config.platform}")
 
 
+def _get_gcp_machine_type() -> Optional[str]:
+    """Get current VM machine type from GCP metadata (e.g. on Dataproc). Returns short name like n2d-standard-16."""
+    try:
+        req = urllib.request.Request(
+            "http://metadata.google.internal/computeMetadata/v1/instance/machine-type",
+            headers={"Metadata-Flavor": "Google"},
+        )
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            path = resp.read().decode().strip()
+            # path is like "projects/123456/machineTypes/n2d-standard-16"
+            return path.split("/")[-1] if path else None
+    except Exception:
+        return None
+
+
+def _get_executor_count(spark: SparkSession) -> Optional[int]:
+    """Get number of executors (worker nodes) from Spark. Excludes driver."""
+    try:
+        sc = spark.sparkContext
+        # getExecutorMemoryStatus gives driver + executors; subtract 1 for driver
+        status = sc._jsc.sc().getExecutorMemoryStatus()
+        count = status.size() - 1
+        return max(0, count) if count is not None else None
+    except Exception:
+        return None
+
+
+def _get_databricks_node_types(spark: SparkSession) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Get (worker_node_type, driver_node_type) from Databricks Spark conf when available.
+    Tries clusterNodeType (worker) and driverNodeType (driver); not all runtimes set both.
+    """
+    worker_type = spark.conf.get("spark.databricks.clusterUsageTags.clusterNodeType")
+    driver_type = spark.conf.get("spark.databricks.clusterUsageTags.driverNodeType")
+    return (worker_type, driver_type)
+
+
+def get_cluster_info(config: BenchmarkConfig, spark: SparkSession) -> Tuple[Optional[str], Optional[int], Optional[str]]:
+    """
+    Return (cluster_instance_type, cluster_worker_count, cluster_master_type) from config or auto-detection.
+    cluster_instance_type = worker node type; cluster_master_type = driver node type.
+    """
+    instance_type = getattr(config, "cluster_instance_type", None)
+    worker_count = getattr(config, "cluster_worker_count", None)
+    master_type = getattr(config, "cluster_master_type", None)
+
+    if config.platform == Platform.DATAPROC:
+        # GCP metadata is for the current VM = driver. Use it for driver type; use same for worker if not provided.
+        driver_type = _get_gcp_machine_type()
+        if master_type is None and driver_type:
+            master_type = driver_type
+            logger.info(f"Auto-detected cluster_master_type (driver): {master_type}")
+        if instance_type is None and driver_type:
+            instance_type = driver_type
+            logger.info(f"Auto-detected cluster_instance_type (from driver; pass --cluster-instance-type if workers differ): {instance_type}")
+        if worker_count is None:
+            worker_count = _get_executor_count(spark)
+            if worker_count is not None:
+                logger.info(f"Auto-detected cluster_worker_count: {worker_count}")
+    elif config.platform == Platform.DATABRICKS:
+        worker_type, driver_type = _get_databricks_node_types(spark)
+        if instance_type is None and worker_type:
+            instance_type = worker_type
+            logger.info(f"Auto-detected cluster_instance_type (worker): {instance_type}")
+        if master_type is None and driver_type:
+            master_type = driver_type
+            logger.info(f"Auto-detected cluster_master_type (driver): {master_type}")
+        if worker_count is None:
+            worker_count = _get_executor_count(spark)
+            if worker_count is not None:
+                logger.info(f"Auto-detected cluster_worker_count: {worker_count}")
+
+    return (instance_type, worker_count, master_type)
+
+
 def run_benchmark(config: BenchmarkConfig) -> dict:
     """
     Run TPC-DI benchmark with the given configuration.
@@ -185,7 +261,15 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
         metrics.start_step("platform_adapter_creation")
         platform = create_platform_adapter(config, spark)
         metrics.finish_step()
-        
+
+        # Set cluster metadata for metrics (from config or auto-detection)
+        instance_type, worker_count, master_type = get_cluster_info(config, spark)
+        metrics.metrics.set_cluster_info(
+            instance_type=instance_type,
+            worker_count=worker_count,
+            master_type=master_type,
+        )
+
         # Create target database (and catalog/schema for Databricks UC when configured)
         metrics.start_step("database_creation")
         if config.platform == Platform.DATABRICKS and config.target_catalog:
