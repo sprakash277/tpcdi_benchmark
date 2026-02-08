@@ -8,6 +8,7 @@ Ingests raw XML structure from CustomerMgmt.xml with no field extraction.
   On first run without that file, schema is inferred, printed, and saved for next time.
 """
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -33,8 +34,11 @@ def _load_customer_mgmt_schema() -> Optional[StructType]:
         return None
     try:
         with open(path, "r") as f:
-            json_str = f.read()
-        return StructType.fromJson(json_str)
+            data = json.load(f)
+        # Pass dict; fromJson() in PySpark accepts dict (Databricks) or str (some versions)
+        if isinstance(data, dict):
+            return StructType.fromJson(data)
+        return StructType.fromJson(json.dumps(data))
     except Exception as e:
         logger.warning(f"Could not load schema from {path}: {e}")
         return None
