@@ -4,14 +4,70 @@ Bronze layer loader for CustomerMgmt.xml.
 Ingests raw XML structure from CustomerMgmt.xml with no field extraction.
 - On Databricks (Spark 3.5+): can use a Python UDTF to parallelize parsing (see use_udtf).
 - Otherwise: uses spark-xml (native Spark DataFrameReader). No pandas UDF.
-This table often takes longer because XML parsing is heavier and the file is typically one large file.
+- Schema: if customer_mgmt_schema.json exists next to this module, it is used (no inference).
+  On first run without that file, schema is inferred, printed, and saved for next time.
 """
 
 import logging
+import os
+from pathlib import Path
+from typing import Optional
 from pyspark.sql import DataFrame
+from pyspark.sql.types import StructType
 from benchmark.etl.bronze.base import BronzeLoaderBase
 
 logger = logging.getLogger(__name__)
+
+# Schema file next to this module; created on first run when schema is inferred
+_SCHEMA_FILE = Path(__file__).resolve().parent / "customer_mgmt_schema.json"
+
+
+def _schema_path() -> Path:
+    return _SCHEMA_FILE
+
+
+def _load_customer_mgmt_schema() -> Optional[StructType]:
+    """Load CustomerMgmt schema from JSON file if it exists."""
+    path = _schema_path()
+    if not path.is_file():
+        return None
+    try:
+        with open(path, "r") as f:
+            json_str = f.read()
+        return StructType.fromJson(json_str)
+    except Exception as e:
+        logger.warning(f"Could not load schema from {path}: {e}")
+        return None
+
+
+def _save_customer_mgmt_schema(schema_json: str) -> None:
+    """Save schema JSON to file for next run (avoids inference)."""
+    path = _schema_path()
+    try:
+        with open(path, "w") as f:
+            f.write(schema_json)
+        logger.info(f"Saved CustomerMgmt schema to {path} for next run")
+    except Exception as e:
+        logger.warning(f"Could not save schema to {path}: {e}")
+
+
+def _print_customer_mgmt_schema(df: DataFrame, always_print: bool = False) -> None:
+    """Print CustomerMgmt.xml schema (JSON + DDL). Set always_print=True when we just inferred; else only if env var set."""
+    if not always_print and os.environ.get("TPCDI_PRINT_CUSTOMERMGMT_SCHEMA") != "1":
+        return
+    try:
+        schema_json = df.schema.json()
+        schema_ddl = df.schema.simpleString()
+        print("\n" + "=" * 80)
+        print("CustomerMgmt.xml schema (saved to customer_mgmt_schema.json for next run)")
+        print("=" * 80)
+        print("\n# JSON (StructType.fromJson):")
+        print(schema_json)
+        print("\n# DDL (simpleString):")
+        print(schema_ddl)
+        print("=" * 80 + "\n")
+    except Exception as e:
+        logger.warning(f"Could not print schema: {e}")
 
 
 class BronzeCustomerMgmt(BronzeLoaderBase):
@@ -68,33 +124,50 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
                 )
                 if df is not None:
                     logger.info("Successfully read CustomerMgmt.xml via UDTF (parallel parsing)")
+                    _print_customer_mgmt_schema(df)
                     return self._write_bronze_table(df, target_table, batch_id, "CustomerMgmt.xml")
             except Exception as e:
                 logger.warning(f"UDTF path failed, falling back to spark-xml: {e}")
         
-        # Read XML with spark-xml, keeping full nested structure
-        # Try different rowTag options based on TPC-DI XML format
+        # Read XML with spark-xml. Use saved schema if present (skips inference); else infer, print, and save.
+        schema = _load_customer_mgmt_schema()
         df = None
         success = False
+        used_schema = False
         for row_tag, root_tag in [("TPCDI:Action", "TPCDI:Actions"), ("Action", None)]:
             try:
                 opts = {"format": "xml", "rowTag": row_tag}
                 if root_tag:
                     opts["rootTag"] = root_tag
+                if schema is not None:
+                    opts["schema"] = schema
+                    used_schema = True
                 df = self.platform.read_raw_file(file_path, **opts)
                 if df.count() > 0:
-                    logger.info(f"Successfully read XML with rowTag={row_tag}")
+                    logger.info(
+                        f"Successfully read XML with rowTag={row_tag}"
+                        + (" (using saved schema)" if used_schema else " (inferred schema)")
+                    )
                     success = True
                     break
                 df = None
             except Exception as e:
+                if schema is not None:
+                    logger.warning(f"Read with saved schema failed, will infer: {e}")
+                    schema = None
+                    used_schema = False
+                    continue
                 logger.warning(f"Failed to read XML with rowTag={row_tag}: {e}")
                 df = None
-        
+
         if not success or df is None:
             raise RuntimeError(
                 f"Could not read CustomerMgmt.xml from Batch{batch_id}.\n"
                 f"Ensure spark-xml library is installed (com.databricks:spark-xml_2.12:0.15.0)"
             )
-        
+        if used_schema:
+            _print_customer_mgmt_schema(df, always_print=False)
+        else:
+            _print_customer_mgmt_schema(df, always_print=True)
+            _save_customer_mgmt_schema(df.schema.json())
         return self._write_bronze_table(df, target_table, batch_id, "CustomerMgmt.xml")
