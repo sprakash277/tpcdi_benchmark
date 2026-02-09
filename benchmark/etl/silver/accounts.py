@@ -114,10 +114,6 @@ class SilverAccounts(SilverLoaderBase):
         
         # Strategy 2: Same paths with COALESCE for optional structs
         if account_df is None or account_df.count() == 0:
-            try:
-                self.spark.catalog.dropTempView(temp_view)
-            except Exception:
-                pass
             temp_view = f"_temp_accountmgmt_xml2_{id(bronze_df)}"
             bronze_df.createOrReplaceTempView(temp_view)
             try:
@@ -147,10 +143,11 @@ class SilverAccounts(SilverLoaderBase):
                 logger.warning(f"XML parse (Account COALESCE) failed: {e}")
                 account_df = None
         
-        try:
-            self.spark.catalog.dropTempView(temp_view)
-        except Exception:
-            pass
+        # Note: We do not drop the temp view here because Spark uses lazy evaluation.
+        # account_df may still reference the temp view when executed downstream (e.g. in
+        # _transform_to_silver_schema / _write_silver_table). Dropping the view immediately
+        # would cause TABLE_OR_VIEW_NOT_FOUND. Temp views are session-scoped and cleaned up
+        # when the SparkSession ends.
         
         if account_df is None or account_df.count() == 0:
             raise RuntimeError(f"Failed to extract accounts: {extraction_errors}")

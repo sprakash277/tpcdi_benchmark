@@ -284,17 +284,10 @@ class IncrementalETL:
                     WHERE Action.Customer.Account._CA_ID IS NOT NULL
                     """
                     account_df = self.spark.sql(sql_query_with_explode)
-                finally:
-                    try:
-                        self.spark.catalog.dropTempView(temp_view)
-                    except:
-                        pass
+                # Note: We do not drop the temp view here; account_df is lazy and references it.
+                # Dropping would cause TABLE_OR_VIEW_NOT_FOUND when account_df is used later.
             except Exception as e3:
                 extraction_errors.append(f"Pattern 3 (SQL): {e3}")
-                try:
-                    self.spark.catalog.dropTempView(temp_view)
-                except:
-                    pass
         
         if account_df is None:
             error_summary = "\n".join(extraction_errors)
@@ -634,17 +627,10 @@ class IncrementalETL:
                     WHERE Action.Customer._C_ID IS NOT NULL
                     """
                     customer_df = self.spark.sql(sql_query_with_explode)
-                finally:
-                    try:
-                        self.spark.catalog.dropTempView(temp_view)
-                    except:
-                        pass
+                # Note: We do not drop the temp view here; customer_df is lazy and references it.
+                # Dropping would cause TABLE_OR_VIEW_NOT_FOUND when customer_df is used later.
             except Exception as e3:
                 extraction_errors.append(f"Pattern 3 (SQL): {e3}")
-                try:
-                    self.spark.catalog.dropTempView(temp_view)
-                except:
-                    pass
         
         if customer_df is None:
             error_summary = "\n".join(extraction_errors)
