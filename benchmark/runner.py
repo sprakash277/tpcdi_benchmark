@@ -270,8 +270,8 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             master_type=master_type,
         )
 
-        # Create target database (and catalog/schema for Databricks UC when configured)
-        # Append scale factor to database name for both Dataproc and Databricks
+        # Create target database (and catalog/schema for Databricks UC)
+        # Append scale factor to database/schema names
         metrics.start_step("database_creation")
         db_name_with_sf = f"{config.target_database}_sf{config.scale_factor}"
         
@@ -279,8 +279,9 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
         database_existed = False
         path_existed = False
         
-        if config.platform == Platform.DATABRICKS and config.target_catalog:
-            # For Unity Catalog, append SF to schema name (not database name)
+        if config.platform == Platform.DATABRICKS:
+            # Databricks requires Unity Catalog (target_catalog is validated in config)
+            # For Unity Catalog, append SF to schema name
             schema_name_with_sf = f"{config.target_schema}_sf{config.scale_factor}"
             # Check if schema exists in Unity Catalog
             try:
@@ -290,7 +291,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
                 database_existed = False
             
             platform.create_database(
-                db_name_with_sf,  # Not used for UC, but kept for consistency
+                "",  # Not used for UC
                 catalog=config.target_catalog,
                 schema=schema_name_with_sf,  # Use schema name with SF
             )
@@ -314,14 +315,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             db_or_catalog = spark_db
             effective_schema = ""
         else:
-            # Check if database exists (Databricks without Unity Catalog)
-            try:
-                database_existed = spark.catalog.databaseExists(db_name_with_sf)
-            except Exception:
-                database_existed = False
-            platform.create_database(db_name_with_sf)
-            db_or_catalog = db_name_with_sf
-            effective_schema = config.target_schema
+            raise ValueError(f"Unsupported platform: {config.platform}")
         
         # Store table override info in metrics
         table_override = database_existed or path_existed
@@ -471,7 +465,7 @@ if __name__ == "__main__":
     parser.add_argument("--metrics-output", help="Path to save metrics JSON")
     parser.add_argument("--log-detailed-stats", action="store_true",
                         help="Log per-table timing and records; default is only job start/end/total duration")
-    parser.add_argument("--use-udtf-customer-mgmt", choices=["auto", "true", "false"], default="auto",
+    parser.add_argument("--use-udtf-customer-mgmt", choices=["auto", "true", "false"], default="false",
                         help="CustomerMgmt.xml: auto=UDTF on Databricks, true=UDTF, false=spark-xml")
     
     args = parser.parse_args()

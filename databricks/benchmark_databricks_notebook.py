@@ -30,10 +30,6 @@ try:
 except Exception:
     pass
 try:
-    dbutils.widgets.drop("target_database")
-except Exception:
-    pass
-try:
     dbutils.widgets.drop("target_schema")
 except Exception:
     pass
@@ -61,13 +57,12 @@ except Exception:
 dbutils.widgets.dropdown("load_type", "batch", ["batch", "incremental"], "Load Type")
 dbutils.widgets.text("scale_factor", "10", "Scale Factor")
 dbutils.widgets.text("tpcdi_raw_data_path", "dbfs:/mnt/tpcdi", "TPC-DI raw data path: dbfs:/... (DBFS), /Volumes/... (Volume)")
-dbutils.widgets.text("target_database", "tpcdi_warehouse", "Target Database")
 dbutils.widgets.text("target_schema", "dw", "Target Schema")
-dbutils.widgets.text("target_catalog", "", "Target Catalog (Unity Catalog; optional)")
+dbutils.widgets.text("target_catalog", "main", "Target Catalog (Unity Catalog; required)")
 dbutils.widgets.text("batch_id", "", "Batch ID (for incremental only)")
 dbutils.widgets.text("metrics_output", "dbfs:/mnt/tpcdi/metrics", "Metrics Output Path")
 dbutils.widgets.dropdown("log_detailed_stats", "false", ["true", "false"], "Log detailed stats (per-table timing/records); false = only job start/end/total duration")
-dbutils.widgets.dropdown("use_udtf_customer_mgmt", "auto", ["auto", "true", "false"], "CustomerMgmt.xml: auto=UDTF on Databricks, true=UDTF, false=spark-xml")
+dbutils.widgets.dropdown("use_udtf_customer_mgmt", "false", ["auto", "true", "false"], "CustomerMgmt.xml: auto=false (spark-xml), true=UDTF, false=spark-xml")
 
 # COMMAND ----------
 
@@ -117,9 +112,10 @@ if tpcdi_raw_data_path.startswith("dbfs:/Volumes/"):
     tpcdi_raw_data_path = tpcdi_raw_data_path[5:]  # Remove "dbfs:" prefix
     print(f"WARNING: Removed 'dbfs:' prefix from Volume path: '{tpcdi_raw_data_path_raw}' -> '{tpcdi_raw_data_path}'")
 
-target_database = dbutils.widgets.get("target_database").strip()
 target_schema = dbutils.widgets.get("target_schema").strip()
-target_catalog = dbutils.widgets.get("target_catalog").strip() or None
+target_catalog = dbutils.widgets.get("target_catalog").strip()
+if not target_catalog:
+    raise ValueError("target_catalog is required for Databricks platform (Unity Catalog)")
 batch_id_str = dbutils.widgets.get("batch_id").strip()
 metrics_output = dbutils.widgets.get("metrics_output").strip()
 log_detailed_stats = dbutils.widgets.get("log_detailed_stats") == "true"
@@ -137,7 +133,6 @@ config = BenchmarkConfig(
     load_type=LoadType(load_type),
     scale_factor=scale_factor,
     raw_data_path=tpcdi_raw_data_path,
-    target_database=target_database,
     target_schema=target_schema,
     target_catalog=target_catalog,
     output_path=tpcdi_raw_data_path,

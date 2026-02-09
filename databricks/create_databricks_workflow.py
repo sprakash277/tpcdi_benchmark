@@ -16,9 +16,8 @@ def create_workflow_definition(
     default_scale_factor: int = 10,
     default_output_path: str = "dbfs:/mnt/tpcdi",
     default_load_type: str = "batch",
-    default_target_database: str = "tpcdi_warehouse",
     default_target_schema: str = "dw",
-    default_target_catalog: str = "",
+    default_target_catalog: str = "main",
     default_metrics_output: str = "dbfs:/mnt/tpcdi/metrics",
     default_log_detailed_stats: bool = False,
     cluster_config: Dict[str, Any] = None,
@@ -33,9 +32,8 @@ def create_workflow_definition(
         default_scale_factor: Default scale factor
         default_output_path: Default TPC-DI raw data path (used by both tasks)
         default_load_type: Default load type (batch/incremental)
-        default_target_database: Default target database
         default_target_schema: Default target schema
-        default_target_catalog: Default Unity Catalog (optional); when set, create catalog + schema
+        default_target_catalog: Default Unity Catalog (required for Databricks)
         default_metrics_output: Default metrics output path
         default_log_detailed_stats: If True, log per-table timing/records; else only job start/end/total duration
         cluster_config: Cluster configuration dict
@@ -100,13 +98,12 @@ def create_workflow_definition(
                         "load_type": default_load_type,
                         "scale_factor": str(default_scale_factor),
                         "tpcdi_raw_data_path": default_output_path,
-                        "target_database": default_target_database,
                         "target_schema": default_target_schema,
                         "target_catalog": default_target_catalog,
                         "batch_id": "",
                         "metrics_output": default_metrics_output,
                         "log_detailed_stats": "true" if default_log_detailed_stats else "false",
-                        "use_udtf_customer_mgmt": "auto"
+                        "use_udtf_customer_mgmt": "false"
                     }
                 },
                 "existing_cluster_id": None,
@@ -137,11 +134,6 @@ def create_workflow_definition(
                 "description": "Load type: batch or incremental"
             },
             {
-                "name": "target_database",
-                "default": default_target_database,
-                "description": "Target database name"
-            },
-            {
                 "name": "target_schema",
                 "default": default_target_schema,
                 "description": "Target schema name"
@@ -149,7 +141,7 @@ def create_workflow_definition(
             {
                 "name": "target_catalog",
                 "default": default_target_catalog,
-                "description": "Unity Catalog name (optional); when set, create catalog + schema"
+                "description": "Unity Catalog name (required for Databricks)"
             },
             {
                 "name": "batch_id",
@@ -251,12 +243,10 @@ def main():
     parser.add_argument("--default-load-type", default="batch",
                        choices=["batch", "incremental"],
                        help="Default load type")
-    parser.add_argument("--default-target-database", default="tpcdi_warehouse",
-                       help="Default target database")
     parser.add_argument("--default-target-schema", default="dw",
                        help="Default target schema")
-    parser.add_argument("--default-target-catalog", default="",
-                       help="Default Unity Catalog (optional); when set, create catalog + schema")
+    parser.add_argument("--default-target-catalog", default="main",
+                       help="Default Unity Catalog (required for Databricks)")
     parser.add_argument("--default-metrics-output", default="dbfs:/mnt/tpcdi/metrics",
                        help="Default metrics output path")
     parser.add_argument("--default-log-detailed-stats", action="store_true",
@@ -360,7 +350,6 @@ def main():
         default_scale_factor=args.default_scale_factor,
         default_output_path=args.default_output_path,
         default_load_type=args.default_load_type,
-        default_target_database=args.default_target_database,
         default_target_schema=args.default_target_schema,
         default_target_catalog=args.default_target_catalog,
         default_metrics_output=args.default_metrics_output,

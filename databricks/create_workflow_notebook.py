@@ -183,13 +183,12 @@ workflow = {
                     "load_type": "batch",
                     "scale_factor": "10",
                     "tpcdi_raw_data_path": "dbfs:/mnt/tpcdi",
-                    "target_database": "tpcdi_warehouse",
                     "target_schema": "dw",
                     "target_catalog": "",
                     "batch_id": "",
                     "metrics_output": "dbfs:/mnt/tpcdi/metrics",
                     "log_detailed_stats": "false",
-                    "use_udtf_customer_mgmt": "auto"
+                    "use_udtf_customer_mgmt": "false"
                 }
             },
             "timeout_seconds": 0,
@@ -215,11 +214,6 @@ workflow = {
             "name": "load_type",
             "default": "batch",
             "description": "Load type: batch or incremental"
-        },
-        {
-            "name": "target_database",
-            "default": "tpcdi_warehouse",
-            "description": "Target database name"
         },
         {
             "name": "target_schema",

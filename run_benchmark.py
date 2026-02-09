@@ -429,9 +429,8 @@ def create_databricks_job(host: str, token: str, args) -> int:
         default_scale_factor=args.scale_factor,
         default_output_path=args.output_path or "dbfs:/mnt/tpcdi",
         default_load_type=args.load_type,
-        default_target_database=args.target_database or "tpcdi_warehouse",
         default_target_schema=args.target_schema or "dw",
-        default_target_catalog=args.target_catalog or "",
+        default_target_catalog=args.target_catalog or "main",
         default_metrics_output=args.metrics_output or "dbfs:/mnt/tpcdi/metrics",
         default_log_detailed_stats=args.log_detailed_stats,
         cluster_config=cluster_config,
@@ -501,6 +500,11 @@ def create_databricks_job(host: str, token: str, args) -> int:
 
 def run_databricks(args):
     """Submit benchmark to Databricks workflow. Creates job if it doesn't exist."""
+    # Validate target_catalog is provided
+    if not args.target_catalog:
+        print("ERROR: --target-catalog is required for Databricks platform (Unity Catalog)", file=sys.stderr)
+        sys.exit(1)
+    
     # Get Databricks client (host + token)
     host, token = get_databricks_client()
     
@@ -545,12 +549,10 @@ def run_databricks(args):
     
     if args.output_path:
         params["tpcdi_raw_data_path"] = args.output_path
-    if args.target_database:
-        params["target_database"] = args.target_database
     if args.target_schema:
         params["target_schema"] = args.target_schema
-    if args.target_catalog:
-        params["target_catalog"] = args.target_catalog
+    # target_catalog is required for Databricks
+    params["target_catalog"] = args.target_catalog
     if args.batch_id:
         params["batch_id"] = str(args.batch_id)
     if args.metrics_output:
@@ -719,7 +721,7 @@ Examples:
         p.add_argument("--scale-factor", type=int, required=True,
                       help="TPC-DI scale factor (e.g., 10, 100, 1000)")
         p.add_argument("--target-database", default="tpcdi_warehouse",
-                      help="Target database name")
+                      help="Target database name (for Dataproc only)")
         p.add_argument("--target-schema", default="dw",
                       help="Target schema name")
         p.add_argument("--batch-id", type=int,
@@ -781,8 +783,8 @@ Examples:
                                    help="Job name (used to find existing job or name new job)")
     parser_databricks.add_argument("--output-path",
                                   help="Raw data location: DBFS, Volume, or GCS path")
-    parser_databricks.add_argument("--target-catalog",
-                                  help="Unity Catalog name (optional)")
+    parser_databricks.add_argument("--target-catalog", required=True,
+                                  help="Unity Catalog name (required for Databricks)")
     parser_databricks.add_argument("--workspace-path",
                                   help="Workspace path prefix for notebooks (e.g., /Workspace/Repos/user/repo/databricks)")
     parser_databricks.add_argument("--data-gen-notebook", default="generate_tpcdi_data_notebook",

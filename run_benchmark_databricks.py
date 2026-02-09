@@ -28,20 +28,18 @@ if __name__ == "__main__":
                        help="Cloud provider (used to show allowed instance types)")
     parser.add_argument("--list-node-types", action="store_true",
                        help="Print allowed instance types per cloud and exit (use with or without --cloud)")
-    parser.add_argument("--target-database", default="tpcdi_warehouse",
-                       help="Target database name (default: tpcdi_warehouse)")
     parser.add_argument("--target-schema", default="dw",
                        help="Target schema name (default: dw)")
-    parser.add_argument("--target-catalog",
-                       help="Unity Catalog name (optional); when set, create catalog + schema")
+    parser.add_argument("--target-catalog", required=True,
+                       help="Unity Catalog name (required for Databricks)")
     parser.add_argument("--batch-id", type=int,
                        help="Batch ID for incremental loads (required for incremental)")
     parser.add_argument("--metrics-output", default="dbfs:/mnt/tpcdi/metrics",
                        help="Path to save metrics JSON (default: dbfs:/mnt/tpcdi/metrics)")
     parser.add_argument("--log-detailed-stats", action="store_true",
                        help="Log per-table timing and records; default is only job start/end/total duration")
-    parser.add_argument("--use-udtf-customer-mgmt", choices=["auto", "true", "false"], default="auto",
-                       help="CustomerMgmt.xml: auto=UDTF on Databricks (default), true=UDTF, false=spark-xml")
+    parser.add_argument("--use-udtf-customer-mgmt", choices=["auto", "true", "false"], default="false",
+                       help="CustomerMgmt.xml: auto=false (spark-xml, default), true=UDTF, false=spark-xml")
     parser.add_argument("--cluster-instance-type",
                        help="Worker node type for metrics (e.g. i3.xlarge). If omitted, auto-detected from cluster tags when available.")
     parser.add_argument("--cluster-worker-count", type=int,
@@ -74,12 +72,15 @@ if __name__ == "__main__":
     
     use_udtf = {"auto": None, "true": True, "false": False}[args.use_udtf_customer_mgmt]
     # output_path = raw data base; runner appends /sf={scale_factor}
+    if not args.target_catalog:
+        print("ERROR: --target-catalog is required for Databricks platform (Unity Catalog)", file=sys.stderr)
+        sys.exit(1)
+    
     config = BenchmarkConfig(
         platform=Platform.DATABRICKS,
         load_type=LoadType(args.load_type),
         scale_factor=args.scale_factor,
         raw_data_path=args.output_path,
-        target_database=args.target_database,
         target_schema=args.target_schema,
         target_catalog=args.target_catalog,
         output_path=args.output_path,

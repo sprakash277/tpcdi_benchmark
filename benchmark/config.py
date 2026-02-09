@@ -27,9 +27,9 @@ class BenchmarkConfig:
     load_type: LoadType
     scale_factor: int
     raw_data_path: str  # GCS path for Dataproc; for Databricks use output_path when set
-    target_database: str = "tpcdi_warehouse"
+    target_database: str = "tpcdi_warehouse"  # Only used for Dataproc
     target_schema: str = "dw"
-    target_catalog: Optional[str] = None  # Unity Catalog (Databricks); when set, create catalog + schema
+    target_catalog: Optional[str] = None  # Unity Catalog (required for Databricks)
     output_path: Optional[str] = None  # Databricks: raw data input location (DBFS or Volume base path)
     batch_id: Optional[int] = None  # For incremental loads
     spark_master: Optional[str] = None  # For Dataproc
@@ -42,7 +42,7 @@ class BenchmarkConfig:
     enable_metrics: bool = True
     metrics_output_path: Optional[str] = None
     log_detailed_stats: bool = False  # If True, log per-table timing and records; else only job start/end/total duration
-    use_udtf_customer_mgmt: Optional[bool] = None  # Databricks: True=UDTF, False=spark-xml, None=auto (UDTF when platform is Databricks)
+    use_udtf_customer_mgmt: Optional[bool] = False  # True=UDTF, False=spark-xml, None=auto (defaults to False)
     # Optional cluster metadata for metrics (logged in metrics JSON and aggregate CSV)
     cluster_instance_type: Optional[str] = None  # Worker node type (e.g. n2d-standard-16, i3.xlarge)
     cluster_worker_count: Optional[int] = None   # Number of worker instances
@@ -56,6 +56,10 @@ class BenchmarkConfig:
                 raise ValueError("project_id is required for Dataproc")
             if not self.region:
                 raise ValueError("region is required for Dataproc")
+        
+        if self.platform == Platform.DATABRICKS:
+            if not self.target_catalog:
+                raise ValueError("target_catalog is required for Databricks platform (Unity Catalog)")
         
         if self.load_type == LoadType.INCREMENTAL and self.batch_id is None:
             raise ValueError("batch_id is required for incremental loads")

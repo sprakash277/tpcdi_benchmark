@@ -142,8 +142,8 @@ class BronzeETL:
             if use_udtf_customer_mgmt is not None:
                 use_udtf = use_udtf_customer_mgmt
             else:
-                from benchmark.platforms.databricks import DatabricksPlatform
-                use_udtf = isinstance(self.platform, DatabricksPlatform)
+                # Default to False (spark-xml) when None/auto
+                use_udtf = False
             self.customer_mgmt.load(batch_id, f"{prefix}.bronze_customer_mgmt", use_udtf=use_udtf)
         else:
             # Incremental batches: pipe-delimited flat files
