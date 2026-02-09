@@ -39,10 +39,22 @@ CLOUD_NODE_OPTIONS = {
     ],
 }
 DEFAULT_NODE_TYPES = {
-    "AWS": ("i3.xlarge", "i3.xlarge"),
-    "GCP": ("c2-standard-16", "c2-standard-16"),
-    "Azure": ("Standard_E8s_v3", "Standard_E8s_v3"),
+    "AWS": ("m5d.4xlarge", "m5d.4xlarge"),  # GCP equivalent: n2d-standard-16 (16 vCPUs, 64 GB RAM)
+    "GCP": ("n2d-standard-16", "n2d-standard-16"),
+    "Azure": ("Standard_E16s_v3", "Standard_E16s_v3"),  # GCP equivalent: n2d-standard-16 (16 vCPUs, 128 GB RAM)
 }
+
+def get_worker_count_for_scale_factor(scale_factor: int) -> int:
+    """Get recommended number of worker nodes based on scale factor."""
+    if scale_factor == 10:
+        return 2
+    elif scale_factor == 100:
+        return 3
+    elif scale_factor == 1000:
+        return 5
+    else:
+        # Default: scale_factor / 5, minimum 2, maximum 10
+        return max(2, min(10, scale_factor // 5))
 
 # Widgets: job name, paths, Spark version, cloud, num workers
 dbutils.widgets.text("job_name", "TPC-DI-Benchmark", "Job Name")
@@ -60,11 +72,14 @@ dbutils.widgets.dropdown(
         "15.4.x-photon-scala2.12",
         "16.4.x-scala2.12",
         "16.4.x-photon-scala2.12",
+        "17.3.x-scala2.12",
+        "17.3.x-photon-scala2.12",
     ],
     "Cluster Spark Version (DBR)"
 )
 dbutils.widgets.dropdown("cloud", "AWS", ["AWS", "GCP", "Azure"], "Cloud (pick first; then re-run next cell for instance types)")
-dbutils.widgets.text("num_workers", "2", "Number of Workers")
+dbutils.widgets.text("scale_factor", "10", "Scale Factor (SF=10→2 workers, SF=100→3 workers, SF=1000→5 workers)")
+dbutils.widgets.text("num_workers", "2", "Number of Workers (auto-set based on scale_factor if left blank)")
 dbutils.widgets.text("existing_cluster_id", "", "Existing Cluster ID (optional)")
 
 # COMMAND ----------
@@ -72,8 +87,8 @@ dbutils.widgets.text("existing_cluster_id", "", "Existing Cluster ID (optional)"
 # Re-run this cell after changing Cloud to update Worker/Driver dropdowns to that cloud's instance types only
 cloud = dbutils.widgets.get("cloud")
 options = CLOUD_NODE_OPTIONS.get(cloud, CLOUD_NODE_OPTIONS["AWS"])
-default_worker = DEFAULT_NODE_TYPES.get(cloud, ("i3.xlarge", "i3.xlarge"))[0]
-default_driver = DEFAULT_NODE_TYPES.get(cloud, ("i3.xlarge", "i3.xlarge"))[1]
+default_worker = DEFAULT_NODE_TYPES.get(cloud, ("m5d.4xlarge", "m5d.4xlarge"))[0]
+default_driver = DEFAULT_NODE_TYPES.get(cloud, ("m5d.4xlarge", "m5d.4xlarge"))[1]
 # Ensure defaults are in the options list
 if default_worker not in options:
     default_worker = options[0]
@@ -104,8 +119,18 @@ spark_version = dbutils.widgets.get("spark_version")
 cloud = dbutils.widgets.get("cloud")
 node_type_id = dbutils.widgets.get("node_type_id")
 driver_node_type_id = dbutils.widgets.get("driver_node_type_id")
-num_workers = int(dbutils.widgets.get("num_workers"))
+scale_factor_str = dbutils.widgets.get("scale_factor")
+num_workers_str = dbutils.widgets.get("num_workers")
 existing_cluster_id = dbutils.widgets.get("existing_cluster_id").strip()
+
+# Parse scale_factor and auto-calculate num_workers if not provided
+scale_factor = int(scale_factor_str) if scale_factor_str else 10
+if num_workers_str and num_workers_str.strip():
+    num_workers = int(num_workers_str)
+else:
+    # Auto-calculate based on scale factor
+    num_workers = get_worker_count_for_scale_factor(scale_factor)
+    print(f"Auto-setting num_workers={num_workers} based on scale_factor={scale_factor}")
 
 # Get workspace path from current notebook path (parent directory)
 try:
@@ -121,7 +146,7 @@ if not benchmark_notebook.startswith("/"):
     benchmark_notebook = f"{workspace_path}/{benchmark_notebook}"
 
 # Show resolved node types (from cloud default if Worker/Driver were left blank)
-print(f"Cloud: {cloud} | Worker: {node_type_id} | Driver: {driver_node_type_id}")
+print(f"Cloud: {cloud} | Worker: {node_type_id} | Driver: {driver_node_type_id} | Scale Factor: {scale_factor} | Workers: {num_workers}")
 
 # COMMAND ----------
 

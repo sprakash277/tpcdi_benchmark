@@ -262,6 +262,8 @@ def main():
         "15.4.x-photon-scala2.12",
         "16.4.x-scala2.12",
         "16.4.x-photon-scala2.12",
+        "17.3.x-scala2.12",
+        "17.3.x-photon-scala2.12",
     ]
     parser.add_argument("--spark-version", default="14.3.x-scala2.12",
                        choices=SPARK_VERSIONS,
@@ -287,10 +289,23 @@ def main():
         ],
     }
     DEFAULT_NODE_TYPES = {
-        "AWS": ("i3.xlarge", "i3.xlarge"),
-        "GCP": ("c2-standard-16", "c2-standard-16"),
-        "Azure": ("Standard_E8s_v3", "Standard_E8s_v3"),
+        "AWS": ("m5d.4xlarge", "m5d.4xlarge"),  # GCP equivalent: n2d-standard-16 (16 vCPUs, 64 GB RAM)
+        "GCP": ("n2d-standard-16", "n2d-standard-16"),
+        "Azure": ("Standard_E16s_v3", "Standard_E16s_v3"),  # GCP equivalent: n2d-standard-16 (16 vCPUs, 128 GB RAM)
     }
+    
+    def get_worker_count_for_scale_factor(scale_factor: int) -> int:
+        """Get recommended number of worker nodes based on scale factor."""
+        if scale_factor == 10:
+            return 2
+        elif scale_factor == 100:
+            return 3
+        elif scale_factor == 1000:
+            return 5
+        else:
+            # Default: scale_factor / 5, minimum 2, maximum 10
+            return max(2, min(10, scale_factor // 5))
+    
     parser.add_argument("--cloud", default="AWS", choices=["AWS", "GCP", "Azure"],
                        help="Cloud (instance types are restricted to this cloud)")
     parser.add_argument("--node-type-id", default=None,
@@ -299,8 +314,8 @@ def main():
                        help="Driver node type; must be valid for selected --cloud")
     parser.add_argument("--list-node-types", action="store_true",
                        help="Print allowed instance types for each cloud and exit")
-    parser.add_argument("--num-workers", type=int, default=2,
-                       help="Number of worker nodes")
+    parser.add_argument("--num-workers", type=int, default=None,
+                       help="Number of worker nodes (auto-calculated from --default-scale-factor if not provided: SF=10→2, SF=100→3, SF=1000→5)")
     parser.add_argument("--use-existing-cluster", 
                        help="Use existing cluster ID instead of creating new")
     
@@ -333,12 +348,18 @@ def main():
 
     node_type_id = args.node_type_id or DEFAULT_NODE_TYPES[args.cloud][0]
     driver_node_type_id = args.driver_node_type_id or DEFAULT_NODE_TYPES[args.cloud][1]
+    
+    # Auto-calculate num_workers from scale_factor if not provided
+    num_workers = args.num_workers
+    if num_workers is None:
+        num_workers = get_worker_count_for_scale_factor(args.default_scale_factor)
+        print(f"Auto-setting num_workers={num_workers} based on default_scale_factor={args.default_scale_factor}")
 
     # Build cluster config
     cluster_config = {
         "spark_version": args.spark_version,
         "node_type_id": node_type_id,
-        "num_workers": args.num_workers,
+        "num_workers": num_workers,
         "driver_node_type_id": driver_node_type_id,
     }
     
