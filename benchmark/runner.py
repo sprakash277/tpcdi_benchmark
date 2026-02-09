@@ -205,6 +205,24 @@ def _get_executor_count(spark: SparkSession) -> Optional[int]:
         return None
 
 
+def is_databricks_serverless(spark: SparkSession) -> bool:
+    """
+    Heuristic: True if this job appears to be running on Databricks serverless compute.
+    
+    On serverless, cluster usage tags (e.g. clusterNodeType) are not available
+    (CONFIG_NOT_AVAILABLE, SQLSTATE: 42K0I). On classic clusters they are set.
+    Use this when you need to branch behavior (e.g. skip unsupported config, log compute type).
+    
+    Returns:
+        True if serverless (or tag read failed), False if classic cluster tags are present.
+    """
+    try:
+        _ = spark.conf.get("spark.databricks.clusterUsageTags.clusterNodeType")
+        return False  # Config is available -> classic cluster
+    except BaseException:
+        return True  # Config not available -> likely serverless
+
+
 def _get_databricks_node_types(spark: SparkSession) -> Tuple[Optional[str], Optional[str]]:
     """
     Get (worker_node_type, driver_node_type) from Databricks Spark conf when available.
@@ -278,6 +296,12 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
         metrics.start_step("spark_session_creation")
         spark = create_spark_session(config)
         metrics.finish_step()
+        
+        if config.platform == Platform.DATABRICKS:
+            serverless = is_databricks_serverless(spark)
+            compute_type = "serverless" if serverless else "classic"
+            metrics.metrics.databricks_compute_type = compute_type
+            logger.info(f"Databricks compute: {compute_type}" + ("" if serverless else " (provisioned)"))
         
         # Create platform adapter
         metrics.start_step("platform_adapter_creation")

@@ -4,6 +4,7 @@ Performance metrics collection and logging for TPC-DI benchmark.
 
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import time
@@ -66,6 +67,8 @@ class BenchmarkMetrics:
     cluster_instance_type: Optional[str] = None
     cluster_worker_count: Optional[int] = None
     cluster_master_type: Optional[str] = None
+    # Databricks only: "serverless" or "classic" (provisioned) compute
+    databricks_compute_type: Optional[str] = None
     # Table override flag: True if tables/paths existed before loading (overridden), False otherwise
     table_override: Optional[bool] = None
 
@@ -130,6 +133,8 @@ class BenchmarkMetrics:
             d["cluster_instance_type"] = self.cluster_instance_type
             d["cluster_worker_count"] = self.cluster_worker_count
             d["cluster_master_type"] = self.cluster_master_type
+        if self.databricks_compute_type is not None:
+            d["databricks_compute_type"] = self.databricks_compute_type
         if self.table_override is not None:
             d["table_override"] = self.table_override
         return d
@@ -150,6 +155,14 @@ class BenchmarkMetrics:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
                 json.dump(self.to_dict(), f, indent=2)
                 tmp_path = f.name
+            gsutil_cmd = shutil.which("gsutil")
+            if not gsutil_cmd:
+                logger.warning(
+                    "gsutil not found; cannot upload metrics to GCS. "
+                    "Metrics JSON written to %s. On Databricks, use a dbfs:/ or /Volumes/ path for metrics_output_path.",
+                    tmp_path,
+                )
+                return tmp_path
             try:
                 env = os.environ.copy()
                 # Use SA key for gsutil when a local key file is provided (Dataproc: same SA as Spark GCS access)
@@ -162,18 +175,24 @@ class BenchmarkMetrics:
                             service_account_key_file,
                         )
                 subprocess.run(
-                    ["gsutil", "-q", "cp", tmp_path, full_gcs_path],
+                    [gsutil_cmd, "-q", "cp", tmp_path, full_gcs_path],
                     check=True,
                     capture_output=True,
                     env=env,
                 )
                 logger.info(f"Metrics saved to {full_gcs_path}")
-                return full_gcs_path
-            finally:
                 try:
                     os.unlink(tmp_path)
                 except OSError:
                     pass
+                return full_gcs_path
+            except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                logger.warning(
+                    "Failed to upload metrics to GCS (%s): %s. Metrics JSON kept at %s. "
+                    "On Databricks, use dbfs:/ or /Volumes/ for metrics_output_path.",
+                    full_gcs_path, e, tmp_path,
+                )
+                return tmp_path
         else:
             # Local path (or dbfs:/ on Databricks if mounted)
             output = Path(output_path)

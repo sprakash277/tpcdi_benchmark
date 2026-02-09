@@ -99,6 +99,8 @@ if __name__ == "__main__":
     print("BENCHMARK RESULTS")
     print("="*80)
     print(f"Platform: {result['config']['platform']}")
+    if result['metrics'].get('databricks_compute_type'):
+        print(f"Compute: {result['metrics']['databricks_compute_type']}")
     print(f"Load Type: {result['config']['load_type']}")
     print(f"Scale Factor: {result['config']['scale_factor']}")
     if result['config']['batch_id']:

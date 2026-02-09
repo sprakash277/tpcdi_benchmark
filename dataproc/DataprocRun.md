@@ -12,7 +12,7 @@ This guide describes how to run the benchmark on **Dataproc**: prerequisites, al
 4. GCP **project ID** and **region**.
 5. **Metastore (optional):** Without a [Dataproc Metastore](https://cloud.google.com/dataproc-metastore/docs), Spark uses the default metastore. The benchmark sets the warehouse to GCS (`gs://<bucket>/spark-warehouse`) and uses two-part table names (`database.table`) and Parquet by default. See **../docs/DATAPROC_METASTORE.md**.
 
-**How this guide is structured:** §0 documents optional infrastructure (VPC, subnet, firewall, cluster). §1 lists all parameters (gcloud + script). §2 explains which are mandatory vs optional. §3 describes what each parameter means. §4–§5 cover setup and run commands. §6 explains running with a service account. §7 gives a full example with SA. The end section covers Dataproc-specific troubleshooting.
+**How this guide is structured:** §0 documents optional infrastructure (VPC, subnet, firewall, cluster). §1 lists all parameters (gcloud + script). §2 explains which are mandatory vs optional. §3 describes what each parameter means. §4–§5 cover setup and run commands; **§5 includes steps to submit a job to Dataproc Serverless** (no cluster). §6 explains running with a service account. §7 gives a full example with SA. The end section covers Dataproc-specific troubleshooting.
 
 ---
 
@@ -319,6 +319,157 @@ gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
   --project-id=<your-project> \
   --region=us-central1
 ```
+
+---
+
+### Submit a job to Dataproc Serverless
+
+[Dataproc Serverless](https://cloud.google.com/dataproc-serverless/docs) runs Spark batch jobs without managing a cluster. Use `gcloud dataproc batches submit pyspark` (no `--cluster`). The same benchmark script and args apply; dependencies are uploaded to a **deps bucket**.
+
+**Prerequisites**
+
+1. **Deps bucket** — A GCS bucket for workload dependencies (e.g. `gs://<your-bucket>/dataproc-deps` or the same bucket you use for data).
+2. **TPC-DI raw data** in GCS (same as for cluster runs).
+3. **Enable the API** — `gcloud services enable dataproc.googleapis.com` (if not already).
+
+**Sample command (run from gcloud)**
+
+From the project root, set your project and bucket, then submit a batch load. Replace `YOUR_PROJECT` and `YOUR_BUCKET` with your GCP project ID and GCS bucket name.
+
+```bash
+# Set once; run from project root (where run_benchmark_dataproc.py and benchmark/ live)
+export PROJECT_ID=YOUR_PROJECT
+export BUCKET=YOUR_BUCKET
+export REGION=us-central1
+
+# Package and upload deps (first time or after code changes)
+zip -r benchmark.zip benchmark
+gsutil cp run_benchmark_dataproc.py gs://${BUCKET}/deps/
+gsutil cp benchmark.zip gs://${BUCKET}/deps/
+gsutil cp dataproc/libs/spark-xml_2.12-0.18.0.jar gs://${BUCKET}/deps/  # if using bundled JAR
+
+# Submit batch load to Dataproc Serverless
+gcloud dataproc batches submit pyspark gs://${BUCKET}/deps/run_benchmark_dataproc.py \
+  --region=${REGION} \
+  --deps-bucket=gs://${BUCKET} \
+  --py-files=gs://${BUCKET}/deps/benchmark.zip \
+  --jars=gs://${BUCKET}/deps/spark-xml_2.12-0.18.0.jar \
+  --project=${PROJECT_ID} \
+  -- \
+  --load-type batch \
+  --scale-factor 10 \
+  --gcs-bucket=${BUCKET} \
+  --project-id=${PROJECT_ID} \
+  --region=${REGION}
+```
+
+To use a **local** main file instead of uploading it (deps still from GCS):
+
+```bash
+gcloud dataproc batches submit pyspark run_benchmark_dataproc.py \
+  --region=${REGION} \
+  --deps-bucket=gs://${BUCKET} \
+  --py-files=benchmark.zip \
+  --project=${PROJECT_ID} \
+  -- \
+  --load-type batch \
+  --scale-factor 10 \
+  --gcs-bucket=${BUCKET} \
+  --project-id=${PROJECT_ID} \
+  --region=${REGION}
+```
+
+**Steps**
+
+1. **Package the benchmark** (from project root):
+
+   ```bash
+   zip -r benchmark.zip benchmark
+   ```
+
+2. **Upload the main script and package to GCS** (optional but recommended so the batch can resolve them from one place):
+
+   ```bash
+   gsutil cp run_benchmark_dataproc.py gs://<your-bucket>/deps/
+   gsutil cp benchmark.zip gs://<your-bucket>/deps/
+   ```
+
+   If you prefer to submit a **local** main file, you can pass it directly; dependencies are still uploaded to `--deps-bucket`.
+
+3. **Submit a batch (batch load)** — use `gcloud dataproc batches submit pyspark`, `--deps-bucket`, and `--region`. Arguments after `--` are passed to the benchmark script:
+
+   ```bash
+   gcloud dataproc batches submit pyspark gs://<your-bucket>/deps/run_benchmark_dataproc.py \
+     --region=us-central1 \
+     --deps-bucket=gs://<your-bucket> \
+     --py-files=gs://<your-bucket>/deps/benchmark.zip \
+     --jars=gs://<your-bucket>/deps/spark-xml_2.12-0.18.0.jar \
+     --project=<your-project> \
+     -- \
+     --load-type batch \
+     --scale-factor 10 \
+     --gcs-bucket=<your-bucket> \
+     --project-id=<your-project> \
+     --region=us-central1
+   ```
+
+   If the main file is **local**:
+
+   ```bash
+   gcloud dataproc batches submit pyspark run_benchmark_dataproc.py \
+     --region=us-central1 \
+     --deps-bucket=gs://<your-bucket> \
+     --py-files=benchmark.zip \
+     --project=<your-project> \
+     -- \
+     --load-type batch \
+     --scale-factor 10 \
+     --gcs-bucket=<your-bucket> \
+     --project-id=<your-project> \
+     --region=us-central1
+   ```
+
+4. **Submit a batch (incremental load)**:
+
+   ```bash
+   gcloud dataproc batches submit pyspark run_benchmark_dataproc.py \
+     --region=us-central1 \
+     --deps-bucket=gs://<your-bucket> \
+     --py-files=benchmark.zip \
+     --project=<your-project> \
+     -- \
+     --load-type incremental \
+     --scale-factor 10 \
+     --batch-id 2 \
+     --gcs-bucket=<your-bucket> \
+     --project-id=<your-project> \
+     --region=us-central1
+   ```
+
+5. **Optional: Service account** — To run the batch as a specific identity (e.g. for GCS access), add:
+
+   ```bash
+   --service-account=projects/<your-project>/serviceAccounts/tpcdi-dataproc@<your-project>.iam.gserviceaccount.com
+   ```
+
+6. **Optional: Metastore** — To use a Dataproc Metastore with serverless, add:
+
+   ```bash
+   --metastore-service=projects/<your-project>/locations/<region>/services/<metastore-name>
+   ```
+
+7. **Monitor the batch** — List and describe batches in the same region:
+
+   ```bash
+   gcloud dataproc batches list --region=us-central1
+   gcloud dataproc batches describe <BATCH_ID> --region=us-central1
+   ```
+
+**Notes**
+
+- **No `--cluster`** — Serverless batches do not use a cluster; only `--region` and `--deps-bucket` are required (plus your project).
+- **JARs** — Upload `dataproc/libs/spark-xml_2.12-0.18.0.jar` to GCS and pass it with `--jars=gs://...` if the runtime does not have Maven access.
+- **Metrics** — Metrics are written to GCS when `--metrics-output=gs://...` is set (or the default). The batch’s service account (or project default) must have write access to that path.
 
 ---
 
