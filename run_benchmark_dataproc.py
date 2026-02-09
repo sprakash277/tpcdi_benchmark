@@ -155,7 +155,7 @@ if __name__ == "__main__":
         if metrics_dict.get('cluster_instance_type'):
             print(f"  Worker Node Type: {metrics_dict['cluster_instance_type']}")
         if metrics_dict.get('cluster_master_type'):
-            print(f"  Driver/Master Node Type: {metrics_dict['cluster_master_type']}")
+            print(f"  Driver Node Type: {metrics_dict['cluster_master_type']}")
         if metrics_dict.get('cluster_worker_count') is not None:
             print(f"  Number of Worker Nodes: {metrics_dict['cluster_worker_count']}")
 

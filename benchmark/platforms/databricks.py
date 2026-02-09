@@ -135,7 +135,7 @@ class DatabricksPlatform:
         return result.cnt if result else 0
 
     def get_table_size_mb(self, table_name: str) -> float:
-        """Get approximate table size in MB. Runs DESCRIBE DETAIL separately (Databricks SQL does not allow it in a subquery)."""
+        """Get approximate table size in MB. Tries DESCRIBE DETAIL first, falls back to DESCRIBE EXTENDED + file system."""
         try:
             # Check if table exists first
             if not self.spark.catalog.tableExists(table_name):
@@ -143,33 +143,95 @@ class DatabricksPlatform:
                 return 0.0
             
             quoted = ".".join(f"`{p}`" for p in table_name.split("."))
-            detail_df = self.spark.sql(f"DESCRIBE DETAIL {quoted}")
-            row = detail_df.first()
-            if row is None:
-                logger.warning(f"DESCRIBE DETAIL returned no rows for {table_name}")
-                return 0.0
             
-            size = getattr(row, "size", None)
-            if size is None:
-                # Try alternative attribute names
-                if hasattr(row, "Size"):
-                    size = row.Size
-                elif hasattr(row, "SIZE"):
-                    size = row.SIZE
-                else:
-                    logger.warning(f"Could not find 'size' attribute in DESCRIBE DETAIL for {table_name}. Available attributes: {dir(row)}")
+            # Try DESCRIBE DETAIL first (Databricks-specific, more efficient)
+            try:
+                detail_df = self.spark.sql(f"DESCRIBE DETAIL {quoted}")
+                row = detail_df.first()
+                if row is not None:
+                    # DESCRIBE DETAIL returns columns. Access by column name or index.
+                    size = None
+                    
+                    # Try accessing by column name (Row supports dict-like access)
+                    columns = detail_df.columns
+                    for col_name in ['size', 'Size', 'SIZE']:
+                        if col_name in columns:
+                            try:
+                                size = row[col_name]
+                                break
+                            except (KeyError, IndexError):
+                                continue
+                    
+                    # If not found by name, try by index (find size column)
+                    if size is None:
+                        for i, col in enumerate(columns):
+                            if col.lower() == 'size':
+                                try:
+                                    size = row[i]
+                                    break
+                                except (IndexError, AttributeError):
+                                    continue
+                    
+                    if size is not None and size > 0:
+                        mb = size / (1024 * 1024)
+                        logger.debug(f"Table {table_name} size (from DESCRIBE DETAIL): {mb:.2f} MB ({size:,} bytes)")
+                        return mb
+            except Exception as e:
+                logger.debug(f"DESCRIBE DETAIL failed for {table_name}: {e}, trying DESCRIBE EXTENDED")
+            
+            # Fallback: Use DESCRIBE EXTENDED + file system (same as Dataproc)
+            try:
+                desc_df = self.spark.sql(f"DESCRIBE EXTENDED {quoted}")
+                loc_row = desc_df.filter("col_name = 'Location'").first()
+                if loc_row is None:
+                    logger.warning(f"Could not find Location in DESCRIBE EXTENDED for {table_name}")
                     return 0.0
-            
-            if size is not None and size > 0:
-                mb = size / (1024 * 1024)
-                logger.debug(f"Table {table_name} size: {mb:.2f} MB ({size:,} bytes)")
+                
+                # Get location from row (column index 1 typically has the value)
+                location = None
+                if len(loc_row) > 1:
+                    location = loc_row[1]
+                elif hasattr(loc_row, "data_type"):
+                    location = loc_row.data_type
+                
+                if not location or str(location).startswith("view:"):
+                    logger.warning(f"Invalid location for {table_name}: {location}")
+                    return 0.0
+                
+                location_str = str(location).strip()
+                logger.debug(f"Table {table_name} location: {location_str}")
+                
+                # Sum file sizes using Hadoop FS
+                total = self._sum_path_size_bytes(location_str)
+                mb = total / (1024 * 1024) if total else 0.0
+                if mb > 0:
+                    logger.debug(f"Table {table_name} size (from file system): {mb:.2f} MB ({total:,} bytes)")
+                else:
+                    logger.warning(f"Table {table_name} size calculation returned 0 bytes from path {location_str}")
                 return mb
-            else:
-                logger.warning(f"Table {table_name} size is 0 or None")
+            except Exception as e:
+                logger.warning(f"DESCRIBE EXTENDED fallback also failed for {table_name}: {e}")
                 return 0.0
+                
         except Exception as e:
             logger.warning(f"Could not get table size for {table_name}: {e}", exc_info=True)
             return 0.0
+    
+    def _sum_path_size_bytes(self, path: str) -> int:
+        """Recursively sum file sizes under path via Hadoop FS."""
+        try:
+            jvm = self.spark.sparkContext._jvm
+            hadoop_path = jvm.org.apache.hadoop.fs.Path(path)
+            fs = hadoop_path.getFileSystem(self.spark.sparkContext._jsc.hadoopConfiguration())
+            total = 0
+            for status in fs.listStatus(hadoop_path) or []:
+                if status.isDirectory():
+                    total += self._sum_path_size_bytes(status.getPath().toString())
+                else:
+                    total += status.getLen()
+            return int(total)
+        except Exception:
+            return 0
 
     def get_raw_input_size_bytes(self, batch_id: int) -> int:
         """Sum file sizes under raw_data_path/Batch{batch_id}/ for throughput metrics."""

@@ -2,7 +2,26 @@
 
 The `run_benchmark.py` wrapper script allows you to run TPC-DI benchmarks from your local laptop, submitting jobs to Dataproc or Databricks clusters, or running locally.
 
-## Automatic Cluster Sizing
+## Quick Reference
+
+### Required Arguments (All Platforms)
+- `--load-type`: `batch` or `incremental`
+- `--scale-factor`: TPC-DI scale factor (e.g., 10, 100, 1000)
+
+### Platform-Specific Required Arguments
+
+**Dataproc:**
+- `--cluster`: Dataproc cluster name
+- `--project-id`: GCP project ID
+- `--gcs-bucket`: GCS bucket name
+
+**Databricks:**
+- No additional required arguments (job is auto-created if missing)
+
+**Local:**
+- No additional required arguments (platform auto-detected from data path)
+
+### Automatic Cluster Sizing
 
 The script automatically configures cluster resources based on scale factor:
 
@@ -16,6 +35,8 @@ The script automatically configures cluster resources based on scale factor:
 - **Dataproc**: Provides recommendations and auto-sets cluster metadata for metrics logging
 - **GCP**: Defaults to `n2d-standard-16` for both worker and driver nodes
 - Override with `--num-workers` or `--node-type-id` if needed
+
+**See "Complete Parameter Reference" section below for all optional parameters.**
 
 ## Quick Start
 
@@ -139,15 +160,34 @@ python run_benchmark.py dataproc \
 - With `--create-network`, creates isolated VPC with Private Google Access (no external IPs)
 - Override with `--cluster-instance-type` and `--cluster-worker-count` if your cluster differs
 
-**Optional arguments:**
-- `--raw-data-path`: Base path to raw TPC-DI data (default: `gs://<bucket>/tpcdi`)
-- `--format`: Table format: `delta` or `parquet` (default: `parquet`)
-- `--service-account-email`: Service account for GCS access
-- `--service-account-key-file`: Path to service account JSON key file
-- `--jars`: Additional JAR files (comma-separated)
-- `--cluster-instance-type`: Worker instance type for metrics
-- `--cluster-worker-count`: Number of worker instances for metrics
-- `--cluster-master-type`: Driver instance type for metrics
+**All Optional Arguments:**
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--raw-data-path` | `gs://<bucket>/tpcdi` | Base path to raw TPC-DI data in GCS |
+| `--format` | `parquet` | Table format: `delta` or `parquet` |
+| `--region` | `us-central1` | GCP region |
+| `--spark-master` | `yarn` | Spark master URL |
+| `--service-account-email` | - | Service account email for GCS access |
+| `--service-account-key-file` | - | Path to service account JSON key file (local path, not gs://) |
+| `--jars` | - | Additional JAR files (comma-separated) |
+| `--target-database` | `tpcdi_warehouse` | Target database name |
+| `--target-schema` | `dw` | Target schema name |
+| `--batch-id` | - | Batch ID for incremental loads |
+| `--metrics-output` | `gs://<bucket>/tpcdi/metrics` | Path to save metrics JSON |
+| `--log-detailed-stats` | `false` | Enable per-table timing and record counts |
+| `--cluster-instance-type` | Auto-detected | Worker instance type for metrics logging |
+| `--cluster-worker-count` | Auto-detected | Number of worker instances for metrics logging |
+| `--cluster-master-type` | Auto-detected | Driver/master instance type for metrics logging |
+| `--create-cluster` | `false` | Create cluster if it doesn't exist (uses default network) |
+| `--create-network` | `false` | Create VPC, subnet, firewall, and cluster if missing |
+| `--vpc-name` | `<cluster>-vpc` | VPC name (used with `--create-network`) |
+| `--subnet-name` | `<cluster>-subnet` | Subnet name (used with `--create-network` or `--create-cluster`) |
+| `--subnet-range` | `10.10.0.0/24` | Subnet CIDR range (used with `--create-network`) |
+| `--zone` | `<region>-b` | GCP zone |
+| `--firewall-rule-name` | `allow-<subnet>-internal` | Firewall rule name (used with `--create-network`) |
+
+**Note:** See "Complete Parameter Reference" section below for a comprehensive table of all parameters.
 
 ### Databricks
 
@@ -193,17 +233,31 @@ python run_benchmark.py databricks \
   --output-path dbfs:/mnt/tpcdi
 ```
 
-**Job creation arguments (used when creating new job):**
-- `--job-name`: Job name (default: `TPC-DI-Benchmark`)
-- `--workspace-path`: Workspace path prefix for notebooks (e.g., `/Workspace/Repos/user/repo/databricks`)
-- `--data-gen-notebook`: Data generation notebook path (default: `generate_tpcdi_data_notebook`)
-- `--benchmark-notebook`: Benchmark notebook path (default: `benchmark_databricks_notebook`)
-- `--spark-version`: Databricks Runtime version (default: `14.3.x-scala2.12`)
-- `--cloud`: Cloud provider: `AWS`, `GCP`, or `Azure` (default: `AWS`)
-- `--node-type-id`: Worker node type (GCP defaults to `n2d-standard-16`, AWS defaults to `i3.xlarge`)
-- `--driver-node-type-id`: Driver node type (defaults to worker type)
-- `--num-workers`: Number of worker nodes (auto-set based on scale_factor if not provided: SF=10→2, SF=100→3, SF=1000→5)
-- `--existing-cluster-id`: Use existing cluster instead of creating new
+**All Optional Arguments:**
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--job-id` | - | Databricks job/workflow ID (if not provided, searches by `--job-name` or creates new) |
+| `--job-name` | `TPC-DI-Benchmark` | Job name (used to find existing job or name new job) |
+| `--output-path` | - | Raw data location: DBFS, Volume, or GCS path |
+| `--target-database` | `tpcdi_warehouse` | Target database name |
+| `--target-schema` | `dw` | Target schema name |
+| `--target-catalog` | - | Unity Catalog name (optional) |
+| `--batch-id` | - | Batch ID for incremental loads |
+| `--metrics-output` | `dbfs:/mnt/tpcdi/metrics` | Path to save metrics JSON |
+| `--log-detailed-stats` | `false` | Enable per-table timing and record counts |
+| `--workspace-path` | - | Workspace path prefix for notebooks (e.g., `/Workspace/Repos/user/repo/databricks`) |
+| `--data-gen-notebook` | `generate_tpcdi_data_notebook` | Data generation notebook path (relative to `--workspace-path`) |
+| `--benchmark-notebook` | `benchmark_databricks_notebook` | Benchmark notebook path (relative to `--workspace-path`) |
+| `--spark-version` | `14.3.x-scala2.12` | Databricks Runtime version (for new jobs) |
+| `--cloud` | `AWS` | Cloud provider: `AWS`, `GCP`, or `Azure` (for new jobs) |
+| `--node-type-id` | Auto (GCP: `n2d-standard-16`, AWS: `i3.xlarge`) | Worker node type (for new jobs) |
+| `--driver-node-type-id` | Same as `--node-type-id` | Driver node type (for new jobs) |
+| `--num-workers` | Auto (SF=10→2, SF=100→3, SF=1000→5) | Number of worker nodes (for new jobs) |
+| `--existing-cluster-id` | - | Use existing cluster ID instead of creating new (for new jobs) |
+| `--cluster-instance-type` | Auto-detected | Worker instance type for metrics logging |
+| `--cluster-worker-count` | Auto-detected | Number of worker instances for metrics logging |
+| `--cluster-master-type` | Auto-detected | Driver instance type for metrics logging |
 
 **Automatic cluster sizing:**
 - Worker count is automatically set based on scale factor:
@@ -212,13 +266,6 @@ python run_benchmark.py databricks \
   - SF=1000 → 5 workers
 - For GCP (`--cloud GCP`), node type defaults to `n2d-standard-16` for both worker and driver
 - Override with `--num-workers` or `--node-type-id` if needed
-
-**Runtime arguments:**
-- `--output-path`: Raw data location (DBFS, Volume, or GCS path)
-- `--target-catalog`: Unity Catalog name
-- `--cluster-instance-type`: Worker instance type for metrics
-- `--cluster-worker-count`: Number of worker instances for metrics
-- `--cluster-master-type`: Driver instance type for metrics
 
 **How it works:**
 1. If `--job-id` is provided, uses that job (verifies it exists)
@@ -255,24 +302,122 @@ python run_benchmark.py local \
   --metrics-output ./metrics
 ```
 
+**All Optional Arguments:**
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--raw-data-path` | `.` | Path to raw TPC-DI data (local or `gs://`) |
+| `--output-path` | - | Output path (for Databricks platform) |
+| `--target-database` | `tpcdi_warehouse` | Target database name |
+| `--target-schema` | `dw` | Target schema name |
+| `--target-catalog` | - | Unity Catalog name (for Databricks platform) |
+| `--batch-id` | - | Batch ID for incremental loads |
+| `--metrics-output` | `./metrics` | Path to save metrics JSON |
+| `--log-detailed-stats` | `false` | Enable per-table timing and record counts |
+| `--gcs-bucket` | - | GCS bucket (required if `--raw-data-path` is `gs://`) |
+| `--project-id` | `GOOGLE_CLOUD_PROJECT` env var | GCP project ID (required for Dataproc platform) |
+| `--region` | `us-central1` | GCP region |
+| `--service-account-email` | - | Service account email for GCS |
+| `--service-account-key-file` | - | Path to service account JSON key file |
+| `--format` | `parquet` | Table format: `delta` or `parquet` |
+| `--cluster-instance-type` | Auto-detected | Worker instance type for metrics logging |
+| `--cluster-worker-count` | Auto-detected | Number of worker instances for metrics logging |
+| `--cluster-master-type` | Auto-detected | Driver/master instance type for metrics logging |
+
 **Platform detection:** The script detects platform from the data path:
 - `gs://` paths → Dataproc platform
 - Other paths → Databricks platform
 
-## Common Arguments
+## Complete Parameter Reference
 
-All platforms support these common arguments:
+### Common Arguments (All Platforms)
 
-- `--load-type`: `batch` or `incremental` (required)
-- `--scale-factor`: TPC-DI scale factor (required)
-- `--target-database`: Target database name (default: `tpcdi_warehouse`)
-- `--target-schema`: Target schema name (default: `dw`)
-- `--batch-id`: Batch ID for incremental loads
-- `--metrics-output`: Path to save metrics JSON
-- `--log-detailed-stats`: Enable per-table timing and record counts
-- `--cluster-instance-type`: Worker instance type for metrics
-- `--cluster-worker-count`: Number of worker instances for metrics
-- `--cluster-master-type`: Driver/master instance type for metrics
+These arguments are available for all platforms (`dataproc`, `databricks`, `local`):
+
+| Argument | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `--load-type` | ✅ Yes | - | Type of load: `batch` or `incremental` |
+| `--scale-factor` | ✅ Yes | - | TPC-DI scale factor (e.g., 10, 100, 1000) |
+| `--target-database` | ❌ No | `tpcdi_warehouse` | Target database name |
+| `--target-schema` | ❌ No | `dw` | Target schema name |
+| `--batch-id` | ❌ No | - | Batch ID for incremental loads (required if `--load-type incremental`) |
+| `--metrics-output` | ❌ No | Platform-specific | Path to save metrics JSON |
+| `--log-detailed-stats` | ❌ No | `false` | Enable per-table timing and record counts |
+| `--cluster-instance-type` | ❌ No | Auto-detected | Worker instance type for metrics logging |
+| `--cluster-worker-count` | ❌ No | Auto-detected | Number of worker instances for metrics logging |
+| `--cluster-master-type` | ❌ No | Auto-detected | Driver/master instance type for metrics logging |
+
+### Dataproc-Specific Arguments
+
+| Argument | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `--cluster` | ✅ Yes | - | Dataproc cluster name |
+| `--project-id` | ✅ Yes | - | GCP project ID |
+| `--gcs-bucket` | ✅ Yes | - | GCS bucket name |
+| `--region` | ❌ No | `us-central1` | GCP region |
+| `--raw-data-path` | ❌ No | `gs://<bucket>/tpcdi` | Base path to raw TPC-DI data in GCS |
+| `--format` | ❌ No | `parquet` | Table format: `delta` or `parquet` |
+| `--spark-master` | ❌ No | `yarn` | Spark master URL |
+| `--service-account-email` | ❌ No | - | Service account email for GCS access |
+| `--service-account-key-file` | ❌ No | - | Path to service account JSON key file (local path, not gs://) |
+| `--jars` | ❌ No | - | Additional JAR files (comma-separated) |
+| `--create-cluster` | ❌ No | `false` | Create cluster if it doesn't exist (uses default network) |
+| `--create-network` | ❌ No | `false` | Create VPC, subnet, firewall, and cluster if missing |
+| `--vpc-name` | ❌ No | `<cluster>-vpc` | VPC name (used with `--create-network`) |
+| `--subnet-name` | ❌ No | `<cluster>-subnet` | Subnet name (used with `--create-network` or `--create-cluster`) |
+| `--subnet-range` | ❌ No | `10.10.0.0/24` | Subnet CIDR range (used with `--create-network`) |
+| `--zone` | ❌ No | `<region>-b` | GCP zone |
+| `--firewall-rule-name` | ❌ No | `allow-<subnet>-internal` | Firewall rule name (used with `--create-network`) |
+
+### Databricks-Specific Arguments
+
+| Argument | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `--job-id` | ❌ No | - | Databricks job/workflow ID (if not provided, searches by `--job-name` or creates new) |
+| `--job-name` | ❌ No | `TPC-DI-Benchmark` | Job name (used to find existing job or name new job) |
+| `--output-path` | ❌ No | - | Raw data location: DBFS, Volume, or GCS path |
+| `--target-database` | ❌ No | `tpcdi_warehouse` | Target database name |
+| `--target-schema` | ❌ No | `dw` | Target schema name |
+| `--target-catalog` | ❌ No | - | Unity Catalog name (optional) |
+| `--batch-id` | ❌ No | - | Batch ID for incremental loads |
+| `--metrics-output` | ❌ No | `dbfs:/mnt/tpcdi/metrics` | Path to save metrics JSON |
+| `--log-detailed-stats` | ❌ No | `false` | Enable per-table timing and record counts |
+| `--workspace-path` | ❌ No | - | Workspace path prefix for notebooks (e.g., `/Workspace/Repos/user/repo/databricks`) |
+| `--data-gen-notebook` | ❌ No | `generate_tpcdi_data_notebook` | Data generation notebook path (relative to `--workspace-path`) |
+| `--benchmark-notebook` | ❌ No | `benchmark_databricks_notebook` | Benchmark notebook path (relative to `--workspace-path`) |
+| `--spark-version` | ❌ No | `14.3.x-scala2.12` | Databricks Runtime version (for new jobs) |
+| `--cloud` | ❌ No | `AWS` | Cloud provider: `AWS`, `GCP`, or `Azure` (for new jobs) |
+| `--node-type-id` | ❌ No | Auto (GCP: `n2d-standard-16`, AWS: `i3.xlarge`) | Worker node type (for new jobs) |
+| `--driver-node-type-id` | ❌ No | Same as `--node-type-id` | Driver node type (for new jobs) |
+| `--num-workers` | ❌ No | Auto (SF=10→2, SF=100→3, SF=1000→5) | Number of worker nodes (for new jobs) |
+| `--existing-cluster-id` | ❌ No | - | Use existing cluster ID instead of creating new (for new jobs) |
+| `--cluster-instance-type` | ❌ No | Auto-detected | Worker instance type for metrics logging |
+| `--cluster-worker-count` | ❌ No | Auto-detected | Number of worker instances for metrics logging |
+| `--cluster-master-type` | ❌ No | Auto-detected | Driver instance type for metrics logging |
+
+### Local Execution Arguments
+
+| Argument | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `--raw-data-path` | ❌ No | `.` | Path to raw TPC-DI data (local or `gs://`) |
+| `--output-path` | ❌ No | - | Output path (for Databricks platform) |
+| `--target-database` | ❌ No | `tpcdi_warehouse` | Target database name |
+| `--target-schema` | ❌ No | `dw` | Target schema name |
+| `--target-catalog` | ❌ No | - | Unity Catalog name (for Databricks platform) |
+| `--batch-id` | ❌ No | - | Batch ID for incremental loads |
+| `--metrics-output` | ❌ No | `./metrics` | Path to save metrics JSON |
+| `--log-detailed-stats` | ❌ No | `false` | Enable per-table timing and record counts |
+| `--gcs-bucket` | ❌ No | - | GCS bucket (required if `--raw-data-path` is `gs://`) |
+| `--project-id` | ❌ No | `GOOGLE_CLOUD_PROJECT` env var | GCP project ID (required for Dataproc platform) |
+| `--region` | ❌ No | `us-central1` | GCP region |
+| `--service-account-email` | ❌ No | - | Service account email for GCS |
+| `--service-account-key-file` | ❌ No | - | Path to service account JSON key file |
+| `--format` | ❌ No | `parquet` | Table format: `delta` or `parquet` |
+| `--cluster-instance-type` | ❌ No | Auto-detected | Worker instance type for metrics logging |
+| `--cluster-worker-count` | ❌ No | Auto-detected | Number of worker instances for metrics logging |
+| `--cluster-master-type` | ❌ No | Auto-detected | Driver/master instance type for metrics logging |
+
+**Note:** Platform is auto-detected from `--raw-data-path`: `gs://` paths → Dataproc platform, others → Databricks platform.
 
 ## Automatic Packaging
 
