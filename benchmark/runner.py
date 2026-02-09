@@ -137,7 +137,8 @@ def create_platform_adapter(config: BenchmarkConfig, spark: SparkSession):
         raw_root = f"{base}/sf={config.scale_factor}"
 
         # When reading from GCS on Databricks (classic), set bucket so connector does not throw "No bucket specified in GCS URI: null".
-        # Skip on serverless: spark.hadoop.fs.gs.bucket is not available (SQLSTATE: 42K0I). GCS works via UC external locations or default connector.
+        # On serverless, spark.hadoop.fs.gs.bucket is not available (CONFIG_NOT_AVAILABLE, SQLSTATE: 42K0I). Skip setting it;
+        # GCS works via Unity Catalog external locations or the default connector.
         if raw_root.startswith("gs://"):
             bucket_match = re.match(r"gs://([^/]+)", raw_root)
             if bucket_match:
@@ -145,11 +146,18 @@ def create_platform_adapter(config: BenchmarkConfig, spark: SparkSession):
                 try:
                     spark.conf.set("spark.hadoop.fs.gs.bucket", bucket)
                     logger.info(f"Set spark.hadoop.fs.gs.bucket={bucket} for GCS reads on Databricks")
-                except Exception as e:
-                    logger.warning(
-                        f"Could not set spark.hadoop.fs.gs.bucket (e.g. serverless does not allow it): {e}. "
-                        "GCS access may still work via Unity Catalog external locations or default connector."
-                    )
+                except BaseException as e:
+                    err_msg = str(e).strip()
+                    if "CONFIG_NOT_AVAILABLE" in err_msg or "42K0I" in err_msg or "fs.gs.bucket" in err_msg:
+                        logger.info(
+                            "spark.hadoop.fs.gs.bucket is not available on this runtime (e.g. serverless). "
+                            "GCS access will use Unity Catalog external locations or the default connector."
+                        )
+                    else:
+                        logger.warning(
+                            f"Could not set spark.hadoop.fs.gs.bucket: {e}. "
+                            "GCS access may still work via Unity Catalog external locations or default connector."
+                        )
 
         logger.info(f"[DEBUG create_platform_adapter] Final values:")
         logger.info(f"  base='{base}'")
