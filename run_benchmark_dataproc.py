@@ -177,6 +177,14 @@ if __name__ == "__main__":
         print(f"  Throughput: {summary.get('throughput_rows_per_second', 0):.2f} rows/sec")
         print(f"  Data Throughput: {summary.get('throughput_mb_per_second', 0):.2f} MB/sec")
 
+    dq_timings = result['metrics'].get('dq_table_timings')
+    if dq_timings:
+        print("\nDQ time per table:")
+        for t in dq_timings:
+            print(f"  {t['table']}: {t['duration_seconds']:.2f}s")
+        total_dq = sum(t['duration_seconds'] for t in dq_timings)
+        print(f"  Total DQ: {total_dq:.2f}s")
+
     print("\nStep Details:")
     for step in result['metrics'].get('steps', []):
         status_icon = "✓" if step.get('status') == "completed" else "✗" if step.get('status') == "failed" else "○"

@@ -691,6 +691,13 @@ def run_local(args):
     if result['metrics']['summary']:
         print(f"Total Rows Processed: {result['metrics']['summary']['total_rows_processed']:,}")
         print(f"Throughput: {result['metrics']['summary']['throughput_rows_per_second']:.2f} rows/sec")
+    dq_timings = result['metrics'].get('dq_table_timings')
+    if dq_timings:
+        print("\nDQ time per table:")
+        for t in dq_timings:
+            print(f"  {t['table']}: {t['duration_seconds']:.2f}s")
+        total_dq = sum(t['duration_seconds'] for t in dq_timings)
+        print(f"  Total DQ: {total_dq:.2f}s")
 
 
 def main():

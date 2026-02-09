@@ -96,7 +96,7 @@ class SilverETL:
         
         logger.info("Initialized SilverETL orchestrator")
     
-    def run_silver_batch_load(self, batch_id: int, target_database: str, target_schema: str):
+    def run_silver_batch_load(self, batch_id: int, target_database: str, target_schema: str, metrics=None):
         """
         Run full Silver layer load for a batch.
         
@@ -106,6 +106,7 @@ class SilverETL:
             batch_id: Batch number (1 for historical, 2+ for incremental)
             target_database: Target database/catalog name
             target_schema: Target schema name
+            metrics: Optional MetricsCollector; when set, DQ per-table timings are stored for benchmark results.
         """
         prefix = ".".join(p for p in (target_database, target_schema) if p)
         
@@ -211,8 +212,10 @@ class SilverETL:
             dq_table_name = f"{prefix}.silver_dq_validation"
             table_timing_start(dq_table_name)
             dq = SilverDQRunner(self.platform)
-            dq.run_silver_dq(batch_id, prefix, dim_messages_table=f"{prefix}.gold_dim_messages")
+            dq_timings = dq.run_silver_dq(batch_id, prefix, dim_messages_table=f"{prefix}.gold_dim_messages")
             table_timing_end(dq_table_name, row_count=0)  # row_count=0 for non-data operations
+            if metrics is not None and dq_timings is not None:
+                metrics.metrics.dq_table_timings = dq_timings
         except Exception as e:
             logger.warning(f"Silver DQ run failed: {e}")
 

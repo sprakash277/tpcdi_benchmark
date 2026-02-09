@@ -11,10 +11,34 @@ import time
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
 import logging
 
+if TYPE_CHECKING:
+    from pyspark.sql import SparkSession
+
 logger = logging.getLogger(__name__)
+
+
+def _write_string_to_gcs_via_spark(spark: "SparkSession", gcs_path: str, content: str) -> bool:
+    """Write a string to a GCS path using Spark's Hadoop FileSystem (e.g. on Databricks with GCS connector)."""
+    try:
+        sc = spark.sparkContext
+        jvm = sc._jvm
+        hadoop_conf = sc._jsc.hadoopConfiguration()
+        uri = jvm.java.net.URI.create(gcs_path)
+        fs = jvm.org.apache.hadoop.fs.FileSystem.get(uri, hadoop_conf)
+        path = jvm.org.apache.hadoop.fs.Path(gcs_path)
+        out = fs.create(path, True)
+        content_bytes = content.encode("utf-8")
+        # OutputStream.write(byte[] b) - Py4j typically accepts Python bytes as byte[]
+        out.write(content_bytes)
+        out.close()
+        fs.close()
+        return True
+    except Exception as e:
+        logger.debug("Spark GCS write failed: %s", e)
+        return False
 
 
 @dataclass
@@ -69,6 +93,8 @@ class BenchmarkMetrics:
     cluster_master_type: Optional[str] = None
     # Databricks only: "serverless" or "classic" (provisioned) compute
     databricks_compute_type: Optional[str] = None
+    # DQ time per silver table: [{"table": str, "duration_seconds": float}, ...]
+    dq_table_timings: Optional[List[Dict[str, Any]]] = None
     # Table override flag: True if tables/paths existed before loading (overridden), False otherwise
     table_override: Optional[bool] = None
 
@@ -135,12 +161,20 @@ class BenchmarkMetrics:
             d["cluster_master_type"] = self.cluster_master_type
         if self.databricks_compute_type is not None:
             d["databricks_compute_type"] = self.databricks_compute_type
+        if self.dq_table_timings is not None:
+            d["dq_table_timings"] = self.dq_table_timings
         if self.table_override is not None:
             d["table_override"] = self.table_override
         return d
     
-    def save(self, output_path: str, service_account_key_file: Optional[str] = None):
-        """Save metrics to file (JSON). Local paths use pathlib/open; gs:// paths write to temp then upload via gsutil.
+    def save(
+        self,
+        output_path: str,
+        service_account_key_file: Optional[str] = None,
+        spark: Optional["SparkSession"] = None,
+    ):
+        """Save metrics to file (JSON). Local paths use pathlib/open; gs:// paths write to temp then upload via gsutil
+        or, when gsutil is not available, via Spark's Hadoop FileSystem if spark is provided (e.g. on Databricks).
         If service_account_key_file is a local path, gsutil uses that SA for the upload (GOOGLE_APPLICATION_CREDENTIALS).
         """
         timestamp = datetime.fromtimestamp(self.start_time).strftime("%Y%m%d_%H%M%S")
@@ -152,17 +186,25 @@ class BenchmarkMetrics:
             # pathlib.Path("gs://bucket/path") turns gs:// into gs:/ (one slash). Build path as string and upload.
             base = output_path.rstrip("/")
             full_gcs_path = f"{base}/{filename}"
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-                json.dump(self.to_dict(), f, indent=2)
-                tmp_path = f.name
+            json_content = json.dumps(self.to_dict(), indent=2)
             gsutil_cmd = shutil.which("gsutil")
             if not gsutil_cmd:
+                # Try Spark Hadoop FileSystem (e.g. Databricks with GCS connector)
+                if spark is not None and _write_string_to_gcs_via_spark(spark, full_gcs_path, json_content):
+                    logger.info(f"Metrics saved to {full_gcs_path} (via Spark GCS)")
+                    return full_gcs_path
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+                    f.write(json_content)
+                    tmp_path = f.name
                 logger.warning(
-                    "gsutil not found; cannot upload metrics to GCS. "
-                    "Metrics JSON written to %s. On Databricks, use a dbfs:/ or /Volumes/ path for metrics_output_path.",
+                    "gsutil not found; could not upload metrics to GCS. "
+                    "Metrics JSON written to %s. On Databricks, ensure GCS connector is configured or use dbfs:/ /Volumes/ for metrics_output_path.",
                     tmp_path,
                 )
                 return tmp_path
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+                f.write(json_content)
+                tmp_path = f.name
             try:
                 env = os.environ.copy()
                 # Use SA key for gsutil when a local key file is provided (Dataproc: same SA as Spark GCS access)
@@ -276,6 +318,7 @@ class MetricsCollector:
                     service_account_key_file=getattr(
                         self.config, "service_account_key_file", None
                     ),
+                    spark=getattr(self, "spark", None),
                 )
             except Exception as e:
                 logger.error(f"Failed to save metrics: {e}")

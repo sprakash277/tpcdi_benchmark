@@ -3,14 +3,20 @@ Silver-layer Data Quality rules for TPC-DI.
 
 Runs mandatory TPC-DI validation rules and generic checks (completeness, uniqueness,
 validity, consistency). Failures are logged to gold.dim_messages.
+
+You can add more complex rules by:
+- Adding checks in existing _run_*_rules methods and calling log().
+- Adding new _run_*_rules methods and calling them from run_silver_dq().
+- Passing custom_rules=[fn, ...] to run_silver_dq(); each fn(runner, prefix, batch_id, log, messages_table).
+See docs/DATA_QUALITY.md for examples.
 """
 
 import logging
 import time
 from datetime import datetime
-from typing import Optional
+from typing import Callable, List, Optional, Dict, Any
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, count
+from pyspark.sql.functions import col, count, length, trim
 
 from benchmark.etl.dq.dim_messages import ensure_dim_messages_exists, log_message
 from benchmark.etl.table_timing import is_detailed as table_timing_is_detailed
@@ -27,15 +33,19 @@ class SilverDQRunner:
         self.platform = platform
         self.spark = platform.get_spark()
 
-    def run_silver_dq(self, batch_id: int, prefix: str, dim_messages_table: Optional[str] = None) -> None:
+    def run_silver_dq(
+        self,
+        batch_id: int,
+        prefix: str,
+        dim_messages_table: Optional[str] = None,
+        custom_rules: Optional[List[Callable[..., None]]] = None,
+    ) -> List[Dict[str, Any]]:
         """
         Run all Silver DQ rules for the given batch and prefix.
         Logs failures to gold_dim_messages (or dim_messages_table if provided).
 
-        Args:
-            batch_id: Batch number
-            prefix: Table prefix (e.g. catalog.schema)
-            dim_messages_table: Full name of dim_messages table (default: {prefix}.gold_dim_messages)
+        Returns:
+            List of {"table": str, "duration_seconds": float} for each validated table (for benchmark results).
         """
         start_time = time.time()
         start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -45,6 +55,8 @@ class SilverDQRunner:
         messages_table = dim_messages_table or f"{prefix}.gold_dim_messages"
         ensure_dim_messages_exists(self.spark, messages_table, self.platform)
 
+        dq_table_timings: List[Dict[str, Any]] = []
+
         def log(component: str, message: str, severity: str = "Alert", source: str = ""):
             log_message(
                 self.spark, self.platform, messages_table,
@@ -52,33 +64,89 @@ class SilverDQRunner:
                 message_text=message, severity=severity, source_table=source,
             )
 
+        def _timed(table_name: str, fn):
+            t0 = time.time()
+            try:
+                fn()
+            finally:
+                dq_table_timings.append({"table": table_name, "duration_seconds": time.time() - t0})
+
         # --- DimCustomer (silver_customers) ---
         try:
-            self._run_customer_rules(prefix, batch_id, log, messages_table)
+            _timed("silver_customers", lambda: self._run_customer_rules(prefix, batch_id, log, messages_table))
         except Exception as e:
             logger.warning(f"Silver DQ silver_customers failed: {e}")
             log("Silver_Customer_Validation", f"DQ run failed: {e}", "Alert", f"{prefix}.silver_customers")
 
         # --- DimAccount (silver_accounts) ---
         try:
-            self._run_account_rules(prefix, batch_id, log, messages_table)
+            _timed("silver_accounts", lambda: self._run_account_rules(prefix, batch_id, log, messages_table))
         except Exception as e:
             logger.warning(f"Silver DQ silver_accounts failed: {e}")
             log("Silver_Account_Validation", f"DQ run failed: {e}", "Alert", f"{prefix}.silver_accounts")
 
         # --- FactTrades / silver_trades ---
         try:
-            self._run_trade_rules(prefix, batch_id, log, messages_table)
+            _timed("silver_trades", lambda: self._run_trade_rules(prefix, batch_id, log, messages_table))
         except Exception as e:
             logger.warning(f"Silver DQ silver_trades failed: {e}")
             log("Silver_Trade_Validation", f"DQ run failed: {e}", "Alert", f"{prefix}.silver_trades")
 
         # --- DimDate (silver_date) ---
         try:
-            self._run_date_rules(prefix, log, messages_table)
+            _timed("silver_date", lambda: self._run_date_rules(prefix, log, messages_table))
         except Exception as e:
             logger.warning(f"Silver DQ silver_date failed: {e}")
             log("Silver_Date_Validation", f"DQ run failed: {e}", "Alert", f"{prefix}.silver_date")
+
+        # --- Securities (silver_securities) ---
+        try:
+            _timed("silver_securities", lambda: self._run_security_rules(prefix, log, messages_table))
+        except Exception as e:
+            logger.warning(f"Silver DQ silver_securities failed: {e}")
+            log("Silver_Security_Validation", f"DQ run failed: {e}", "Alert", f"{prefix}.silver_securities")
+
+        # --- Daily Market (silver_daily_market) ---
+        try:
+            _timed("silver_daily_market", lambda: self._run_daily_market_rules(prefix, batch_id, log, messages_table))
+        except Exception as e:
+            logger.warning(f"Silver DQ silver_daily_market failed: {e}")
+            log("Silver_DailyMarket_Validation", f"DQ run failed: {e}", "Alert", f"{prefix}.silver_daily_market")
+
+        # --- Cash Transaction (silver_cash_transaction) ---
+        try:
+            _timed("silver_cash_transaction", lambda: self._run_cash_transaction_rules(prefix, batch_id, log, messages_table))
+        except Exception as e:
+            logger.warning(f"Silver DQ silver_cash_transaction failed: {e}")
+            log("Silver_CashTransaction_Validation", f"DQ run failed: {e}", "Alert", f"{prefix}.silver_cash_transaction")
+
+        # --- Reference: StatusType, TradeType, Industry ---
+        try:
+            _timed("silver_status_type", lambda: self._run_status_type_rules(prefix, log, messages_table))
+        except Exception as e:
+            logger.warning(f"Silver DQ silver_status_type failed: {e}")
+            log("Silver_StatusType_Validation", f"DQ run failed: {e}", "Alert", f"{prefix}.silver_status_type")
+        try:
+            _timed("silver_trade_type", lambda: self._run_trade_type_rules(prefix, log, messages_table))
+        except Exception as e:
+            logger.warning(f"Silver DQ silver_trade_type failed: {e}")
+            log("Silver_TradeType_Validation", f"DQ run failed: {e}", "Alert", f"{prefix}.silver_trade_type")
+        try:
+            _timed("silver_industry", lambda: self._run_industry_rules(prefix, log, messages_table))
+        except Exception as e:
+            logger.warning(f"Silver DQ silver_industry failed: {e}")
+            log("Silver_Industry_Validation", f"DQ run failed: {e}", "Alert", f"{prefix}.silver_industry")
+
+        # --- Custom rules ---
+        if custom_rules:
+            for fn in custom_rules:
+                t0 = time.time()
+                try:
+                    fn(self, prefix, batch_id, log, messages_table)
+                except Exception as e:
+                    logger.warning(f"Silver DQ custom rule {fn.__name__} failed: {e}")
+                    log("Silver_Custom_Validation", f"DQ run failed: {e}", "Alert", "")
+                dq_table_timings.append({"table": f"custom_{fn.__name__}", "duration_seconds": time.time() - t0})
 
         end_time = time.time()
         end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -89,6 +157,7 @@ class SilverDQRunner:
             logger.info(f"[TIMING] Silver DQ - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s")
         
         logger.info(f"Silver DQ completed for batch_id={batch_id}, prefix={prefix} in {duration:.2f}s")
+        return dq_table_timings
 
     def _run_customer_rules(self, prefix: str, batch_id: int, log, messages_table: str) -> None:
         source = f"{prefix}.silver_customers"
@@ -130,6 +199,23 @@ class SilverDQRunner:
             if n > 0:
                 log("Silver_Customer_Validation", f"end_date < effective_date: {n} row(s)", "Alert", source)
 
+        # Gender valid (M/F/U or empty)
+        if "gender" in df.columns:
+            bad_gender = df.filter(
+                col("gender").isNotNull() & (trim(col("gender")) != "")
+                & ~(trim(col("gender")).isin("M", "F", "U"))
+            )
+            n = bad_gender.count()
+            if n > 0:
+                log("Silver_Customer_Validation", f"gender not in (M,F,U): {n} row(s)", "Alert", source)
+
+        # Status non-empty when present (business key consistency)
+        if "status" in df.columns:
+            null_status = df.filter(col("status").isNull() | (trim(col("status")) == ""))
+            n = null_status.count()
+            if n > 0:
+                log("Silver_Customer_Validation", f"status NULL or empty: {n} row(s)", "Alert", source)
+
     def _run_account_rules(self, prefix: str, batch_id: int, log, messages_table: str) -> None:
         source = f"{prefix}.silver_accounts"
         try:
@@ -151,6 +237,11 @@ class SilverDQRunner:
         null_cust = acc.filter(col("customer_id").isNull())
         if null_cust.count() > 0:
             log("Silver_Account_Validation", "customer_id NULL in silver_accounts", "Reject", source)
+        # account_id must be non-null
+        if "account_id" in acc.columns:
+            null_acc = acc.filter(col("account_id").isNull())
+            if null_acc.count() > 0:
+                log("Silver_Account_Validation", "account_id NULL in silver_accounts", "Reject", source)
         if "end_date" in acc.columns and "effective_date" in acc.columns:
             cond = col("end_date").isNotNull() & col("effective_date").isNotNull()
             cond = cond & (col("end_date") < col("effective_date"))
@@ -182,6 +273,30 @@ class SilverDQRunner:
         if n > 0:
             log("Silver_Trade_Validation", f"duplicate trade_id within batch: {n} key(s)", "Alert", source)
 
+        # account_id required for fact join
+        if "account_id" in df.columns:
+            null_acc = df.filter(col("account_id").isNull())
+            n = null_acc.count()
+            if n > 0:
+                log("Silver_Trade_Validation", f"account_id NULL: {n} row(s)", "Reject", source)
+
+        # trade_price positive when present
+        if "trade_price" in df.columns:
+            bad_price = df.filter(col("trade_price").isNotNull() & (col("trade_price") <= 0))
+            n = bad_price.count()
+            if n > 0:
+                log("Silver_Trade_Validation", f"trade_price <= 0: {n} row(s)", "Alert", source)
+
+        # commission and tax non-negative
+        if "commission" in df.columns:
+            bad_comm = df.filter(col("commission").isNotNull() & (col("commission") < 0))
+            if bad_comm.count() > 0:
+                log("Silver_Trade_Validation", "commission < 0", "Alert", source)
+        if "tax" in df.columns:
+            bad_tax = df.filter(col("tax").isNotNull() & (col("tax") < 0))
+            if bad_tax.count() > 0:
+                log("Silver_Trade_Validation", "tax < 0", "Alert", source)
+
     def _run_date_rules(self, prefix: str, log, messages_table: str) -> None:
         source = f"{prefix}.silver_date"
         try:
@@ -200,3 +315,121 @@ class SilverDQRunner:
         n = invalid.count()
         if n > 0:
             log("Silver_Date_Validation", f"sk_date_id not valid YYYYMMDD format: {n} row(s)", "Alert", source)
+
+    def _run_security_rules(self, prefix: str, log, messages_table: str) -> None:
+        source = f"{prefix}.silver_securities"
+        try:
+            df = self.spark.table(source)
+        except Exception:
+            logger.debug(f"Table {source} not found, skipping security DQ")
+            return
+        # symbol non-empty (business key)
+        bad_symbol = df.filter(col("symbol").isNull() | (trim(col("symbol")) == ""))
+        n = bad_symbol.count()
+        if n > 0:
+            log("Silver_Security_Validation", f"symbol NULL or empty: {n} row(s)", "Alert", source)
+        # duplicate symbol (uniqueness)
+        dup = df.groupBy("symbol").agg(count("*").alias("cnt")).filter(col("cnt") > 1)
+        n = dup.count()
+        if n > 0:
+            log("Silver_Security_Validation", f"duplicate symbol: {n} key(s)", "Alert", source)
+
+    def _run_daily_market_rules(self, prefix: str, batch_id: int, log, messages_table: str) -> None:
+        source = f"{prefix}.silver_daily_market"
+        try:
+            df = self.spark.table(source)
+        except Exception:
+            logger.debug(f"Table {source} not found, skipping daily_market DQ")
+            return
+        if "batch_id" in df.columns:
+            df = df.filter(col("batch_id") == batch_id)
+        # dm_date required
+        null_date = df.filter(col("dm_date").isNull())
+        n = null_date.count()
+        if n > 0:
+            log("Silver_DailyMarket_Validation", f"dm_date NULL: {n} row(s)", "Alert", source)
+        # price/volume non-negative
+        for col_name in ("dm_close", "dm_high", "dm_low"):
+            if col_name in df.columns:
+                bad = df.filter(col(col_name).isNotNull() & (col(col_name) < 0))
+                n = bad.count()
+                if n > 0:
+                    log("Silver_DailyMarket_Validation", f"{col_name} < 0: {n} row(s)", "Alert", source)
+        if "dm_vol" in df.columns:
+            bad_vol = df.filter(col("dm_vol").isNotNull() & (col("dm_vol") < 0))
+            if bad_vol.count() > 0:
+                log("Silver_DailyMarket_Validation", "dm_vol < 0", "Alert", source)
+
+    def _run_cash_transaction_rules(self, prefix: str, batch_id: int, log, messages_table: str) -> None:
+        source = f"{prefix}.silver_cash_transaction"
+        try:
+            df = self.spark.table(source)
+        except Exception:
+            logger.debug(f"Table {source} not found, skipping cash_transaction DQ")
+            return
+        if "batch_id" in df.columns:
+            df = df.filter(col("batch_id") == batch_id)
+        # account_id / ct_ca_id required
+        acc_col = "account_id" if "account_id" in df.columns else "ct_ca_id"
+        if acc_col in df.columns:
+            null_acc = df.filter(col(acc_col).isNull())
+            n = null_acc.count()
+            if n > 0:
+                log("Silver_CashTransaction_Validation", f"{acc_col} NULL: {n} row(s)", "Reject", source)
+        # transaction_date / ct_dts required when present
+        ts_col = "transaction_date" if "transaction_date" in df.columns else "ct_dts"
+        if ts_col in df.columns:
+            null_ts = df.filter(col(ts_col).isNull())
+            n = null_ts.count()
+            if n > 0:
+                log("Silver_CashTransaction_Validation", f"{ts_col} NULL: {n} row(s)", "Alert", source)
+
+    def _run_status_type_rules(self, prefix: str, log, messages_table: str) -> None:
+        source = f"{prefix}.silver_status_type"
+        try:
+            df = self.spark.table(source)
+        except Exception:
+            logger.debug(f"Table {source} not found, skipping status_type DQ")
+            return
+        null_key = df.filter(col("st_id").isNull() | (trim(col("st_id").cast("string")) == ""))
+        n = null_key.count()
+        if n > 0:
+            log("Silver_StatusType_Validation", f"st_id NULL or empty: {n} row(s)", "Alert", source)
+        null_name = df.filter(col("st_name").isNull() | (trim(col("st_name").cast("string")) == ""))
+        n = null_name.count()
+        if n > 0:
+            log("Silver_StatusType_Validation", f"st_name NULL or empty: {n} row(s)", "Alert", source)
+
+    def _run_trade_type_rules(self, prefix: str, log, messages_table: str) -> None:
+        source = f"{prefix}.silver_trade_type"
+        try:
+            df = self.spark.table(source)
+        except Exception:
+            logger.debug(f"Table {source} not found, skipping trade_type DQ")
+            return
+        null_key = df.filter(col("tt_id").isNull() | (trim(col("tt_id").cast("string")) == ""))
+        n = null_key.count()
+        if n > 0:
+            log("Silver_TradeType_Validation", f"tt_id NULL or empty: {n} row(s)", "Alert", source)
+        null_name = df.filter(col("tt_name").isNull() | (trim(col("tt_name").cast("string")) == ""))
+        n = null_name.count()
+        if n > 0:
+            log("Silver_TradeType_Validation", f"tt_name NULL or empty: {n} row(s)", "Alert", source)
+
+    def _run_industry_rules(self, prefix: str, log, messages_table: str) -> None:
+        source = f"{prefix}.silver_industry"
+        try:
+            df = self.spark.table(source)
+        except Exception:
+            logger.debug(f"Table {source} not found, skipping industry DQ")
+            return
+        if "in_id" in df.columns:
+            null_key = df.filter(col("in_id").isNull() | (trim(col("in_id").cast("string")) == ""))
+            n = null_key.count()
+            if n > 0:
+                log("Silver_Industry_Validation", f"in_id NULL or empty: {n} row(s)", "Alert", source)
+        if "in_name" in df.columns:
+            null_name = df.filter(col("in_name").isNull() | (trim(col("in_name").cast("string")) == ""))
+            n = null_name.count()
+            if n > 0:
+                log("Silver_Industry_Validation", f"in_name NULL or empty: {n} row(s)", "Alert", source)

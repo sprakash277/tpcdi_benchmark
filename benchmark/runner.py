@@ -296,6 +296,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
         metrics.start_step("spark_session_creation")
         spark = create_spark_session(config)
         metrics.finish_step()
+        metrics.spark = spark  # used for GCS metrics upload when gsutil is not available (e.g. Databricks)
         
         if config.platform == Platform.DATABRICKS:
             serverless = is_databricks_serverless(spark)
@@ -400,7 +401,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             metrics.start_step("silver_etl")
             from benchmark.etl.silver import SilverETL
             silver_etl = SilverETL(platform)
-            silver_etl.run_silver_batch_load(1, db_or_catalog, effective_schema)
+            silver_etl.run_silver_batch_load(1, db_or_catalog, effective_schema, metrics=metrics)
             
             silver_tables = ["silver_customers", "silver_accounts", "silver_trades",
                             "silver_daily_market", "silver_date", "silver_status_type",
@@ -453,7 +454,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             metrics.start_step(f"silver_incremental_batch{config.batch_id}")
             from benchmark.etl.silver import SilverETL
             silver_etl = SilverETL(platform)
-            silver_etl.run_silver_batch_load(config.batch_id, db_or_catalog, effective_schema)
+            silver_etl.run_silver_batch_load(config.batch_id, db_or_catalog, effective_schema, metrics=metrics)
             
             silver_tables = ["silver_customers", "silver_accounts", "silver_trades"]
             row_counts = {}

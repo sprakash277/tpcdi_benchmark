@@ -188,6 +188,24 @@ You run the benchmark with `gcloud dataproc jobs submit pyspark`. Options **befo
 | `--log-detailed-stats` | `false` | Log per-table timing and row counts |
 | `--format` | `parquet` | Table format: `delta` or `parquet` |
 
+**Detailed stats (per-table timing):** To print per-table timing, row counts, and throughput in the job logs, pass the **script argument** `--log-detailed-stats` (or `--log-detailed-stats true`) after the `--` in your `gcloud dataproc jobs submit pyspark` or `gcloud dataproc batches submit pyspark` command. Example:
+
+```bash
+# Cluster
+gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
+  --cluster=<cluster-name> --region=us-central1 --project=<project> --py-files=benchmark.zip \
+  -- \
+  --load-type batch --scale-factor 10 --gcs-bucket=<bucket> --project-id=<project> --region=us-central1 \
+  --log-detailed-stats
+
+# Serverless
+gcloud dataproc batches submit pyspark run_benchmark_dataproc.py \
+  --region=us-central1 --deps-bucket=gs://<bucket> --py-files=benchmark.zip --project=<project> \
+  -- \
+  --load-type batch --scale-factor 10 --gcs-bucket=<bucket> --project-id=<project> --region=us-central1 \
+  --log-detailed-stats
+```
+
 ---
 
 ## 2. Mandatory vs optional parameters
