@@ -56,6 +56,18 @@ Beyond the mandatory TPC-DI rules, the following are also run:
 | **silver_status_type** | st_id, st_name non-null and non-empty | Alert |
 | **silver_trade_type** | tt_id, tt_name non-null and non-empty | Alert |
 | **silver_industry** | in_id, in_name non-null and non-empty | Alert |
+| **silver_customers** | first_name, last_name non-null and non-empty | Alert |
+| **silver_accounts** | account_name/ca_name non-empty; duplicate account_id within batch | Alert |
+| **silver_trades** | trade_dts IS NOT NULL; cash_amount >= 0 | Alert |
+| **silver_date** | sk_date_id in range 19000101–21001231 | Alert |
+| **silver_securities** | name non-null and non-empty | Alert |
+| **silver_daily_market** | dm_high >= dm_low; dm_close in [dm_low, dm_high] | Alert |
+| **silver_cash_transaction** | amount/ct_amt >= 0 | Alert |
+| **silver_companies** | company_name, cik non-empty; duplicate cik; founding_date YYYYMMDD | Alert |
+| **silver_financials** | year 1900–2100; quarter 1–4; revenue/earnings/assets/liabilities >= 0; co_name_or_cik non-empty | Alert |
+| **silver_prospect** | agency_id non-empty; last/first name not both empty; gender M/F/U; income >= 0; age 0–120 | Alert |
+| **silver_watch_history** | w_c_id, w_s_symb non-null/non-empty; w_action in (ACTV, CNCL, INAC) | Alert |
+| **silver_holding_history** | hh_h_t_id, hh_t_id non-null; hh_before_qty, hh_after_qty >= 0; hh_t_id in silver_trades | Alert |
 
 ---
 

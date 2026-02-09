@@ -207,16 +207,17 @@ class SilverETL:
             logger.warning(f"Holding history data skipped: {e}")
 
         # Silver DQ: run TPC-DI validation rules and log to gold_dim_messages
+        from benchmark.etl.table_timing import end_table as table_timing_end
+        dq_table_name = f"{prefix}.silver_dq_validation"
+        table_timing_start(dq_table_name)
         try:
-            from benchmark.etl.table_timing import end_table as table_timing_end
-            dq_table_name = f"{prefix}.silver_dq_validation"
-            table_timing_start(dq_table_name)
             dq = SilverDQRunner(self.platform)
             dq_timings = dq.run_silver_dq(batch_id, prefix, dim_messages_table=f"{prefix}.gold_dim_messages")
-            table_timing_end(dq_table_name, row_count=0)  # row_count=0 for non-data operations
             if metrics is not None and dq_timings is not None:
                 metrics.metrics.dq_table_timings = dq_timings
         except Exception as e:
             logger.warning(f"Silver DQ run failed: {e}")
+        finally:
+            table_timing_end(dq_table_name, row_count=0)  # always record so "Tables loaded" count is 44 on both platforms
 
         logger.info(f"Silver layer load completed for Batch{batch_id}")
