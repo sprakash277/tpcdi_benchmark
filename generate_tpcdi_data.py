@@ -307,6 +307,9 @@ def generate_tpcdi_data(
 
     # Output destination: infer from path (dbfs -> DBFS, /Volumes/ -> Volume, gs:// -> GCS)
     final_dest = (raw_output_path.rstrip("/") + f"/sf={scale_factor}").replace("//", "/")
+    # restore gs:// (replace("//","/") above turns gs:// into gs:/)
+    if final_dest.startswith("gs:/") and not final_dest.startswith("gs://"):
+        final_dest = "gs://" + final_dest[4:]
 
     # If Volume path, ensure catalog/schema/volume exist
     if final_dest.startswith("/Volumes/"):
