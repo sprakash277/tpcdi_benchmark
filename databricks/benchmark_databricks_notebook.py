@@ -198,7 +198,8 @@ if result['metrics']['summary']:
 
 dq_timings = result['metrics'].get('dq_table_timings')
 if dq_timings:
-    print("\nDQ time per table:")
+    n_tables = len(dq_timings)
+    print(f"\nDQ time per table ({n_tables} tables):")
     for t in dq_timings:
         print(f"  {t['table']}: {t['duration_seconds']:.2f}s")
     total_dq = sum(t['duration_seconds'] for t in dq_timings)

@@ -27,10 +27,14 @@ def ensure_dim_messages_exists(spark, table_name: str, platform) -> None:
     """
     Create gold.dim_messages if it does not exist.
 
+    Uses CREATE TABLE IF NOT EXISTS so the table is registered in the catalog
+    before any append (avoids Delta "table doesn't exist" on Dataproc when
+    creating via empty DataFrame overwrite).
+
     Args:
         spark: SparkSession
         table_name: Full table name (e.g. catalog.schema.gold_dim_messages)
-        platform: Platform adapter for write_table
+        platform: Platform adapter (for table_format: delta | parquet)
     """
     try:
         if spark.catalog.tableExists(table_name):
@@ -38,10 +42,30 @@ def ensure_dim_messages_exists(spark, table_name: str, platform) -> None:
             return
     except Exception as e:
         logger.warning(f"Could not check table existence for {table_name}: {e}")
-    # Create empty table with schema
-    empty = spark.createDataFrame([], DIM_MESSAGES_SCHEMA)
-    platform.write_table(empty, table_name, mode="overwrite")
-    logger.info(f"Created DimMessages table: {table_name}")
+    # Use DDL so the table is registered before any append (reliable on Dataproc + Delta)
+    fmt = getattr(platform, "table_format", "delta") or "delta"
+    fmt = str(fmt).lower().strip()
+    if fmt not in ("delta", "parquet"):
+        fmt = "delta"
+    quoted = ".".join(f"`{p}`" for p in table_name.split("."))
+    ddl = (
+        f"CREATE TABLE IF NOT EXISTS {quoted} ("
+        "message_timestamp TIMESTAMP NOT NULL, "
+        "batch_id INT, "
+        "component_name STRING NOT NULL, "
+        "message_text STRING NOT NULL, "
+        "severity STRING NOT NULL, "
+        "source_table STRING NOT NULL"
+        f") USING {fmt}"
+    )
+    try:
+        spark.sql(ddl)
+        logger.info(f"Created DimMessages table: {table_name} (USING {fmt})")
+    except Exception as e:
+        logger.warning(f"CREATE TABLE IF NOT EXISTS failed for {table_name}: {e}; falling back to empty DataFrame overwrite")
+        empty = spark.createDataFrame([], DIM_MESSAGES_SCHEMA)
+        platform.write_table(empty, table_name, mode="overwrite")
+        logger.info(f"Created DimMessages table: {table_name}")
 
 
 def log_message(spark, platform, table_name: str, batch_id: Optional[int],
