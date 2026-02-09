@@ -209,9 +209,16 @@ def _get_databricks_node_types(spark: SparkSession) -> Tuple[Optional[str], Opti
     """
     Get (worker_node_type, driver_node_type) from Databricks Spark conf when available.
     Tries clusterNodeType (worker) and driverNodeType (driver); not all runtimes set both.
+    On serverless these configs are not available (CONFIG_NOT_AVAILABLE, SQLSTATE: 42K0I); returns (None, None).
     """
-    worker_type = spark.conf.get("spark.databricks.clusterUsageTags.clusterNodeType")
-    driver_type = spark.conf.get("spark.databricks.clusterUsageTags.driverNodeType")
+    try:
+        worker_type = spark.conf.get("spark.databricks.clusterUsageTags.clusterNodeType")
+    except BaseException:
+        worker_type = None
+    try:
+        driver_type = spark.conf.get("spark.databricks.clusterUsageTags.driverNodeType")
+    except BaseException:
+        driver_type = None
     return (worker_type, driver_type)
 
 
