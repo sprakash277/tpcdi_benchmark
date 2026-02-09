@@ -70,10 +70,10 @@ dbutils.widgets.dropdown(
         "14.3.x-photon-scala2.12",
         "15.4.x-scala2.12",
         "15.4.x-photon-scala2.12",
-        "16.4.x-scala2.12",
-        "16.4.x-photon-scala2.12",
-        "17.3.x-scala2.12",
-        "17.3.x-photon-scala2.12",
+        "16.4.x-scala2.13",
+        "16.4.x-photon-scala2.13",
+        "17.3.x-scala2.13",
+        "17.3.x-photon-scala2.13",
     ],
     "Cluster Spark Version (DBR)"
 )
