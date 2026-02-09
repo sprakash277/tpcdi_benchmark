@@ -53,6 +53,10 @@ try:
     dbutils.widgets.drop("use_udtf_customer_mgmt")
 except Exception:
     pass
+try:
+    dbutils.widgets.drop("cloud")
+except Exception:
+    pass
 
 dbutils.widgets.dropdown("load_type", "batch", ["batch", "incremental"], "Load Type")
 dbutils.widgets.text("scale_factor", "10", "Scale Factor")
@@ -63,6 +67,7 @@ dbutils.widgets.text("batch_id", "", "Batch ID (for incremental only)")
 dbutils.widgets.text("metrics_output", "dbfs:/mnt/tpcdi/metrics", "Metrics Output Path")
 dbutils.widgets.dropdown("log_detailed_stats", "false", ["true", "false"], "Log detailed stats (per-table timing/records); false = only job start/end/total duration")
 dbutils.widgets.dropdown("use_udtf_customer_mgmt", "false", ["auto", "true", "false"], "CustomerMgmt.xml: auto=false (spark-xml), true=UDTF, false=spark-xml")
+dbutils.widgets.dropdown("cloud", "AWS", ["AWS", "Azure", "GCP"], "Cloud (for cost estimation: AWS, Azure, GCP)")
 
 # COMMAND ----------
 
@@ -121,6 +126,7 @@ metrics_output = dbutils.widgets.get("metrics_output").strip()
 log_detailed_stats = dbutils.widgets.get("log_detailed_stats") == "true"
 use_udtf_customer_mgmt_str = dbutils.widgets.get("use_udtf_customer_mgmt").strip().lower()
 use_udtf_customer_mgmt = {"auto": None, "true": True, "false": False}.get(use_udtf_customer_mgmt_str, None)
+cloud = dbutils.widgets.get("cloud").strip() or "AWS"
 
 # Parse batch_id for incremental loads
 batch_id = int(batch_id_str) if batch_id_str and load_type == "incremental" else None
@@ -140,6 +146,7 @@ config = BenchmarkConfig(
     metrics_output_path=metrics_output,
     log_detailed_stats=log_detailed_stats,
     use_udtf_customer_mgmt=use_udtf_customer_mgmt,
+    cloud=cloud,
 )
 
 result = run_benchmark(config)
@@ -196,6 +203,22 @@ if dq_timings:
         print(f"  {t['table']}: {t['duration_seconds']:.2f}s")
     total_dq = sum(t['duration_seconds'] for t in dq_timings)
     print(f"  Total DQ: {total_dq:.2f}s")
+
+# Cost (estimated; list-price approximation)
+cb = result['metrics'].get('cost_breakdown')
+total_cost = result['metrics'].get('total_cost_usd')
+if cb is not None or total_cost is not None:
+    print("\nCost (estimated):")
+    if cb:
+        if cb.get('compute_usd') is not None:
+            print(f"  Compute: ${cb['compute_usd']:.2f}")
+        if cb.get('software_usd') is not None:
+            print(f"  Software: ${cb['software_usd']:.2f}")
+    if total_cost is not None:
+        print(f"  Total cost: ${total_cost:.2f}")
+    dbu_cost = result['metrics'].get('dbu_cost_usd')
+    if dbu_cost is not None:
+        print(f"  DBU cost: ${dbu_cost:.2f}")
 
 print("\nStep Details:")
 for step in result['metrics']['steps']:

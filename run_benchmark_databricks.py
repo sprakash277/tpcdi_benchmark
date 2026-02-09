@@ -91,6 +91,7 @@ if __name__ == "__main__":
         cluster_instance_type=args.cluster_instance_type,
         cluster_worker_count=args.cluster_worker_count,
         cluster_master_type=args.cluster_master_type,
+        cloud=args.cloud,
     )
     
     result = run_benchmark(config)
@@ -133,6 +134,21 @@ if __name__ == "__main__":
             print(f"  {t['table']}: {t['duration_seconds']:.2f}s")
         total_dq = sum(t['duration_seconds'] for t in dq_timings)
         print(f"  Total DQ: {total_dq:.2f}s")
+    # Cost (estimated; list-price approximation)
+    cb = result['metrics'].get('cost_breakdown')
+    total_cost = result['metrics'].get('total_cost_usd')
+    if cb is not None or total_cost is not None:
+        print("\nCost (estimated):")
+        if cb:
+            if cb.get('compute_usd') is not None:
+                print(f"  Compute: ${cb['compute_usd']:.2f}")
+            if cb.get('software_usd') is not None:
+                print(f"  Software: ${cb['software_usd']:.2f}")
+        if total_cost is not None:
+            print(f"  Total cost: ${total_cost:.2f}")
+        dbu_cost = result['metrics'].get('dbu_cost_usd')
+        if dbu_cost is not None:
+            print(f"  DBU cost: ${dbu_cost:.2f}")
     if args.log_detailed_stats:
         try:
             from benchmark.etl.table_timing import get_summary as get_table_summary

@@ -185,6 +185,19 @@ if __name__ == "__main__":
         total_dq = sum(t['duration_seconds'] for t in dq_timings)
         print(f"  Total DQ: {total_dq:.2f}s")
 
+    # Cost (estimated; list-price approximation)
+    cb = result['metrics'].get('cost_breakdown')
+    total_cost = result['metrics'].get('total_cost_usd')
+    if cb is not None or total_cost is not None:
+        print("\nCost (estimated):")
+        if cb:
+            if cb.get('compute_usd') is not None:
+                print(f"  Compute: ${cb['compute_usd']:.2f}")
+            if cb.get('software_usd') is not None:
+                print(f"  Software: ${cb['software_usd']:.2f}")
+        if total_cost is not None:
+            print(f"  Total cost: ${total_cost:.2f}")
+
     print("\nStep Details:")
     for step in result['metrics'].get('steps', []):
         status_icon = "✓" if step.get('status') == "completed" else "✗" if step.get('status') == "failed" else "○"

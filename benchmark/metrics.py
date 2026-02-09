@@ -95,6 +95,10 @@ class BenchmarkMetrics:
     databricks_compute_type: Optional[str] = None
     # DQ time per silver table: [{"table": str, "duration_seconds": float}, ...]
     dq_table_timings: Optional[List[Dict[str, Any]]] = None
+    # Cost estimation (compute + software/DBU; list-price approximation)
+    cost_breakdown: Optional[Dict[str, Any]] = None  # e.g. {"compute_usd": x, "software_usd": y, "dbu_usd": z, ...}
+    total_cost_usd: Optional[float] = None
+    dbu_cost_usd: Optional[float] = None  # Databricks only
     # Table override flag: True if tables/paths existed before loading (overridden), False otherwise
     table_override: Optional[bool] = None
 
@@ -163,6 +167,12 @@ class BenchmarkMetrics:
             d["databricks_compute_type"] = self.databricks_compute_type
         if self.dq_table_timings is not None:
             d["dq_table_timings"] = self.dq_table_timings
+        if self.cost_breakdown is not None:
+            d["cost_breakdown"] = self.cost_breakdown
+        if self.total_cost_usd is not None:
+            d["total_cost_usd"] = self.total_cost_usd
+        if self.dbu_cost_usd is not None:
+            d["dbu_cost_usd"] = self.dbu_cost_usd
         if self.table_override is not None:
             d["table_override"] = self.table_override
         return d

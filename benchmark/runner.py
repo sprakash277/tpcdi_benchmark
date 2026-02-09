@@ -479,6 +479,25 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
         else:
             raise ValueError(f"Unsupported load type: {config.load_type}")
     
+    # Cost estimation (compute + software/DBU; list-price approximation)
+    try:
+        from benchmark.cost import estimate_cost
+        cost = estimate_cost(
+            metrics.metrics,
+            config.platform.value,
+            getattr(config, "cloud", None),
+        )
+        if cost:
+            metrics.metrics.cost_breakdown = {
+                "compute_usd": cost.get("compute_usd", 0),
+                "software_usd": cost.get("software_usd", cost.get("dbu_usd", 0)),
+            }
+            metrics.metrics.total_cost_usd = cost.get("total_usd")
+            if config.platform == Platform.DATABRICKS and cost.get("dbu_usd") is not None:
+                metrics.metrics.dbu_cost_usd = cost.get("dbu_usd")
+    except Exception as e:
+        logger.debug("Cost estimation skipped: %s", e)
+    
     logger.info("Benchmark completed successfully")
     return {
         "status": "success",
