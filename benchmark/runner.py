@@ -271,28 +271,61 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
         )
 
         # Create target database (and catalog/schema for Databricks UC when configured)
+        # Append scale factor to database name for both Dataproc and Databricks
         metrics.start_step("database_creation")
+        db_name_with_sf = f"{config.target_database}_sf{config.scale_factor}"
+        
+        # Track if database/path exists before creation (for table override info)
+        database_existed = False
+        path_existed = False
+        
         if config.platform == Platform.DATABRICKS and config.target_catalog:
+            # For Unity Catalog, append SF to schema name (not database name)
+            schema_name_with_sf = f"{config.target_schema}_sf{config.scale_factor}"
+            # Check if schema exists in Unity Catalog
+            try:
+                schemas = spark.sql(f"SHOW SCHEMAS IN {config.target_catalog}").collect()
+                database_existed = any(row.databaseName == schema_name_with_sf for row in schemas)
+            except Exception:
+                database_existed = False
+            
             platform.create_database(
-                config.target_database,
+                db_name_with_sf,  # Not used for UC, but kept for consistency
                 catalog=config.target_catalog,
-                schema=config.target_schema,
+                schema=schema_name_with_sf,  # Use schema name with SF
             )
             db_or_catalog = config.target_catalog
-            effective_schema = config.target_schema
+            effective_schema = schema_name_with_sf
         elif config.platform == Platform.DATAPROC:
-            # spark_catalog expects two-part names (database.table). Use single DB = target_database_target_schema.
-            spark_db = f"{config.target_database}_{config.target_schema}"
-            # Delete target folder only for batch (not incremental) for a clean run
+            # spark_catalog expects two-part names (database.table). Use single DB = target_database_target_schema_sf{scale_factor}.
+            spark_db = f"{db_name_with_sf}_{config.target_schema}"
+            # Check if path exists before deletion
             if config.load_type == LoadType.BATCH:
+                path_existed = platform.check_database_path_exists(spark_db)
                 platform.delete_target_database_path_if_exists(spark_db)
+            else:
+                path_existed = platform.check_database_path_exists(spark_db)
+            # Check if database exists
+            try:
+                database_existed = spark.catalog.databaseExists(spark_db)
+            except Exception:
+                database_existed = False
             platform.create_database(spark_db)
             db_or_catalog = spark_db
             effective_schema = ""
         else:
-            platform.create_database(config.target_database)
-            db_or_catalog = config.target_database
+            # Check if database exists (Databricks without Unity Catalog)
+            try:
+                database_existed = spark.catalog.databaseExists(db_name_with_sf)
+            except Exception:
+                database_existed = False
+            platform.create_database(db_name_with_sf)
+            db_or_catalog = db_name_with_sf
             effective_schema = config.target_schema
+        
+        # Store table override info in metrics
+        table_override = database_existed or path_existed
+        metrics.metrics.table_override = table_override
         metrics.finish_step()
         
         # Run ETL: Medallion only (Bronze -> Silver layers)

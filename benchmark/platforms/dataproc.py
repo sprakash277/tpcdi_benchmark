@@ -199,6 +199,23 @@ class DataprocPlatform:
         
         writer.saveAsTable(table_name)
     
+    def check_database_path_exists(self, database_name: str) -> bool:
+        """
+        Check if the GCS folder for the target database exists.
+        
+        Returns:
+            True if path exists, False otherwise
+        """
+        path_str = f"gs://{self.gcs_bucket}/spark-warehouse/{database_name}.db"
+        try:
+            hadoop_conf = self.spark.sparkContext._jsc.hadoopConfiguration()
+            path = self.spark.sparkContext._jvm.org.apache.hadoop.fs.Path(path_str)
+            fs = path.getFileSystem(hadoop_conf)
+            return fs.exists(path)
+        except Exception as e:
+            logger.warning(f"Could not check if target folder {path_str} exists: {e}")
+            return False
+    
     def delete_target_database_path_if_exists(self, database_name: str) -> None:
         """
         Delete the GCS folder for the target database (spark-warehouse/{db}.db) if it exists.

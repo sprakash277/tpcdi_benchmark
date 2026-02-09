@@ -113,6 +113,10 @@ if __name__ == "__main__":
             print(f"  Driver Node Type: {metrics_dict['cluster_master_type']}")
         if metrics_dict.get('cluster_worker_count') is not None:
             print(f"  Number of Worker Nodes: {metrics_dict['cluster_worker_count']}")
+    
+    # Table override information
+    if metrics_dict.get('table_override') is not None:
+        print(f"\nTable Override: {metrics_dict['table_override']}")
 
     print(f"\nTotal Duration: {result['metrics']['total_duration_seconds']:.2f} seconds")
     if result['metrics']['summary']:

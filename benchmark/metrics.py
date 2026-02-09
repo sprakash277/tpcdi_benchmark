@@ -66,6 +66,8 @@ class BenchmarkMetrics:
     cluster_instance_type: Optional[str] = None
     cluster_worker_count: Optional[int] = None
     cluster_master_type: Optional[str] = None
+    # Table override flag: True if tables/paths existed before loading (overridden), False otherwise
+    table_override: Optional[bool] = None
 
     def __post_init__(self):
         if self.steps is None:
@@ -128,6 +130,8 @@ class BenchmarkMetrics:
             d["cluster_instance_type"] = self.cluster_instance_type
             d["cluster_worker_count"] = self.cluster_worker_count
             d["cluster_master_type"] = self.cluster_master_type
+        if self.table_override is not None:
+            d["table_override"] = self.table_override
         return d
     
     def save(self, output_path: str, service_account_key_file: Optional[str] = None):
