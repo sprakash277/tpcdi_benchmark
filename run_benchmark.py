@@ -3,12 +3,16 @@
 Unified wrapper script to run TPC-DI benchmarks from your laptop.
 Supports submitting to Dataproc, Databricks, or running locally.
 
+Automatic cluster sizing:
+  - SF=10 → 2 workers, SF=100 → 3 workers, SF=1000 → 5 workers
+  - GCP defaults to n2d-standard-16 instance type
+
 Usage:
   # Submit to Dataproc
   python run_benchmark.py dataproc --cluster my-cluster --load-type batch --scale-factor 10 ...
 
-  # Submit to Databricks (workflow)
-  python run_benchmark.py databricks --job-id 123 --load-type batch --scale-factor 10 ...
+  # Submit to Databricks (workflow, auto-creates job if missing)
+  python run_benchmark.py databricks --load-type batch --scale-factor 100 --cloud GCP ...
 
   # Run locally (requires Spark installed)
   python run_benchmark.py local --load-type batch --scale-factor 10 ...
@@ -41,9 +45,157 @@ def ensure_benchmark_zip():
     return str(zip_path)
 
 
+def check_dataproc_cluster_exists(cluster_name: str, project_id: str, region: str) -> bool:
+    """Check if a Dataproc cluster exists."""
+    try:
+        result = subprocess.run(
+            ["gcloud", "dataproc", "clusters", "describe", cluster_name,
+             "--project", project_id, "--region", region],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def create_dataproc_cluster(args) -> bool:
+    """Create Dataproc cluster (and optionally network infrastructure). Returns True if created."""
+    recommended_workers = get_worker_count_for_scale_factor(args.scale_factor)
+    recommended_instance_type = "n2d-standard-16"
+    
+    # Check if cluster already exists
+    if check_dataproc_cluster_exists(args.cluster, args.project_id, args.region):
+        print(f"Cluster '{args.cluster}' already exists. Skipping creation.")
+        return False
+    
+    print(f"\nCluster '{args.cluster}' not found. Creating cluster...")
+    print(f"Configuration: {recommended_workers} workers, {recommended_instance_type} instance type\n")
+    
+    # Determine if we need to create network infrastructure
+    create_network = args.create_network
+    vpc_name = args.vpc_name or f"{args.cluster}-vpc"
+    subnet_name = args.subnet_name or f"{args.cluster}-subnet"
+    subnet_range = args.subnet_range or "10.10.0.0/24"
+    zone = args.zone or f"{args.region}-b"
+    
+    if create_network:
+        print(f"[1/4] Creating VPC: {vpc_name}")
+        subprocess.run(
+            ["gcloud", "compute", "networks", "create", vpc_name,
+             "--project", args.project_id,
+             "--subnet-mode=custom",
+             "--bgp-routing-mode=regional"],
+            check=True,
+        )
+        
+        print(f"[2/4] Creating subnet: {subnet_name} (Private Google Access enabled)")
+        subprocess.run(
+            ["gcloud", "compute", "networks", "subnets", "create", subnet_name,
+             "--project", args.project_id,
+             "--network", vpc_name,
+             "--region", args.region,
+             "--range", subnet_range,
+             "--enable-private-ip-google-access"],
+            check=True,
+        )
+        
+        firewall_rule_name = args.firewall_rule_name or f"allow-{subnet_name}-internal"
+        print(f"[3/4] Creating firewall rule: {firewall_rule_name}")
+        subprocess.run(
+            ["gcloud", "compute", "firewall-rules", "create", firewall_rule_name,
+             "--project", args.project_id,
+             "--network", vpc_name,
+             "--action=ALLOW",
+             "--direction=INGRESS",
+             "--rules=tcp:0-65535,udp:0-65535,icmp",
+             "--source-ranges", subnet_range],
+            check=True,
+        )
+        
+        subnet_arg = f"--subnet={subnet_name}"
+        no_address_arg = "--no-address"
+    else:
+        # Use default network or existing subnet
+        subnet_arg = f"--subnet={args.subnet_name}" if args.subnet_name else ""
+        no_address_arg = ""
+        print(f"[1/1] Creating cluster (using existing network)")
+    
+    # Build cluster create command
+    cmd = [
+        "gcloud", "dataproc", "clusters", "create", args.cluster,
+        "--project", args.project_id,
+        "--region", args.region,
+        "--zone", zone,
+        "--image-version", "2.3-debian12",
+        "--master-machine-type", recommended_instance_type,
+        "--master-boot-disk-type", "hyperdisk-balanced",
+        "--master-boot-disk-size", "100",
+        "--num-workers", str(recommended_workers),
+        "--worker-machine-type", recommended_instance_type,
+        "--worker-boot-disk-type", "hyperdisk-balanced",
+        "--worker-boot-disk-size", "200",
+    ]
+    
+    if subnet_arg:
+        cmd.append(subnet_arg)
+    if no_address_arg:
+        cmd.append(no_address_arg)
+    
+    # Add optional components
+    if args.format == "delta":
+        cmd.extend(["--optional-components", "DELTA"])
+    
+    cmd.extend([
+        "--enable-component-gateway",
+        "--scopes", "cloud-platform",
+    ])
+    
+    print(f"[{'4' if create_network else '1'}/{'4' if create_network else '1'}] Creating Dataproc cluster: {args.cluster}")
+    subprocess.run(cmd, check=True)
+    
+    print(f"\n✓ Cluster '{args.cluster}' created successfully!")
+    return True
+
+
 def run_dataproc(args):
-    """Submit benchmark to Dataproc cluster."""
+    """Submit benchmark to Dataproc cluster. Creates cluster if missing."""
     zip_path = ensure_benchmark_zip()
+    
+    # Auto-set cluster metadata for metrics if not provided
+    recommended_workers = get_worker_count_for_scale_factor(args.scale_factor)
+    recommended_instance_type = "n2d-standard-16"  # GCP default
+    
+    if not args.cluster_worker_count:
+        args.cluster_worker_count = recommended_workers
+        print(f"Auto-setting cluster_worker_count={recommended_workers} based on scale_factor={args.scale_factor}")
+    
+    if not args.cluster_instance_type:
+        args.cluster_instance_type = recommended_instance_type
+        print(f"Auto-setting cluster_instance_type={recommended_instance_type} for GCP")
+    
+    if not args.cluster_master_type:
+        args.cluster_master_type = recommended_instance_type
+    
+    # Check if cluster exists, create if missing
+    cluster_exists = check_dataproc_cluster_exists(args.cluster, args.project_id, args.region)
+    if not cluster_exists:
+        if args.create_cluster or args.create_network:
+            created = create_dataproc_cluster(args)
+            if not created:
+                # Cluster was created by another process or already exists
+                print(f"Cluster '{args.cluster}' is now available.")
+        else:
+            print(f"\n⚠ ERROR: Cluster '{args.cluster}' not found!")
+            print(f"Recommended configuration for SF={args.scale_factor}:")
+            print(f"  Worker nodes: {recommended_workers}")
+            print(f"  Instance type: {recommended_instance_type} (worker and master)")
+            print(f"\nTo auto-create cluster, use:")
+            print(f"  --create-cluster     (creates cluster using default network)")
+            print(f"  --create-network     (creates VPC, subnet, firewall, and cluster)")
+            print(f"\nOr create manually and ensure it matches the recommendations above.\n")
+            sys.exit(1)
     
     # Build gcloud command
     cmd = [
@@ -99,11 +251,291 @@ def run_dataproc(args):
     subprocess.run(cmd, check=True)
 
 
-def run_databricks(args):
-    """Submit benchmark to Databricks workflow."""
-    if not args.job_id:
-        print("ERROR: --job-id is required for Databricks workflow submission.", file=sys.stderr)
+def get_databricks_client():
+    """Get Databricks host and token (from CLI config or env vars)."""
+    # Try CLI first
+    try:
+        subprocess.run(["databricks", "--version"], capture_output=True, check=True)
+        # CLI is available - try to get config
+        try:
+            result = subprocess.run(
+                ["databricks", "configure", "--token", "--host"],
+                capture_output=True,
+                text=True,
+            )
+            # CLI config might be in ~/.databrickscfg
+            import configparser
+            config_path = Path.home() / ".databrickscfg"
+            if config_path.exists():
+                config = configparser.ConfigParser()
+                config.read(config_path)
+                if "DEFAULT" in config:
+                    host = config["DEFAULT"].get("host")
+                    token = config["DEFAULT"].get("token")
+                    if host and token:
+                        return host, token
+        except Exception:
+            pass
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    
+    # Fall back to env vars
+    host = os.environ.get("DATABRICKS_HOST")
+    token = os.environ.get("DATABRICKS_TOKEN")
+    
+    if not host or not token:
+        return None, None
+    
+    return host, token
+
+
+def find_databricks_job_by_name(host: str, token: str, job_name: str) -> Optional[int]:
+    """Find Databricks job by name. Returns job_id if found, None otherwise."""
+    import urllib.request
+    
+    url = f"{host.rstrip('/')}/api/2.1/jobs/list"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+    
+    try:
+        with urllib.request.urlopen(req) as resp:
+            jobs = json.loads(resp.read())
+            for job in jobs.get("jobs", []):
+                if job.get("settings", {}).get("name") == job_name:
+                    return job.get("job_id")
+    except Exception:
+        pass
+    
+    return None
+
+
+def get_databricks_job(host: str, token: str, job_id: int) -> Optional[dict]:
+    """Get Databricks job by ID. Returns job dict if found, None otherwise."""
+    import urllib.request
+    
+    url = f"{host.rstrip('/')}/api/2.1/jobs/get?job_id={job_id}"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+    
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise
+    except Exception:
+        return None
+
+
+def check_databricks_notebook_exists(host: str, token: str, notebook_path: str) -> bool:
+    """Check if a notebook exists in Databricks workspace. Returns True if exists."""
+    import urllib.request
+    
+    # Encode path for URL
+    import urllib.parse
+    encoded_path = urllib.parse.quote(notebook_path, safe='')
+    
+    url = f"{host.rstrip('/')}/api/2.0/workspace/get-status?path={encoded_path}"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+    
+    try:
+        with urllib.request.urlopen(req) as resp:
+            status = json.loads(resp.read())
+            return status.get("object_type") == "NOTEBOOK"
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return False
+        # Other errors might mean path doesn't exist
+        return False
+    except Exception:
+        return False
+
+
+def get_worker_count_for_scale_factor(scale_factor: int) -> int:
+    """Get recommended number of worker nodes based on scale factor."""
+    if scale_factor == 10:
+        return 2
+    elif scale_factor == 100:
+        return 3
+    elif scale_factor == 1000:
+        return 5
+    else:
+        # Default: scale_factor / 5, minimum 2, maximum 10
+        return max(2, min(10, scale_factor // 5))
+
+
+def create_databricks_job(host: str, token: str, args) -> int:
+    """Create a new Databricks job/workflow. Returns job_id."""
+    # Import workflow creation functions
+    sys.path.insert(0, str(Path(__file__).parent))
+    try:
+        from databricks.create_databricks_workflow import (
+            create_workflow_definition,
+            create_workflow_via_api,
+        )
+    except ImportError:
+        print("ERROR: Cannot import workflow creation functions. Make sure databricks/create_databricks_workflow.py exists.", file=sys.stderr)
         sys.exit(1)
+    
+    # Determine worker count: use provided value or auto-calculate from scale factor
+    num_workers = args.num_workers
+    if num_workers is None:
+        num_workers = get_worker_count_for_scale_factor(args.scale_factor)
+        print(f"Auto-setting num_workers={num_workers} based on scale_factor={args.scale_factor}")
+    
+    # Determine node type: GCP defaults to n2d-standard-16, others use provided or default
+    default_node_type = "n2d-standard-16" if args.cloud == "GCP" else "i3.xlarge"
+    node_type_id = args.node_type_id or default_node_type
+    driver_node_type_id = args.driver_node_type_id or args.node_type_id or default_node_type
+    
+    # Build cluster config
+    cluster_config = {
+        "spark_version": args.spark_version or "14.3.x-scala2.12",
+        "node_type_id": node_type_id,
+        "num_workers": num_workers,
+        "driver_node_type_id": driver_node_type_id,
+    }
+    
+    if args.cloud == "GCP":
+        cluster_config["gcp_attributes"] = {
+            "use_preemptible_executors": False,
+        }
+    
+    if args.existing_cluster_id:
+        cluster_config = None  # Will use existing_cluster_id in workflow
+    
+    # Create workflow definition
+    workflow_def = create_workflow_definition(
+        job_name=args.job_name or "TPC-DI-Benchmark",
+        data_gen_notebook_path=args.data_gen_notebook or "generate_tpcdi_data_notebook",
+        benchmark_notebook_path=args.benchmark_notebook or "benchmark_databricks_notebook",
+        default_scale_factor=args.scale_factor,
+        default_output_path=args.output_path or "dbfs:/mnt/tpcdi",
+        default_load_type=args.load_type,
+        default_target_database=args.target_database or "tpcdi_warehouse",
+        default_target_schema=args.target_schema or "dw",
+        default_target_catalog=args.target_catalog or "",
+        default_metrics_output=args.metrics_output or "dbfs:/mnt/tpcdi/metrics",
+        default_log_detailed_stats=args.log_detailed_stats,
+        cluster_config=cluster_config,
+    )
+    
+    # Use existing cluster if specified
+    if args.existing_cluster_id:
+        for task in workflow_def["tasks"]:
+            task["existing_cluster_id"] = args.existing_cluster_id
+            task.pop("new_cluster", None)
+    
+    # Update notebook paths with workspace path if provided
+    workspace_path = args.workspace_path
+    notebook_paths = {}
+    if workspace_path:
+        for task in workflow_def["tasks"]:
+            if "notebook_path" in task.get("notebook_task", {}):
+                current_path = task["notebook_task"]["notebook_path"]
+                if not current_path.startswith("/"):
+                    full_path = f"{workspace_path}/{current_path}"
+                    task["notebook_task"]["notebook_path"] = full_path
+                    notebook_paths[task["task_key"]] = full_path
+                else:
+                    notebook_paths[task["task_key"]] = current_path
+    else:
+        # Extract paths from workflow definition
+        for task in workflow_def["tasks"]:
+            if "notebook_path" in task.get("notebook_task", {}):
+                notebook_paths[task["task_key"]] = task["notebook_task"]["notebook_path"]
+    
+    # Check if notebooks exist (warn but don't fail - workflow creation will fail if missing)
+    print("\nChecking if notebooks exist in Databricks workspace...")
+    missing_notebooks = []
+    for task_key, notebook_path in notebook_paths.items():
+        exists = check_databricks_notebook_exists(host, token, notebook_path)
+        if exists:
+            print(f"  ✓ {task_key}: {notebook_path}")
+        else:
+            print(f"  ✗ {task_key}: {notebook_path} (NOT FOUND)")
+            missing_notebooks.append((task_key, notebook_path))
+    
+    if missing_notebooks:
+        print("\n⚠ WARNING: Some notebooks are missing in the Databricks workspace!")
+        print("The workflow will be created, but it will fail when it tries to run these notebooks.")
+        print("\nMissing notebooks:")
+        for task_key, notebook_path in missing_notebooks:
+            print(f"  - {task_key}: {notebook_path}")
+        print("\nTo upload notebooks:")
+        print("  1. Use Databricks UI: Workspace → Right-click folder → Import → Upload .py files")
+        print("  2. Use Databricks CLI:")
+        for _, notebook_path in missing_notebooks:
+            local_file = Path("databricks") / Path(notebook_path).name
+            if local_file.exists():
+                print(f"     databricks workspace import {local_file} {notebook_path} -l PYTHON")
+        print("  3. Use Databricks Repos: Clone this repo to Databricks Repos")
+        print("\nProceeding with workflow creation anyway...\n")
+    
+    # Create job via API
+    result = create_workflow_via_api(workflow_def, host, token, workspace_path)
+    job_id = result.get("job_id")
+    
+    print(f"✓ Created Databricks job: {workflow_def['name']} (ID: {job_id})")
+    if missing_notebooks:
+        print(f"\n⚠ Remember to upload the missing notebooks before running the job!")
+    return job_id
+
+
+def run_databricks(args):
+    """Submit benchmark to Databricks workflow. Creates job if it doesn't exist."""
+    # Get Databricks client (host + token)
+    host, token = get_databricks_client()
+    
+    if not host or not token:
+        print(
+            "ERROR: Databricks credentials not found. Either:\n"
+            "  1. Install and configure databricks-cli: pip install databricks-cli && databricks configure --token\n"
+            "  2. Or set DATABRICKS_HOST and DATABRICKS_TOKEN environment variables",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    
+    # Determine job_id
+    job_id = args.job_id
+    
+    if not job_id:
+        # Try to find by job name
+        job_name = args.job_name or "TPC-DI-Benchmark"
+        print(f"Job ID not provided. Looking for job by name: {job_name}")
+        job_id = find_databricks_job_by_name(host, token, job_name)
+        
+        if not job_id:
+            # Job doesn't exist - create it
+            print(f"Job '{job_name}' not found. Creating new job...")
+            job_id = create_databricks_job(host, token, args)
+        else:
+            print(f"Found existing job: {job_name} (ID: {job_id})")
+    else:
+        # Verify job exists
+        job = get_databricks_job(host, token, job_id)
+        if not job:
+            print(f"Job ID {job_id} not found. Creating new job...")
+            job_id = create_databricks_job(host, token, args)
+        else:
+            print(f"Using existing job: {job.get('settings', {}).get('name', 'Unknown')} (ID: {job_id})")
     
     # Build notebook params
     params = {
@@ -132,65 +564,37 @@ def run_databricks(args):
     if args.cluster_master_type:
         params["cluster_master_type"] = args.cluster_master_type
     
-    # Use databricks CLI if available, else API
-    try:
-        subprocess.run(["databricks", "--version"], capture_output=True, check=True)
-        use_cli = True
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        use_cli = False
+    # Submit run
+    import urllib.request
     
-    if use_cli:
-        # Use databricks CLI
-        cmd = [
-            "databricks", "jobs", "run-now",
-            "--job-id", str(args.job_id),
-            "--notebook-params", json.dumps(params),
-        ]
-        print(f"Submitting to Databricks job: {args.job_id}")
-        print(f"Parameters: {json.dumps(params, indent=2)}")
-        subprocess.run(cmd, check=True)
-    else:
-        # Use API (requires DATABRICKS_HOST and DATABRICKS_TOKEN env vars)
-        host = os.environ.get("DATABRICKS_HOST")
-        token = os.environ.get("DATABRICKS_TOKEN")
-        
-        if not host or not token:
-            print(
-                "ERROR: Databricks CLI not found. Either:\n"
-                "  1. Install databricks-cli: pip install databricks-cli\n"
-                "  2. Or set DATABRICKS_HOST and DATABRICKS_TOKEN environment variables",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        
-        import urllib.request
-        import urllib.parse
-        
-        url = f"{host.rstrip('/')}/api/2.1/jobs/run-now"
-        data = json.dumps({
-            "job_id": int(args.job_id),
-            "notebook_params": params,
-        }).encode()
-        
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-        )
-        
-        print(f"Submitting to Databricks job: {args.job_id} via API")
-        print(f"Parameters: {json.dumps(params, indent=2)}")
-        
-        try:
-            with urllib.request.urlopen(req) as resp:
-                result = json.loads(resp.read())
-                print(f"Run submitted. Run ID: {result.get('run_id')}")
-        except Exception as e:
-            print(f"ERROR: Failed to submit job: {e}", file=sys.stderr)
-            sys.exit(1)
+    url = f"{host.rstrip('/')}/api/2.1/jobs/run-now"
+    data = json.dumps({
+        "job_id": int(job_id),
+        "notebook_params": params,
+    }).encode()
+    
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+    
+    print(f"\nSubmitting run to Databricks job: {job_id}")
+    print(f"Parameters: {json.dumps(params, indent=2)}")
+    
+    try:
+        with urllib.request.urlopen(req) as resp:
+            result = json.loads(resp.read())
+            run_id = result.get("run_id")
+            print(f"✓ Run submitted successfully!")
+            print(f"  Run ID: {run_id}")
+            print(f"  View run at: {host.rstrip('/api')}/#job/{job_id}/run/{run_id}")
+    except Exception as e:
+        print(f"ERROR: Failed to submit job: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def run_local(args):
@@ -295,9 +699,10 @@ Examples:
   python run_benchmark.py dataproc --cluster my-cluster --load-type batch --scale-factor 10 \\
     --gcs-bucket my-bucket --project-id my-project --region us-central1
 
-  # Submit to Databricks workflow
-  python run_benchmark.py databricks --job-id 123 --load-type batch --scale-factor 10 \\
-    --output-path dbfs:/mnt/tpcdi
+  # Submit to Databricks workflow (creates job if missing)
+  python run_benchmark.py databricks --load-type batch --scale-factor 10 \\
+    --output-path dbfs:/mnt/tpcdi --workspace-path /Workspace/Repos/user/repo/databricks \\
+    --cloud AWS --node-type-id i3.xlarge --num-workers 2
 
   # Run locally
   python run_benchmark.py local --load-type batch --scale-factor 10 \\
@@ -331,7 +736,7 @@ Examples:
                       help="Driver/master instance type for metrics")
     
     # Dataproc subparser
-    parser_dataproc = subparsers.add_parser("dataproc", help="Submit to Dataproc cluster")
+    parser_dataproc = subparsers.add_parser("dataproc", help="Submit to Dataproc cluster (creates cluster if missing)")
     parser_dataproc.add_argument("--cluster", required=True,
                                  help="Dataproc cluster name")
     parser_dataproc.add_argument("--region", default="us-central1",
@@ -340,6 +745,20 @@ Examples:
                                 help="GCP project ID")
     parser_dataproc.add_argument("--gcs-bucket", required=True,
                                 help="GCS bucket name")
+    parser_dataproc.add_argument("--create-cluster", action="store_true",
+                                 help="Create cluster if it doesn't exist (uses default network)")
+    parser_dataproc.add_argument("--create-network", action="store_true",
+                                 help="Create VPC, subnet, firewall, and cluster if missing (full infrastructure)")
+    parser_dataproc.add_argument("--vpc-name",
+                                 help="VPC name (used with --create-network, default: <cluster>-vpc)")
+    parser_dataproc.add_argument("--subnet-name",
+                                 help="Subnet name (used with --create-network or --create-cluster, default: <cluster>-subnet)")
+    parser_dataproc.add_argument("--subnet-range",
+                                 help="Subnet CIDR range (used with --create-network, default: 10.10.0.0/24)")
+    parser_dataproc.add_argument("--zone",
+                                 help="GCP zone (default: <region>-b)")
+    parser_dataproc.add_argument("--firewall-rule-name",
+                                 help="Firewall rule name (used with --create-network)")
     parser_dataproc.add_argument("--raw-data-path",
                                 help="Base path to raw TPC-DI data in GCS (default: gs://<bucket>/tpcdi)")
     parser_dataproc.add_argument("--spark-master",
@@ -355,13 +774,33 @@ Examples:
     add_common_args(parser_dataproc)
     
     # Databricks subparser
-    parser_databricks = subparsers.add_parser("databricks", help="Submit to Databricks workflow")
+    parser_databricks = subparsers.add_parser("databricks", help="Submit to Databricks workflow (creates job if missing)")
     parser_databricks.add_argument("--job-id", type=int,
-                                  help="Databricks job/workflow ID (required)")
+                                  help="Databricks job/workflow ID (if not provided, searches by --job-name or creates new)")
+    parser_databricks.add_argument("--job-name", default="TPC-DI-Benchmark",
+                                   help="Job name (used to find existing job or name new job)")
     parser_databricks.add_argument("--output-path",
-                                   help="Raw data location: DBFS, Volume, or GCS path")
+                                  help="Raw data location: DBFS, Volume, or GCS path")
     parser_databricks.add_argument("--target-catalog",
-                                   help="Unity Catalog name (optional)")
+                                  help="Unity Catalog name (optional)")
+    parser_databricks.add_argument("--workspace-path",
+                                  help="Workspace path prefix for notebooks (e.g., /Workspace/Repos/user/repo/databricks)")
+    parser_databricks.add_argument("--data-gen-notebook", default="generate_tpcdi_data_notebook",
+                                  help="Data generation notebook path (relative to workspace-path)")
+    parser_databricks.add_argument("--benchmark-notebook", default="benchmark_databricks_notebook",
+                                  help="Benchmark notebook path (relative to workspace-path)")
+    parser_databricks.add_argument("--spark-version", default="14.3.x-scala2.12",
+                                  help="Databricks Runtime version (for new jobs)")
+    parser_databricks.add_argument("--cloud", choices=["AWS", "GCP", "Azure"], default="AWS",
+                                  help="Cloud provider (for new jobs)")
+    parser_databricks.add_argument("--node-type-id",
+                                  help="Worker node type (for new jobs; GCP defaults to n2d-standard-16, AWS defaults to i3.xlarge)")
+    parser_databricks.add_argument("--driver-node-type-id",
+                                  help="Driver node type (for new jobs)")
+    parser_databricks.add_argument("--num-workers", type=int, default=None,
+                                  help="Number of worker nodes (for new jobs; auto-set based on scale_factor if not provided: SF=10→2, SF=100→3, SF=1000→5)")
+    parser_databricks.add_argument("--existing-cluster-id",
+                                  help="Use existing cluster ID instead of creating new cluster (for new jobs)")
     add_common_args(parser_databricks)
     
     # Local subparser

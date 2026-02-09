@@ -137,15 +137,38 @@ class DatabricksPlatform:
     def get_table_size_mb(self, table_name: str) -> float:
         """Get approximate table size in MB. Runs DESCRIBE DETAIL separately (Databricks SQL does not allow it in a subquery)."""
         try:
+            # Check if table exists first
+            if not self.spark.catalog.tableExists(table_name):
+                logger.warning(f"Table {table_name} does not exist, cannot get size")
+                return 0.0
+            
             quoted = ".".join(f"`{p}`" for p in table_name.split("."))
             detail_df = self.spark.sql(f"DESCRIBE DETAIL {quoted}")
             row = detail_df.first()
             if row is None:
+                logger.warning(f"DESCRIBE DETAIL returned no rows for {table_name}")
                 return 0.0
+            
             size = getattr(row, "size", None)
-            return (size / (1024 * 1024)) if size is not None else 0.0
+            if size is None:
+                # Try alternative attribute names
+                if hasattr(row, "Size"):
+                    size = row.Size
+                elif hasattr(row, "SIZE"):
+                    size = row.SIZE
+                else:
+                    logger.warning(f"Could not find 'size' attribute in DESCRIBE DETAIL for {table_name}. Available attributes: {dir(row)}")
+                    return 0.0
+            
+            if size is not None and size > 0:
+                mb = size / (1024 * 1024)
+                logger.debug(f"Table {table_name} size: {mb:.2f} MB ({size:,} bytes)")
+                return mb
+            else:
+                logger.warning(f"Table {table_name} size is 0 or None")
+                return 0.0
         except Exception as e:
-            logger.warning(f"Could not get table size: {e}")
+            logger.warning(f"Could not get table size for {table_name}: {e}", exc_info=True)
             return 0.0
 
     def get_raw_input_size_bytes(self, batch_id: int) -> int:

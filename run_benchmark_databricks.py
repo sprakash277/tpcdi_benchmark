@@ -102,6 +102,18 @@ if __name__ == "__main__":
     print(f"Scale Factor: {result['config']['scale_factor']}")
     if result['config']['batch_id']:
         print(f"Batch ID: {result['config']['batch_id']}")
+
+    # Cluster configuration
+    metrics_dict = result['metrics']
+    if metrics_dict.get('cluster_instance_type') or metrics_dict.get('cluster_worker_count') or metrics_dict.get('cluster_master_type'):
+        print(f"\nCluster Configuration:")
+        if metrics_dict.get('cluster_instance_type'):
+            print(f"  Worker Node Type: {metrics_dict['cluster_instance_type']}")
+        if metrics_dict.get('cluster_master_type'):
+            print(f"  Driver Node Type: {metrics_dict['cluster_master_type']}")
+        if metrics_dict.get('cluster_worker_count') is not None:
+            print(f"  Number of Worker Nodes: {metrics_dict['cluster_worker_count']}")
+
     print(f"\nTotal Duration: {result['metrics']['total_duration_seconds']:.2f} seconds")
     if result['metrics']['summary']:
         print(f"Total Rows Processed: {result['metrics']['summary']['total_rows_processed']:,}")

@@ -238,17 +238,41 @@ class DataprocPlatform:
         rewriting it to SELECT SUM(size) FROM (SELECT ... DESCRIBE DETAIL ...).
         Uses DESCRIBE EXTENDED (standard Spark SQL) to get table location."""
         try:
+            # Check if table exists first
+            if not self.spark.catalog.tableExists(table_name):
+                logger.warning(f"Table {table_name} does not exist, cannot get size")
+                return 0.0
+            
             desc_df = self.spark.sql(f"DESCRIBE EXTENDED {table_name}")
             loc_row = desc_df.filter("col_name = 'Location'").first()
             if loc_row is None:
+                logger.warning(f"Could not find Location in DESCRIBE EXTENDED for {table_name}")
                 return 0.0
-            location = getattr(loc_row, "data_type", None) or getattr(loc_row, "info_value", loc_row[1])
+            
+            # Try different attribute names for location
+            location = None
+            if hasattr(loc_row, "data_type"):
+                location = loc_row.data_type
+            elif hasattr(loc_row, "info_value"):
+                location = loc_row.info_value
+            elif len(loc_row) > 1:
+                location = loc_row[1]
+            
             if not location or str(location).startswith("view:"):
+                logger.warning(f"Invalid location for {table_name}: {location}")
                 return 0.0
-            total = self._sum_path_size_bytes(str(location))
-            return total / (1024 * 1024) if total else 0.0
+            
+            location_str = str(location).strip()
+            logger.debug(f"Table {table_name} location: {location_str}")
+            total = self._sum_path_size_bytes(location_str)
+            mb = total / (1024 * 1024) if total else 0.0
+            if mb > 0:
+                logger.debug(f"Table {table_name} size: {mb:.2f} MB ({total:,} bytes)")
+            else:
+                logger.warning(f"Table {table_name} size calculation returned 0 bytes from path {location_str}")
+            return mb
         except Exception as e:
-            logger.warning(f"Could not get table size for {table_name}: {e}")
+            logger.warning(f"Could not get table size for {table_name}: {e}", exc_info=True)
             return 0.0
 
     def _sum_path_size_bytes(self, path: str) -> int:

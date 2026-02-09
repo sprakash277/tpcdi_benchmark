@@ -27,9 +27,16 @@ def _get_table_size_bytes(platform, table_name: str) -> Optional[int]:
         get_mb = getattr(platform, "get_table_size_mb", None)
         if get_mb:
             mb = get_mb(table_name)
-            return int(mb * 1024 * 1024) if mb else None
+            if mb and mb > 0:
+                bytes_val = int(mb * 1024 * 1024)
+                logger.debug(f"Table {table_name} size: {mb:.2f} MB ({bytes_val:,} bytes)")
+                return bytes_val
+            else:
+                logger.warning(f"Table {table_name} size returned 0 or None from platform.get_table_size_mb()")
+        else:
+            logger.debug(f"Platform does not have get_table_size_mb method")
     except Exception as e:
-        logger.debug(f"Could not get table size for {table_name}: {e}")
+        logger.warning(f"Could not get table size for {table_name}: {e}", exc_info=True)
     return None
 
 
