@@ -76,11 +76,13 @@ class BatchETL:
                 select_parts.append(f"TRIM(COALESCE(element_at(split(value, '\\\\|'), {i+1}), '')) AS _c{i}")
             sql_query = f"SELECT {', '.join(select_parts)} FROM {temp_view_name}"
             df = self.spark.sql(sql_query)
-        finally:
-            try:
-                self.spark.catalog.dropTempView(temp_view_name)
-            except Exception:
-                pass
+        
+        # Note: We do not drop the temp view here because Spark uses lazy evaluation.
+        # The DataFrame returned is lazy and will reference the temp view when executed.
+        # Dropping the view immediately would cause "TABLE_OR_VIEW_NOT_FOUND" errors.
+        # Temporary views are session-scoped and will be automatically cleaned up when
+        # the SparkSession ends. On Databricks serverless, the session lifecycle is
+        # managed by the platform, so manual cleanup is not necessary.
         
         return df
     

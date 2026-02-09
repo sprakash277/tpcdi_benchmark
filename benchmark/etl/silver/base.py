@@ -127,11 +127,13 @@ class SilverLoaderBase:
             select_parts.extend(["_load_timestamp", "_source_file", "_batch_id"])
             sql = f"SELECT {', '.join(select_parts)} FROM {temp_view}"
             result = self.spark.sql(sql)
-        finally:
-            try:
-                self.spark.catalog.dropTempView(temp_view)
-            except:
-                pass
+        
+        # Note: We do not drop the temp view here because Spark uses lazy evaluation.
+        # The DataFrame returned is lazy and will reference the temp view when executed.
+        # Dropping the view immediately would cause "TABLE_OR_VIEW_NOT_FOUND" errors.
+        # Temporary views are session-scoped and will be automatically cleaned up when
+        # the SparkSession ends. On Databricks serverless, the session lifecycle is
+        # managed by the platform, so manual cleanup is not necessary.
         
         return result
     
@@ -159,10 +161,12 @@ class SilverLoaderBase:
         sql = f"SELECT {', '.join(select_parts)} FROM {temp_view}"
         result = self.spark.sql(sql)
         
-        try:
-            self.spark.catalog.dropTempView(temp_view)
-        except:
-            pass
+        # Note: We do not drop the temp view here because Spark uses lazy evaluation.
+        # The DataFrame returned is lazy and will reference the temp view when executed.
+        # Dropping the view immediately would cause "TABLE_OR_VIEW_NOT_FOUND" errors.
+        # Temporary views are session-scoped and will be automatically cleaned up when
+        # the SparkSession ends. On Databricks serverless, the session lifecycle is
+        # managed by the platform, so manual cleanup is not necessary.
         
         return result
     
