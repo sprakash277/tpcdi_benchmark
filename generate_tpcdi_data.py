@@ -330,10 +330,11 @@ def generate_tpcdi_data(
             if Path(final_dest).exists() and any(Path(final_dest).iterdir()):
                 print(f"Output {final_dest} already exists; skipping generation.")
                 return final_dest
-        elif final_dest.startswith("gs://"):
-            if _gcs_path_exists(final_dest):
-                print(f"Output {final_dest} already exists; skipping generation.")
-                return final_dest
+        elif final_dest.startswith("gs://") or final_dest.startswith("gs:/"):
+            gs_check = ("gs://" + final_dest[4:]) if (final_dest.startswith("gs:/") and not final_dest.startswith("gs://")) else final_dest
+            if _gcs_path_exists(gs_check):
+                print(f"Output {gs_check} already exists; skipping generation.")
+                return gs_check
         elif os.path.isdir(final_dest) and os.listdir(final_dest):
             print(f"Output {final_dest} already exists; skipping generation.")
             return final_dest
@@ -347,7 +348,10 @@ def generate_tpcdi_data(
     elif final_dest.startswith("dbfs:") or final_dest.startswith("/dbfs"):
         dbfs_arg = ("dbfs:" + final_dest[5:]) if final_dest.startswith("/dbfs") else final_dest
         _upload_to_dbfs(driver_out, dbfs_arg, max_workers=upload_threads)
-    elif final_dest.startswith("gs://"):
+    elif final_dest.startswith("gs://") or final_dest.startswith("gs:/"):
+        # Normalize gs:/ to gs:// so we never treat GCS as a local path (e.g. under Workspace)
+        if final_dest.startswith("gs:/") and not final_dest.startswith("gs://"):
+            final_dest = "gs://" + final_dest[4:]
         _upload_to_gcs(driver_out, final_dest)
     else:
         _upload_local(driver_out, final_dest)
