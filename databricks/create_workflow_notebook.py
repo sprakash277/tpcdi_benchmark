@@ -214,7 +214,7 @@ workflow = {
                     "metrics_output": "dbfs:/mnt/tpcdi/metrics",
                     "log_detailed_stats": "false",
                     "use_udtf_customer_mgmt": "false",
-                    "customer_mgmt_xml_format": "xml"
+                    "customer_mgmt_xml_format": "com.databricks.spark.xml"
                 }
             },
             "timeout_seconds": 0,
@@ -273,8 +273,8 @@ workflow = {
         },
         {
             "name": "customer_mgmt_xml_format",
-            "default": "xml",
-            "description": "CustomerMgmt.xml reader format: xml or com.databricks.spark.xml"
+            "default": "com.databricks.spark.xml",
+            "description": "CustomerMgmt.xml reader: org.apache.spark.sql.execution.datasources.xml (Databricks native); xml or com.databricks.spark.xml (when attaching custom spark-xml JAR)"
         },
         {
             "name": "upload_threads",

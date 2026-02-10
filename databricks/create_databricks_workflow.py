@@ -21,7 +21,7 @@ def create_workflow_definition(
     default_target_catalog: str = "main",
     default_metrics_output: str = "dbfs:/mnt/tpcdi/metrics",
     default_log_detailed_stats: bool = False,
-    default_customer_mgmt_xml_format: str = "xml",
+    default_customer_mgmt_xml_format: str = "com.databricks.spark.xml",
     cluster_config: Dict[str, Any] = None,
 ) -> Dict[str, Any]:
     """
@@ -95,6 +95,9 @@ def create_workflow_definition(
                         "task_key": "01_data_generation"
                     }
                 ],
+                "libraries": [
+                    {"maven": {"coordinates": "com.databricks:spark-xml_2.13:0.18.0"}}
+                ],
                 "notebook_task": {
                     "notebook_path": benchmark_notebook_path,
                     "base_parameters": {
@@ -107,7 +110,7 @@ def create_workflow_definition(
                         "metrics_output": default_metrics_output,
                         "log_detailed_stats": "true" if default_log_detailed_stats else "false",
                         "use_udtf_customer_mgmt": "false",
-                        "customer_mgmt_xml_format": default_customer_mgmt_xml_format or "xml"
+                        "customer_mgmt_xml_format": default_customer_mgmt_xml_format or "com.databricks.spark.xml"
                     }
                 },
                 "existing_cluster_id": None,
@@ -179,8 +182,8 @@ def create_workflow_definition(
             },
             {
                 "name": "customer_mgmt_xml_format",
-                "default": default_customer_mgmt_xml_format or "xml",
-                "description": "CustomerMgmt.xml reader format: xml or com.databricks.spark.xml"
+                "default": default_customer_mgmt_xml_format or "com.databricks.spark.xml",
+                "description": "CustomerMgmt.xml reader: org.apache.spark.sql.execution.datasources.xml (Databricks native); xml or com.databricks.spark.xml (when attaching custom spark-xml JAR)"
             }
         ],
         "job_clusters": [],
@@ -395,7 +398,7 @@ def main():
         default_target_catalog=args.default_target_catalog,
         default_metrics_output=args.default_metrics_output,
         default_log_detailed_stats=args.default_log_detailed_stats,
-        default_customer_mgmt_xml_format=getattr(args, "default_customer_mgmt_xml_format", "xml") or "xml",
+        default_customer_mgmt_xml_format=getattr(args, "default_customer_mgmt_xml_format", "com.databricks.spark.xml") or "com.databricks.spark.xml",
         cluster_config=cluster_config,
     )
     

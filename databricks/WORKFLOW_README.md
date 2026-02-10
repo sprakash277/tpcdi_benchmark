@@ -88,8 +88,22 @@ The workflow supports the following parameters (all have defaults):
 | `batch_id` | `""` | Batch ID for incremental loads (empty for batch) |
 | `metrics_output` | `dbfs:/mnt/tpcdi/metrics` | Path to save metrics JSON |
 | `upload_threads` | `8` | Parallel threads for DBFS uploads |
+| `customer_mgmt_xml_format` | `com.databricks.spark.xml` | See [CustomerMgmt XML format](#customermgmt-xml-format) below. |
 
 Load type for 01_data_generation is inferred from path: **dbfs:/...** (DBFS), **/Volumes/...** (Volume), **gs://...** (GCS).
+
+### CustomerMgmt XML format
+
+The benchmark task reads `CustomerMgmt.xml` using a Spark XML data source. You can choose:
+
+- **Databricks native XML reader** (no custom JAR): set the job parameter  
+  `customer_mgmt_xml_format` to **`org.apache.spark.sql.execution.datasources.xml`**.  
+  This uses the built-in Databricks/Spark native XML reader. Do **not** attach the spark-xml Maven library to the benchmark task when using this.
+
+- **Custom spark-xml library**: when you attach the Maven library `com.databricks:spark-xml_2.13:0.18.0` (or similar) to the benchmark task, set `customer_mgmt_xml_format` to **`xml`** or **`com.databricks.spark.xml`**.  
+  If `com.databricks.spark.xml` fails with a `ServiceConfigurationError`, the code falls back to the `xml` alias automatically.
+
+In short: use **`org.apache.spark.sql.execution.datasources.xml`** to use the Databricks native reader; use **`xml`** or **`com.databricks.spark.xml`** when attaching the custom spark-xml JAR.
 
 ## Running the Workflow
 
@@ -160,6 +174,7 @@ print(f"Run ID: {run['run_id']}")
 - **Task Key**: `02_benchmark_execution`
 - **Notebook**: `benchmark_databricks_notebook` (in `databricks/`)
 - **Depends On**: `01_data_generation`
+- **Libraries**: By default the task attaches `com.databricks:spark-xml_2.13:0.18.0`. To use the **Databricks native XML reader** instead, set job parameter `customer_mgmt_xml_format` to `org.apache.spark.sql.execution.datasources.xml` and remove the spark-xml library from the task if desired (see [CustomerMgmt XML format](#customermgmt-xml-format)).
 - **Purpose**: Run ETL transformations and collect metrics
 - **Output**: 
   - Data warehouse tables in `{target_database}.{target_schema}`

@@ -133,8 +133,10 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
             target_table: Full target table name
             use_udtf: If True and on Databricks (Spark 3.5+), use UDTF to parallelize parsing.
             udtf_num_chunks: Number of chunks for UDTF path (more chunks = more parallelism).
-            xml_format: Spark data source format for XML: "xml" or "com.databricks.spark.xml".
-                None = "xml". Only used when not using UDTF.
+            xml_format: Spark data source format for XML. Only used when not using UDTF.
+                - "org.apache.spark.sql.execution.datasources.xml": Databricks native XML reader (no custom JAR).
+                - "xml" or "com.databricks.spark.xml": spark-xml library (use when attaching custom JAR).
+                None = "xml".
             
         Returns:
             DataFrame with raw XML structure

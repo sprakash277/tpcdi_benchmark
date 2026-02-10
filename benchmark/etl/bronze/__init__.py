@@ -113,7 +113,7 @@ class BronzeETL:
             target_schema: Target schema name
             use_udtf_customer_mgmt: If True use UDTF for CustomerMgmt.xml; if False use spark-xml;
                 if None (auto) use UDTF only when platform is Databricks.
-            customer_mgmt_xml_format: Spark XML format: "xml" or "com.databricks.spark.xml". None = "xml".
+            customer_mgmt_xml_format: Spark XML format: "org.apache.spark.sql.execution.datasources.xml" (Databricks native), or "xml"/"com.databricks.spark.xml" (spark-xml JAR). None = "xml".
         """
         prefix = ".".join(p for p in (target_database, target_schema) if p)
 
