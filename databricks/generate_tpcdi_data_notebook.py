@@ -47,7 +47,7 @@ except Exception:
 dbutils.widgets.text("scale_factor", "10", "Scale factor (e.g. 10 ~ 1GB)")
 dbutils.widgets.text("tpcdi_raw_data_path", "dbfs:/mnt/tpcdi", "TPC-DI raw data path: dbfs:/... (DBFS), /Volumes/... (Volume), gs://... (GCS), or local")
 dbutils.widgets.text("upload_threads", "8", "Upload threads for DBFS (parallel file uploads)")
-dbutils.widgets.text("tpcdi_local_gen_path", "", "Local path for datagen output (e.g. /mnt/disks/ssd0 on GCP; /local_disk0 on Databricks; empty = use default)")
+dbutils.widgets.text("tpcdi_local_gen_path", "/local_disk0", "Local path for datagen output (e.g. /mnt/disks/ssd0 on GCP; /local_disk0 on Databricks; empty = use default)")
 
 # COMMAND ----------
 

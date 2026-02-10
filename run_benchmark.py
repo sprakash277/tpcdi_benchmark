@@ -428,7 +428,7 @@ def create_databricks_job(host: str, token: str, args) -> int:
         benchmark_notebook_path=args.benchmark_notebook or "benchmark_databricks_notebook",
         default_scale_factor=args.scale_factor,
         default_output_path=args.output_path or "dbfs:/mnt/tpcdi",
-        default_local_gen_path=getattr(args, "local_gen_path", "") or "",
+        default_local_gen_path=getattr(args, "local_gen_path", "") or "/local_disk0",
         default_load_type=args.load_type,
         default_target_schema=args.target_schema or "dw",
         default_target_catalog=args.target_catalog or "main",

@@ -15,7 +15,7 @@ def create_workflow_definition(
     benchmark_notebook_path: str,
     default_scale_factor: int = 10,
     default_output_path: str = "dbfs:/mnt/tpcdi",
-    default_local_gen_path: str = "",
+    default_local_gen_path: str = "/local_disk0",
     default_load_type: str = "batch",
     default_target_schema: str = "dw",
     default_target_catalog: str = "main",
@@ -73,7 +73,7 @@ def create_workflow_definition(
                         "scale_factor": str(default_scale_factor),
                         "tpcdi_raw_data_path": default_output_path,
                         "upload_threads": "8",
-                        "tpcdi_local_gen_path": default_local_gen_path or ""
+                        "tpcdi_local_gen_path": default_local_gen_path or "/local_disk0"
                     }
                 },
                 "existing_cluster_id": None,
@@ -172,8 +172,8 @@ def create_workflow_definition(
             },
             {
                 "name": "tpcdi_local_gen_path",
-                "default": default_local_gen_path or "",
-                "description": "Local path for datagen output (e.g. /mnt/disks/ssd0 on GCP; empty = use default)"
+                "default": default_local_gen_path or "/local_disk0",
+                "description": "Local path for datagen output (e.g. /mnt/disks/ssd0 on GCP; /local_disk0 on Databricks; empty = use default)"
             }
         ],
         "job_clusters": [],
@@ -247,8 +247,8 @@ def main():
                        help="Default scale factor")
     parser.add_argument("--default-output-path", default="dbfs:/mnt/tpcdi",
                        help="Default TPC-DI raw data path (used by both tasks)")
-    parser.add_argument("--default-local-gen-path", default="",
-                       help="Default local path for datagen output (e.g. /mnt/disks/ssd0 on GCP; /local_disk0 on Databricks). Empty = use default.")
+    parser.add_argument("--default-local-gen-path", default="/local_disk0",
+                       help="Default local path for datagen output (/local_disk0 on Databricks; e.g. /mnt/disks/ssd0 on GCP)")
     parser.add_argument("--default-load-type", default="batch",
                        choices=["batch", "incremental"],
                        help="Default load type")
@@ -379,7 +379,7 @@ def main():
         benchmark_notebook_path=args.benchmark_notebook,
         default_scale_factor=args.default_scale_factor,
         default_output_path=args.default_output_path,
-        default_local_gen_path=args.default_local_gen_path or "",
+        default_local_gen_path=args.default_local_gen_path or "/local_disk0",
         default_load_type=args.default_load_type,
         default_target_schema=args.default_target_schema,
         default_target_catalog=args.default_target_catalog,
