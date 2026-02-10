@@ -173,6 +173,7 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
         
         # Read XML with spark-xml. Use schema definition/JSON if available (skips inference); else infer, print, and save.
         fmt = (xml_format or "xml").strip() or "xml"
+        logger.info(f"CustomerMgmt.xml reader format: {fmt}")
         schema = _load_customer_mgmt_schema()
         df = None
         success = False
@@ -196,7 +197,7 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
                 df = self.platform.read_raw_file(file_path, **opts)
                 if df.count() > 0:
                     schema_msg = f" (using {schema_source})" if schema_source else " (inferred schema)"
-                    logger.info(f"Successfully read XML with rowTag={row_tag}{schema_msg}")
+                    logger.info(f"Successfully read XML with rowTag={row_tag}, format={fmt}{schema_msg}")
                     success = True
                     break
                 df = None
