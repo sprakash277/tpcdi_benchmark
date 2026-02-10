@@ -173,7 +173,7 @@ def create_workflow_definition(
             {
                 "name": "tpcdi_local_gen_path",
                 "default": default_local_gen_path or "",
-                "description": "Local path for datagen output (avoids /tmp). E.g. /mnt/disks/ssd0 (GCP) or /local_disk0 (Databricks driver). Empty = use default (Databricks: driver disk; GCP: /tmp)"
+                "description": "Local path for datagen output (e.g. /mnt/disks/ssd0 on GCP; empty = use default)"
             }
         ],
         "job_clusters": [],
