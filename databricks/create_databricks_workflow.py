@@ -38,7 +38,6 @@ def create_workflow_definition(
             "node_type_id": "i3.xlarge",
             "num_workers": 2,
             "driver_node_type_id": "i3.xlarge",
-            "data_security_mode": "DATA_SECURITY_MODE_DEDICATED",
             "runtime_engine": "PHOTON",
         }
 
@@ -364,7 +363,6 @@ def main():
         "node_type_id": node_type_id,
         "num_workers": num_workers,
         "driver_node_type_id": driver_node_type_id,
-        "data_security_mode": "DATA_SECURITY_MODE_DEDICATED",
         "runtime_engine": "PHOTON",
     }
     
