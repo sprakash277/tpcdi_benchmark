@@ -213,7 +213,8 @@ workflow = {
                     "batch_id": "",
                     "metrics_output": "dbfs:/mnt/tpcdi/metrics",
                     "log_detailed_stats": "false",
-                    "use_udtf_customer_mgmt": "false"
+                    "use_udtf_customer_mgmt": "false",
+                    "customer_mgmt_xml_format": "xml"
                 }
             },
             "timeout_seconds": 0,
@@ -269,6 +270,11 @@ workflow = {
             "name": "use_udtf_customer_mgmt",
             "default": "auto",
             "description": "CustomerMgmt.xml: auto=UDTF on Databricks, true=UDTF, false=spark-xml"
+        },
+        {
+            "name": "customer_mgmt_xml_format",
+            "default": "xml",
+            "description": "CustomerMgmt.xml reader format: xml or com.databricks.spark.xml"
         },
         {
             "name": "upload_threads",
