@@ -57,6 +57,10 @@ try:
     dbutils.widgets.drop("cloud")
 except Exception:
     pass
+try:
+    dbutils.widgets.drop("customer_mgmt_xml_format")
+except Exception:
+    pass
 
 dbutils.widgets.dropdown("load_type", "batch", ["batch", "incremental"], "Load Type")
 dbutils.widgets.text("scale_factor", "10", "Scale Factor")
@@ -67,6 +71,7 @@ dbutils.widgets.text("batch_id", "", "Batch ID (for incremental only)")
 dbutils.widgets.text("metrics_output", "dbfs:/mnt/tpcdi/metrics", "Metrics Output Path")
 dbutils.widgets.dropdown("log_detailed_stats", "false", ["true", "false"], "Log detailed stats (per-table timing/records); false = only job start/end/total duration")
 dbutils.widgets.dropdown("use_udtf_customer_mgmt", "false", ["auto", "true", "false"], "CustomerMgmt.xml: auto=false (spark-xml), true=UDTF, false=spark-xml")
+dbutils.widgets.dropdown("customer_mgmt_xml_format", "xml", ["xml", "com.databricks.spark.xml"], "CustomerMgmt.xml format: xml or com.databricks.spark.xml")
 dbutils.widgets.dropdown("cloud", "AWS", ["AWS", "Azure", "GCP"], "Cloud (for cost estimation: AWS, Azure, GCP)")
 
 # COMMAND ----------
@@ -126,6 +131,7 @@ metrics_output = dbutils.widgets.get("metrics_output").strip()
 log_detailed_stats = dbutils.widgets.get("log_detailed_stats") == "true"
 use_udtf_customer_mgmt_str = dbutils.widgets.get("use_udtf_customer_mgmt").strip().lower()
 use_udtf_customer_mgmt = {"auto": None, "true": True, "false": False}.get(use_udtf_customer_mgmt_str, None)
+customer_mgmt_xml_format = dbutils.widgets.get("customer_mgmt_xml_format").strip() or "xml"
 cloud = dbutils.widgets.get("cloud").strip() or "AWS"
 
 # Parse batch_id for incremental loads
@@ -146,6 +152,7 @@ config = BenchmarkConfig(
     metrics_output_path=metrics_output,
     log_detailed_stats=log_detailed_stats,
     use_udtf_customer_mgmt=use_udtf_customer_mgmt,
+    customer_mgmt_xml_format=customer_mgmt_xml_format,
     cloud=cloud,
 )
 

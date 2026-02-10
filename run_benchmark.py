@@ -434,6 +434,7 @@ def create_databricks_job(host: str, token: str, args) -> int:
         default_target_catalog=args.target_catalog or "main",
         default_metrics_output=args.metrics_output or "dbfs:/mnt/tpcdi/metrics",
         default_log_detailed_stats=args.log_detailed_stats,
+        default_customer_mgmt_xml_format=getattr(args, "customer_mgmt_xml_format", None) or "xml",
         cluster_config=cluster_config,
     )
     
@@ -568,6 +569,8 @@ def run_databricks(args):
         params["cluster_worker_count"] = str(args.cluster_worker_count)
     if args.cluster_master_type:
         params["cluster_master_type"] = args.cluster_master_type
+    if getattr(args, "customer_mgmt_xml_format", None):
+        params["customer_mgmt_xml_format"] = args.customer_mgmt_xml_format
     
     # Submit run
     import urllib.request
@@ -814,6 +817,9 @@ Examples:
                                   help="Raw data location: DBFS, Volume, or GCS path")
     parser_databricks.add_argument("--local-gen-path", default="",
                                   help="Local path for datagen output (e.g. /mnt/disks/ssd0 on GCP; passed as tpcdi_local_gen_path)")
+    parser_databricks.add_argument("--customer-mgmt-xml-format", default="xml",
+                                  choices=["xml", "com.databricks.spark.xml"],
+                                  help="CustomerMgmt.xml reader format: xml or com.databricks.spark.xml")
     parser_databricks.add_argument("--target-catalog", required=True,
                                   help="Unity Catalog name (required for Databricks)")
     parser_databricks.add_argument("--workspace-path",

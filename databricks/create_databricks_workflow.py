@@ -21,6 +21,7 @@ def create_workflow_definition(
     default_target_catalog: str = "main",
     default_metrics_output: str = "dbfs:/mnt/tpcdi/metrics",
     default_log_detailed_stats: bool = False,
+    default_customer_mgmt_xml_format: str = "xml",
     cluster_config: Dict[str, Any] = None,
 ) -> Dict[str, Any]:
     """
@@ -105,7 +106,8 @@ def create_workflow_definition(
                         "batch_id": "",
                         "metrics_output": default_metrics_output,
                         "log_detailed_stats": "true" if default_log_detailed_stats else "false",
-                        "use_udtf_customer_mgmt": "false"
+                        "use_udtf_customer_mgmt": "false",
+                        "customer_mgmt_xml_format": default_customer_mgmt_xml_format or "xml"
                     }
                 },
                 "existing_cluster_id": None,
@@ -174,6 +176,11 @@ def create_workflow_definition(
                 "name": "tpcdi_local_gen_path",
                 "default": default_local_gen_path or "/local_disk0",
                 "description": "Local path for datagen output (e.g. /mnt/disks/ssd0 on GCP; /local_disk0 on Databricks; empty = use default)"
+            },
+            {
+                "name": "customer_mgmt_xml_format",
+                "default": default_customer_mgmt_xml_format or "xml",
+                "description": "CustomerMgmt.xml reader format: xml or com.databricks.spark.xml"
             }
         ],
         "job_clusters": [],
@@ -260,6 +267,9 @@ def main():
                        help="Default metrics output path")
     parser.add_argument("--default-log-detailed-stats", action="store_true",
                        help="Default: log per-table timing/records; else only job start/end/total duration")
+    parser.add_argument("--default-customer-mgmt-xml-format", default="xml",
+                       choices=["xml", "com.databricks.spark.xml"],
+                       help="CustomerMgmt.xml reader format: xml or com.databricks.spark.xml")
     
     # Cluster configuration
     SPARK_VERSIONS = [
@@ -385,6 +395,7 @@ def main():
         default_target_catalog=args.default_target_catalog,
         default_metrics_output=args.default_metrics_output,
         default_log_detailed_stats=args.default_log_detailed_stats,
+        default_customer_mgmt_xml_format=getattr(args, "default_customer_mgmt_xml_format", "xml") or "xml",
         cluster_config=cluster_config,
     )
     

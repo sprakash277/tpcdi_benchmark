@@ -401,6 +401,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             bronze_etl.run_bronze_batch_load(
                 1, db_or_catalog, effective_schema,
                 use_udtf_customer_mgmt=config.use_udtf_customer_mgmt,
+                customer_mgmt_xml_format=getattr(config, "customer_mgmt_xml_format", None),
             )
             
             bronze_tables = ["bronze_customer_mgmt", "bronze_trade", "bronze_daily_market", 
@@ -467,6 +468,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             bronze_etl.run_bronze_batch_load(
                 config.batch_id, db_or_catalog, effective_schema,
                 use_udtf_customer_mgmt=config.use_udtf_customer_mgmt,
+                customer_mgmt_xml_format=getattr(config, "customer_mgmt_xml_format", None),
             )
             inc_batch_bytes = getattr(platform, "get_raw_input_size_bytes", lambda bid: 0)(config.batch_id)
             metrics.finish_step(bytes=inc_batch_bytes if inc_batch_bytes else None)

@@ -102,6 +102,7 @@ class BronzeETL:
         target_database: str,
         target_schema: str,
         use_udtf_customer_mgmt: Optional[bool] = None,
+        customer_mgmt_xml_format: Optional[str] = None,
     ):
         """
         Run full Bronze layer load for a batch.
@@ -112,6 +113,7 @@ class BronzeETL:
             target_schema: Target schema name
             use_udtf_customer_mgmt: If True use UDTF for CustomerMgmt.xml; if False use spark-xml;
                 if None (auto) use UDTF only when platform is Databricks.
+            customer_mgmt_xml_format: Spark XML format: "xml" or "com.databricks.spark.xml". None = "xml".
         """
         prefix = ".".join(p for p in (target_database, target_schema) if p)
 
@@ -144,7 +146,12 @@ class BronzeETL:
             else:
                 # Default to False (spark-xml) when None/auto
                 use_udtf = False
-            self.customer_mgmt.load(batch_id, f"{prefix}.bronze_customer_mgmt", use_udtf=use_udtf)
+            xml_fmt = (customer_mgmt_xml_format or "xml").strip() or "xml"
+            self.customer_mgmt.load(
+                batch_id, f"{prefix}.bronze_customer_mgmt",
+                use_udtf=use_udtf,
+                xml_format=xml_fmt,
+            )
         else:
             # Incremental batches: pipe-delimited flat files
             table_timing_start(f"{prefix}.bronze_customer")

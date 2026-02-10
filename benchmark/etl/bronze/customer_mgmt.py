@@ -123,6 +123,7 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
         target_table: str,
         use_udtf: bool = False,
         udtf_num_chunks: int = 64,
+        xml_format: Optional[str] = None,
     ) -> DataFrame:
         """
         Ingest CustomerMgmt.xml as raw XML structure.
@@ -132,6 +133,8 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
             target_table: Full target table name
             use_udtf: If True and on Databricks (Spark 3.5+), use UDTF to parallelize parsing.
             udtf_num_chunks: Number of chunks for UDTF path (more chunks = more parallelism).
+            xml_format: Spark data source format for XML: "xml" or "com.databricks.spark.xml".
+                None = "xml". Only used when not using UDTF.
             
         Returns:
             DataFrame with raw XML structure
@@ -169,6 +172,7 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
                 logger.warning(f"UDTF path failed, falling back to spark-xml: {e}")
         
         # Read XML with spark-xml. Use schema definition/JSON if available (skips inference); else infer, print, and save.
+        fmt = (xml_format or "xml").strip() or "xml"
         schema = _load_customer_mgmt_schema()
         df = None
         success = False
@@ -176,7 +180,7 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
         schema_source = None
         for row_tag, root_tag in [("TPCDI:Action", "TPCDI:Actions"), ("Action", None)]:
             try:
-                opts = {"format": "xml", "rowTag": row_tag}
+                opts = {"format": fmt, "rowTag": row_tag}
                 if root_tag:
                     opts["rootTag"] = root_tag
                 if schema is not None:
