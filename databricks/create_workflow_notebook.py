@@ -202,6 +202,9 @@ workflow = {
                     "task_key": "01_data_generation"
                 }
             ],
+            "libraries": [
+                {"maven": {"coordinates": "com.databricks:spark-xml_2.13:0.18.0"}}
+            ],
             "notebook_task": {
                 "notebook_path": benchmark_notebook,
                 "base_parameters": {

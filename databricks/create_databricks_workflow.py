@@ -225,7 +225,7 @@ def create_workflow_via_api(
                 if not current_path.startswith("/"):
                     task["notebook_task"]["notebook_path"] = f"{workspace_path}/{current_path}"
     
-    url = f"{databricks_host.rstrip('/')}/api/2.1/jobs/create"
+    url = f"{databricks_host.rstrip('/')}/api/2.2/jobs/create"
     headers = {
         "Authorization": f"Bearer {databricks_token}",
         "Content-Type": "application/json"
