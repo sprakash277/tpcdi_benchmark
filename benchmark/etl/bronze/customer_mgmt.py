@@ -4,8 +4,9 @@ Bronze layer loader for CustomerMgmt.xml.
 Ingests raw XML structure from CustomerMgmt.xml with no field extraction.
 - On Databricks (Spark 3.5+): can use a Python UDTF to parallelize parsing (see use_udtf).
 - Otherwise: uses spark-xml (native Spark DataFrameReader). No pandas UDF.
-- Schema: if customer_mgmt_schema.json exists next to this module, it is used (no inference).
-  On first run without that file, schema is inferred, printed, and saved for next time.
+- Schema: Uses schema definition from customer_mgmt_schema_definition.py (preferred).
+  Falls back to customer_mgmt_schema.json if definition import fails.
+  Falls back to inference if both fail (prints and saves schema for next run).
 """
 
 import json
@@ -35,26 +36,46 @@ def _schema_path() -> Path:
 
 
 def _load_customer_mgmt_schema() -> Optional[StructType]:
-    """Load CustomerMgmt schema from JSON file if it exists (module dir or writable fallback)."""
+    """
+    Load CustomerMgmt schema with priority:
+    1. Schema definition from customer_mgmt_schema_definition.py (preferred)
+    2. JSON file (customer_mgmt_schema.json) if definition import fails
+    3. None (will infer schema)
+    """
+    # First try: use schema definition from Python module
+    try:
+        from benchmark.etl.bronze.customer_mgmt_schema_definition import get_customer_mgmt_schema
+        schema = get_customer_mgmt_schema()
+        logger.debug("Using CustomerMgmt schema from customer_mgmt_schema_definition.py")
+        return schema
+    except ImportError as e:
+        logger.debug(f"Could not import schema definition module: {e}")
+    except Exception as e:
+        logger.warning(f"Could not load schema from definition module: {e}")
+    
+    # Second try: load from JSON file
     module_dir = Path(__file__).resolve().parent
     for path in [
         module_dir / _SCHEMA_FILENAME,  # repo/module dir when not from zip
         _schema_path(),  # writable fallback (cwd or env) when running from zip
     ]:
         if path.is_file():
-            break
-    else:
-        return None
-    try:
-        with open(path, "r") as f:
-            data = json.load(f)
-        # Pass dict; fromJson() in PySpark accepts dict (Databricks) or str (some versions)
-        if isinstance(data, dict):
-            return StructType.fromJson(data)
-        return StructType.fromJson(json.dumps(data))
-    except Exception as e:
-        logger.warning(f"Could not load schema from {path}: {e}")
-        return None
+            try:
+                with open(path, "r") as f:
+                    data = json.load(f)
+                # Pass dict; fromJson() in PySpark accepts dict (Databricks) or str (some versions)
+                if isinstance(data, dict):
+                    schema = StructType.fromJson(data)
+                else:
+                    schema = StructType.fromJson(json.dumps(data))
+                logger.debug(f"Using CustomerMgmt schema from JSON file: {path}")
+                return schema
+            except Exception as e:
+                logger.warning(f"Could not load schema from {path}: {e}")
+                continue
+    
+    # No schema available - will infer
+    return None
 
 
 def _save_customer_mgmt_schema(schema_json: str) -> None:
@@ -147,11 +168,12 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
             except Exception as e:
                 logger.warning(f"UDTF path failed, falling back to spark-xml: {e}")
         
-        # Read XML with spark-xml. Use saved schema if present (skips inference); else infer, print, and save.
+        # Read XML with spark-xml. Use schema definition/JSON if available (skips inference); else infer, print, and save.
         schema = _load_customer_mgmt_schema()
         df = None
         success = False
         used_schema = False
+        schema_source = None
         for row_tag, root_tag in [("TPCDI:Action", "TPCDI:Actions"), ("Action", None)]:
             try:
                 opts = {"format": "xml", "rowTag": row_tag}
@@ -160,20 +182,26 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
                 if schema is not None:
                     opts["schema"] = schema
                     used_schema = True
+                    # Determine schema source for logging
+                    try:
+                        from benchmark.etl.bronze.customer_mgmt_schema_definition import get_customer_mgmt_schema
+                        if schema == get_customer_mgmt_schema():
+                            schema_source = "definition module"
+                    except:
+                        schema_source = "JSON file"
                 df = self.platform.read_raw_file(file_path, **opts)
                 if df.count() > 0:
-                    logger.info(
-                        f"Successfully read XML with rowTag={row_tag}"
-                        + (" (using saved schema)" if used_schema else " (inferred schema)")
-                    )
+                    schema_msg = f" (using {schema_source})" if schema_source else " (inferred schema)"
+                    logger.info(f"Successfully read XML with rowTag={row_tag}{schema_msg}")
                     success = True
                     break
                 df = None
             except Exception as e:
                 if schema is not None:
-                    logger.warning(f"Read with saved schema failed, will infer: {e}")
+                    logger.warning(f"Read with schema failed, will infer: {e}")
                     schema = None
                     used_schema = False
+                    schema_source = None
                     continue
                 logger.warning(f"Failed to read XML with rowTag={row_tag}: {e}")
                 df = None
