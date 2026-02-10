@@ -179,6 +179,7 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
         success = False
         used_schema = False
         schema_source = None
+        format_fallback = "xml"  # fallback if com.databricks.spark.xml fails with ServiceConfigurationError
         for row_tag, root_tag in [("TPCDI:Action", "TPCDI:Actions"), ("Action", None)]:
             try:
                 opts = {"format": fmt, "rowTag": row_tag}
@@ -192,7 +193,7 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
                         from benchmark.etl.bronze.customer_mgmt_schema_definition import get_customer_mgmt_schema
                         if schema == get_customer_mgmt_schema():
                             schema_source = "definition module"
-                    except:
+                    except Exception:
                         schema_source = "JSON file"
                 df = self.platform.read_raw_file(file_path, **opts)
                 if df.count() > 0:
@@ -202,6 +203,34 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
                     break
                 df = None
             except Exception as e:
+                err_msg = str(e)
+                # com.databricks.spark.xml can fail with ServiceConfigurationError (e.g. no-arg constructor)
+                if fmt == "com.databricks.spark.xml" and (
+                    "ServiceConfigurationError" in err_msg or "Unable to get public no-arg constructor" in err_msg
+                ):
+                    logger.warning(
+                        f"Format com.databricks.spark.xml failed ({e}); falling back to format 'xml'"
+                    )
+                    fmt = format_fallback
+                    opts = {"format": fmt, "rowTag": row_tag}
+                    if root_tag:
+                        opts["rootTag"] = root_tag
+                    if schema is not None:
+                        opts["schema"] = schema
+                    try:
+                        df = self.platform.read_raw_file(file_path, **opts)
+                        if df.count() > 0:
+                            schema_msg = f" (using {schema_source})" if schema_source else " (inferred schema)"
+                            logger.info(f"Successfully read XML with rowTag={row_tag}, format={fmt}{schema_msg}")
+                            success = True
+                            break
+                    except Exception as e2:
+                        logger.warning(f"Fallback format 'xml' also failed: {e2}")
+                    if not success:
+                        df = None
+                    if success:
+                        break
+                    continue
                 if schema is not None:
                     logger.warning(f"Read with schema failed, will infer: {e}")
                     schema = None
