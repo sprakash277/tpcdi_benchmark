@@ -163,6 +163,12 @@ cluster_config = {
     "driver_node_type_id": driver_node_type_id,
 }
 
+# Shared job clusters (tasks reference via job_cluster_key); when using existing cluster these are unused
+job_clusters_def = [
+    {"job_cluster_key": "01_data_generation_cluster", "new_cluster": cluster_config.copy()},
+    {"job_cluster_key": "02_benchmark_execution_cluster", "new_cluster": cluster_config.copy()},
+]
+
 # Create workflow definition
 workflow = {
     "name": job_name,
@@ -172,23 +178,28 @@ workflow = {
         "on_failure": [],
         "no_alert_for_skipped_runs": False
     },
+    "webhook_notifications": {},
     "timeout_seconds": 0,
     "max_concurrent_runs": 1,
     "format": "MULTI_TASK",
+    "performance_target": "PERFORMANCE_OPTIMIZED",
     "tasks": [
         {
             "task_key": "01_data_generation",
             "description": "Generate TPC-DI raw data",
+            "job_cluster_key": "01_data_generation_cluster",
             "notebook_task": {
                 "notebook_path": data_gen_notebook,
                 "base_parameters": {
                     "scale_factor": "10",
                     "tpcdi_raw_data_path": "dbfs:/mnt/tpcdi",
                     "upload_threads": "8"
-                }
+                },
+                "source": "WORKSPACE"
             },
             "timeout_seconds": 0,
             "email_notifications": {},
+            "webhook_notifications": {},
             "retry_on_timeout": False,
             "max_retries": 0,
             "min_retry_interval_millis": 0,
@@ -197,11 +208,9 @@ workflow = {
         {
             "task_key": "02_benchmark_execution",
             "description": "Run TPC-DI benchmark ETL",
-            "depends_on": [
-                {
-                    "task_key": "01_data_generation"
-                }
-            ],
+            "depends_on": [{"task_key": "01_data_generation"}],
+            "run_if": "ALL_SUCCESS",
+            "job_cluster_key": "02_benchmark_execution_cluster",
             "libraries": [
                 {"maven": {"coordinates": "com.databricks:spark-xml_2.13:0.18.0"}}
             ],
@@ -218,10 +227,12 @@ workflow = {
                     "log_detailed_stats": "false",
                     "use_udtf_customer_mgmt": "false",
                     "customer_mgmt_xml_format": "com.databricks.spark.xml"
-                }
+                },
+                "source": "WORKSPACE"
             },
             "timeout_seconds": 0,
             "email_notifications": {},
+            "webhook_notifications": {},
             "retry_on_timeout": False,
             "max_retries": 0,
             "min_retry_interval_millis": 0,
@@ -285,21 +296,19 @@ workflow = {
             "description": "Number of parallel threads for DBFS uploads"
         }
     ],
+    "job_clusters": job_clusters_def,
     "tags": {
         "purpose": "tpcdi_benchmark",
         "component": "data_integration"
     }
 }
 
-# Add cluster config to tasks
+# Add cluster config to tasks: use existing cluster or job_cluster_key
 if existing_cluster_id:
-    # Use existing cluster
+    workflow["job_clusters"] = []
     for task in workflow["tasks"]:
         task["existing_cluster_id"] = existing_cluster_id
-else:
-    # Create new clusters
-    for task in workflow["tasks"]:
-        task["new_cluster"] = cluster_config.copy()
+        task.pop("job_cluster_key", None)
 
 print("Workflow definition created:")
 print(json.dumps(workflow, indent=2))
@@ -318,7 +327,7 @@ databricks_host = dbutils.notebook.entry_point.getDbutils().notebook().getContex
 databricks_token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
 
 # Create job
-url = f"{databricks_host}/api/2.1/jobs/create"
+url = f"{databricks_host}/api/2.2/jobs/create"
 headers = {
     "Authorization": f"Bearer {databricks_token}",
     "Content-Type": "application/json"

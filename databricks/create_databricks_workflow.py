@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Create Databricks workflow/job for TPC-DI benchmark.
-Sequences data generation and benchmark execution with parameterized workflow.
+Supports separate workflows: data generation only, benchmark only, or both (full).
 """
 
 import json
@@ -23,28 +23,15 @@ def create_workflow_definition(
     default_log_detailed_stats: bool = False,
     default_customer_mgmt_xml_format: str = "com.databricks.spark.xml",
     cluster_config: Dict[str, Any] = None,
+    workflow_type: str = "benchmark",
 ) -> Dict[str, Any]:
     """
     Create Databricks workflow definition.
-    
-    Args:
-        job_name: Name of the workflow/job
-        data_gen_notebook_path: Path to data generation notebook
-        benchmark_notebook_path: Path to benchmark notebook
-        default_scale_factor: Default scale factor
-        default_output_path: Default TPC-DI raw data path (used by both tasks)
-        default_load_type: Default load type (batch/incremental)
-        default_target_schema: Default target schema
-        default_target_catalog: Default Unity Catalog (required for Databricks)
-        default_metrics_output: Default metrics output path
-        default_log_detailed_stats: If True, log per-table timing/records; else only job start/end/total duration
-        cluster_config: Cluster configuration dict
-    
-    Returns:
-        Workflow definition dictionary
+
+    workflow_type: "data_gen" = data generation only (single task);
+                   "benchmark" = benchmark ETL only (single task);
+                   "full" = both tasks in one job (data gen then benchmark).
     """
-    
-    # Default cluster config
     if cluster_config is None:
         cluster_config = {
             "spark_version": "13.3.x-scala2.12",
@@ -52,7 +39,115 @@ def create_workflow_definition(
             "num_workers": 2,
             "driver_node_type_id": "i3.xlarge",
         }
-    
+
+    data_gen_task = {
+        "task_key": "01_data_generation",
+        "description": "Generate TPC-DI raw data",
+        "job_cluster_key": "01_data_generation_cluster",
+        "notebook_task": {
+            "notebook_path": data_gen_notebook_path,
+            "base_parameters": {
+                "scale_factor": str(default_scale_factor),
+                "tpcdi_raw_data_path": default_output_path,
+                "upload_threads": "8",
+                "tpcdi_local_gen_path": default_local_gen_path or "/local_disk0"
+            },
+            "source": "WORKSPACE"
+        },
+        "timeout_seconds": 0,
+        "email_notifications": {},
+        "webhook_notifications": {},
+        "retry_on_timeout": False,
+        "max_retries": 0,
+        "min_retry_interval_millis": 0,
+        "max_retry_interval_millis": 0,
+    }
+
+    benchmark_task = {
+        "task_key": "02_benchmark_execution",
+        "description": "Run TPC-DI benchmark ETL",
+        "job_cluster_key": "02_benchmark_execution_cluster",
+        "libraries": [
+            {"maven": {"coordinates": "com.databricks:spark-xml_2.13:0.18.0"}}
+        ],
+        "notebook_task": {
+            "notebook_path": benchmark_notebook_path,
+            "base_parameters": {
+                "load_type": default_load_type,
+                "scale_factor": str(default_scale_factor),
+                "tpcdi_raw_data_path": default_output_path,
+                "target_schema": default_target_schema,
+                "target_catalog": default_target_catalog,
+                "batch_id": "",
+                "metrics_output": default_metrics_output,
+                "log_detailed_stats": "true" if default_log_detailed_stats else "false",
+                "use_udtf_customer_mgmt": "false",
+                "customer_mgmt_xml_format": default_customer_mgmt_xml_format or "com.databricks.spark.xml"
+            },
+            "source": "WORKSPACE"
+        },
+        "timeout_seconds": 0,
+        "email_notifications": {},
+        "webhook_notifications": {},
+        "retry_on_timeout": False,
+        "max_retries": 0,
+        "min_retry_interval_millis": 0,
+        "max_retry_interval_millis": 0,
+    }
+    if workflow_type == "full":
+        benchmark_task["depends_on"] = [{"task_key": "01_data_generation"}]
+        benchmark_task["run_if"] = "ALL_SUCCESS"
+
+    if workflow_type == "data_gen":
+        tasks = [data_gen_task]
+        job_clusters_def = [
+            {"job_cluster_key": "01_data_generation_cluster", "new_cluster": cluster_config.copy()},
+        ]
+        parameters = [
+            {"name": "scale_factor", "default": str(default_scale_factor), "description": "TPC-DI scale factor (e.g., 10, 100, 1000)"},
+            {"name": "tpcdi_raw_data_path", "default": default_output_path, "description": "TPC-DI raw data path; dbfs:/..., /Volumes/..., or gs://..."},
+            {"name": "upload_threads", "default": "8", "description": "Number of parallel threads for uploads"},
+            {"name": "tpcdi_local_gen_path", "default": default_local_gen_path or "/local_disk0", "description": "Local path for datagen output (/local_disk0 on Databricks)"},
+        ]
+    elif workflow_type == "benchmark":
+        tasks = [benchmark_task]
+        job_clusters_def = [
+            {"job_cluster_key": "02_benchmark_execution_cluster", "new_cluster": cluster_config.copy()},
+        ]
+        parameters = [
+            {"name": "scale_factor", "default": str(default_scale_factor), "description": "TPC-DI scale factor"},
+            {"name": "tpcdi_raw_data_path", "default": default_output_path, "description": "TPC-DI raw data path (dbfs:/..., /Volumes/..., gs://...)"},
+            {"name": "load_type", "default": default_load_type, "description": "Load type: batch or incremental"},
+            {"name": "target_schema", "default": default_target_schema, "description": "Target schema name"},
+            {"name": "target_catalog", "default": default_target_catalog, "description": "Unity Catalog name (required)"},
+            {"name": "batch_id", "default": "", "description": "Batch ID for incremental (empty for batch)"},
+            {"name": "metrics_output", "default": default_metrics_output, "description": "Path to save metrics JSON"},
+            {"name": "log_detailed_stats", "default": "true" if default_log_detailed_stats else "false", "description": "Log per-table timing/records"},
+            {"name": "use_udtf_customer_mgmt", "default": "auto", "description": "CustomerMgmt.xml: auto/UDTF/spark-xml"},
+            {"name": "customer_mgmt_xml_format", "default": default_customer_mgmt_xml_format or "com.databricks.spark.xml", "description": "CustomerMgmt.xml reader format"},
+        ]
+    else:
+        # full
+        tasks = [data_gen_task, benchmark_task]
+        job_clusters_def = [
+            {"job_cluster_key": "01_data_generation_cluster", "new_cluster": cluster_config.copy()},
+            {"job_cluster_key": "02_benchmark_execution_cluster", "new_cluster": cluster_config.copy()},
+        ]
+        parameters = [
+            {"name": "scale_factor", "default": str(default_scale_factor), "description": "TPC-DI scale factor (e.g., 10, 100, 1000)"},
+            {"name": "tpcdi_raw_data_path", "default": default_output_path, "description": "TPC-DI raw data path (used by both tasks); dbfs:/..., /Volumes/..., or gs://..."},
+            {"name": "load_type", "default": default_load_type, "description": "Load type: batch or incremental"},
+            {"name": "target_schema", "default": default_target_schema, "description": "Target schema name"},
+            {"name": "target_catalog", "default": default_target_catalog, "description": "Unity Catalog name (required for Databricks)"},
+            {"name": "batch_id", "default": "", "description": "Batch ID for incremental loads (leave empty for batch)"},
+            {"name": "metrics_output", "default": default_metrics_output, "description": "Path to save metrics JSON files"},
+            {"name": "log_detailed_stats", "default": "true" if default_log_detailed_stats else "false", "description": "Log per-table timing and records; false = only job start/end/total duration"},
+            {"name": "use_udtf_customer_mgmt", "default": "auto", "description": "CustomerMgmt.xml: auto=UDTF on Databricks, true=UDTF, false=spark-xml"},
+            {"name": "upload_threads", "default": "8", "description": "Number of parallel threads for DBFS uploads"},
+            {"name": "tpcdi_local_gen_path", "default": default_local_gen_path or "/local_disk0", "description": "Local path for datagen output (e.g. /mnt/disks/ssd0 on GCP; /local_disk0 on Databricks; empty = use default)"},
+            {"name": "customer_mgmt_xml_format", "default": default_customer_mgmt_xml_format or "com.databricks.spark.xml", "description": "CustomerMgmt.xml reader: org.apache.spark.sql.execution.datasources.xml (Databricks native); xml or com.databricks.spark.xml (when attaching custom spark-xml JAR)"}
+        ]
+
     workflow = {
         "name": job_name,
         "email_notifications": {
@@ -61,139 +156,20 @@ def create_workflow_definition(
             "on_failure": [],
             "no_alert_for_skipped_runs": False
         },
+        "webhook_notifications": {},
         "timeout_seconds": 0,
         "max_concurrent_runs": 1,
         "format": "MULTI_TASK",
-        "tasks": [
-            {
-                "task_key": "01_data_generation",
-                "description": "Generate TPC-DI raw data",
-                "notebook_task": {
-                    "notebook_path": data_gen_notebook_path,
-                    "base_parameters": {
-                        "scale_factor": str(default_scale_factor),
-                        "tpcdi_raw_data_path": default_output_path,
-                        "upload_threads": "8",
-                        "tpcdi_local_gen_path": default_local_gen_path or "/local_disk0"
-                    }
-                },
-                "existing_cluster_id": None,
-                "new_cluster": cluster_config.copy(),
-                "timeout_seconds": 0,
-                "email_notifications": {},
-                "retry_on_timeout": False,
-                "max_retries": 0,
-                "min_retry_interval_millis": 0,
-                "max_retry_interval_millis": 0,
-                "retry_on_timeout": False
-            },
-            {
-                "task_key": "02_benchmark_execution",
-                "description": "Run TPC-DI benchmark ETL",
-                "depends_on": [
-                    {
-                        "task_key": "01_data_generation"
-                    }
-                ],
-                "libraries": [
-                    {"maven": {"coordinates": "com.databricks:spark-xml_2.13:0.18.0"}}
-                ],
-                "notebook_task": {
-                    "notebook_path": benchmark_notebook_path,
-                    "base_parameters": {
-                        "load_type": default_load_type,
-                        "scale_factor": str(default_scale_factor),
-                        "tpcdi_raw_data_path": default_output_path,
-                        "target_schema": default_target_schema,
-                        "target_catalog": default_target_catalog,
-                        "batch_id": "",
-                        "metrics_output": default_metrics_output,
-                        "log_detailed_stats": "true" if default_log_detailed_stats else "false",
-                        "use_udtf_customer_mgmt": "false",
-                        "customer_mgmt_xml_format": default_customer_mgmt_xml_format or "com.databricks.spark.xml"
-                    }
-                },
-                "existing_cluster_id": None,
-                "new_cluster": cluster_config.copy(),
-                "timeout_seconds": 0,
-                "email_notifications": {},
-                "retry_on_timeout": False,
-                "max_retries": 0,
-                "min_retry_interval_millis": 0,
-                "max_retry_interval_millis": 0,
-                "retry_on_timeout": False
-            }
-        ],
-        "parameters": [
-            {
-                "name": "scale_factor",
-                "default": str(default_scale_factor),
-                "description": "TPC-DI scale factor (e.g., 10, 100, 1000)"
-            },
-            {
-                "name": "tpcdi_raw_data_path",
-                "default": default_output_path,
-                "description": "TPC-DI raw data path (used by both 01_data_generation and 02_benchmark_execution); dbfs:/..., /Volumes/..., or gs://..."
-            },
-            {
-                "name": "load_type",
-                "default": default_load_type,
-                "description": "Load type: batch or incremental"
-            },
-            {
-                "name": "target_schema",
-                "default": default_target_schema,
-                "description": "Target schema name"
-            },
-            {
-                "name": "target_catalog",
-                "default": default_target_catalog,
-                "description": "Unity Catalog name (required for Databricks)"
-            },
-            {
-                "name": "batch_id",
-                "default": "",
-                "description": "Batch ID for incremental loads (leave empty for batch)"
-            },
-            {
-                "name": "metrics_output",
-                "default": default_metrics_output,
-                "description": "Path to save metrics JSON files"
-            },
-            {
-                "name": "log_detailed_stats",
-                "default": "true" if default_log_detailed_stats else "false",
-                "description": "Log per-table timing and records; false = only job start/end/total duration"
-            },
-            {
-                "name": "use_udtf_customer_mgmt",
-                "default": "auto",
-                "description": "CustomerMgmt.xml: auto=UDTF on Databricks, true=UDTF, false=spark-xml"
-            },
-            {
-                "name": "upload_threads",
-                "default": "8",
-                "description": "Number of parallel threads for DBFS uploads"
-            },
-            {
-                "name": "tpcdi_local_gen_path",
-                "default": default_local_gen_path or "/local_disk0",
-                "description": "Local path for datagen output (e.g. /mnt/disks/ssd0 on GCP; /local_disk0 on Databricks; empty = use default)"
-            },
-            {
-                "name": "customer_mgmt_xml_format",
-                "default": default_customer_mgmt_xml_format or "com.databricks.spark.xml",
-                "description": "CustomerMgmt.xml reader: org.apache.spark.sql.execution.datasources.xml (Databricks native); xml or com.databricks.spark.xml (when attaching custom spark-xml JAR)"
-            }
-        ],
-        "job_clusters": [],
+        "performance_target": "PERFORMANCE_OPTIMIZED",
+        "tasks": tasks,
+        "parameters": parameters,
+        "job_clusters": job_clusters_def,
         "run_as": None,
         "tags": {
             "purpose": "tpcdi_benchmark",
             "component": "data_integration"
         }
     }
-    
     return workflow
 
 
@@ -245,6 +221,9 @@ def main():
     # Workflow configuration
     parser.add_argument("--job-name", default="TPC-DI-Benchmark",
                        help="Name of the Databricks job")
+    parser.add_argument("--workflow-type", default="benchmark",
+                       choices=["data_gen", "benchmark", "full"],
+                       help="data_gen = data generation only; benchmark = benchmark ETL only; full = both tasks in one job")
     parser.add_argument("--data-gen-notebook", default="generate_tpcdi_data_notebook",
                        help="Path to data generation notebook (relative to workspace)")
     parser.add_argument("--benchmark-notebook", default="benchmark_databricks_notebook",
@@ -400,13 +379,16 @@ def main():
         default_log_detailed_stats=args.default_log_detailed_stats,
         default_customer_mgmt_xml_format=getattr(args, "default_customer_mgmt_xml_format", "com.databricks.spark.xml") or "com.databricks.spark.xml",
         cluster_config=cluster_config,
+        workflow_type=args.workflow_type,
     )
     
-    # Handle existing cluster
+    # Handle existing cluster: use existing_cluster_id on each task and clear job_clusters / job_cluster_key
     if args.use_existing_cluster:
+        workflow["job_clusters"] = []
         for task in workflow["tasks"]:
             task["existing_cluster_id"] = args.use_existing_cluster
             task.pop("new_cluster", None)
+            task.pop("job_cluster_key", None)
     
     # Output or create via API
     if args.output_json:
