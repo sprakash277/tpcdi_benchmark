@@ -395,6 +395,29 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
         table_timing_job_start()
 
         if config.load_type == LoadType.BATCH:
+            # Drop all Bronze, Silver, and Gold tables so batch load starts clean
+            batch_tables = [
+                "bronze_date", "bronze_time", "bronze_status_type", "bronze_tax_rate",
+                "bronze_trade_type", "bronze_industry", "bronze_hr", "bronze_customer_mgmt",
+                "bronze_trade", "bronze_daily_market", "bronze_prospect", "bronze_cash_transaction",
+                "bronze_holding_history", "bronze_watch_history", "bronze_finwire",
+                "silver_date", "silver_status_type", "silver_trade_type", "silver_industry",
+                "silver_tax_rate", "silver_companies", "silver_securities", "silver_financials",
+                "silver_customers", "silver_accounts", "silver_trades", "silver_daily_market",
+                "silver_prospect", "silver_cash_transaction", "silver_watch_history", "silver_holding_history",
+                "gold_dim_date", "gold_dim_customer", "gold_dim_account", "gold_dim_company",
+                "gold_dim_security", "gold_dim_trade_type", "gold_dim_status_type", "gold_dim_industry",
+                "gold_financials", "gold_fact_trade", "gold_fact_market_history", "gold_dim_messages",
+                "gold_fact_cash_balances", "gold_fact_holdings",
+            ]
+            if hasattr(platform, "drop_table_if_exists"):
+                prefix = ".".join(p for p in (db_or_catalog, effective_schema) if p)
+                for short_name in batch_tables:
+                    full_name = f"{prefix}.{short_name}" if prefix else short_name
+                    try:
+                        platform.drop_table_if_exists(full_name)
+                    except Exception as e:
+                        logger.warning("Could not drop table %s: %s", full_name, e)
             metrics.start_step("bronze_etl")
             from benchmark.etl.bronze import BronzeETL
             bronze_etl = BronzeETL(platform)

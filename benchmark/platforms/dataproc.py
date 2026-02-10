@@ -176,11 +176,7 @@ class DataprocPlatform:
         
         # For Delta Lake with overwrite mode, drop table first to avoid schema merge conflicts
         if mode == "overwrite" and fmt == "delta" and table_exists:
-            try:
-                logger.info(f"Table {table_name} exists. Dropping it before overwrite to avoid schema conflicts.")
-                self.spark.sql(f"DROP TABLE IF EXISTS {table_name}")
-            except Exception as e:
-                logger.warning(f"Could not drop table {table_name}: {e}. Proceeding with write.")
+            self.drop_table_if_exists(table_name)
         
         # For append mode, if table doesn't exist, create it (treat as overwrite for first write)
         actual_mode = mode
@@ -198,6 +194,15 @@ class DataprocPlatform:
             writer = writer.partitionBy(*partition_by)
         
         writer.saveAsTable(table_name)
+
+    def drop_table_if_exists(self, table_name: str) -> None:
+        """Drop the table if it exists. No-op if table does not exist."""
+        try:
+            if self.spark.catalog.tableExists(table_name):
+                self.spark.sql(f"DROP TABLE IF EXISTS {table_name}")
+                logger.info("Dropped table %s", table_name)
+        except Exception as e:
+            logger.warning("Could not drop table %s: %s", table_name, e)
 
     def merge_upsert(self, df: DataFrame, table_name: str, key_columns: List[str],
                      format: Optional[str] = None) -> None:
@@ -255,6 +260,16 @@ class DataprocPlatform:
         except Exception as e:
             logger.warning(f"Could not check if table {table_name} exists: {e}")
         if not table_exists:
+            self.write_table(df, table_name, mode="overwrite", format="delta")
+            return
+        # If target was created before SCD2 columns existed, it won't have is_current/end_date/effective_date
+        target_columns = [f.lower() for f in self.spark.table(table_name).schema.fieldNames()]
+        scd2_required = {is_current_column.lower(), end_date_column.lower(), effective_date_column.lower()}
+        if not scd2_required.issubset(set(target_columns)):
+            logger.info(
+                "Target table %s missing SCD2 columns (%s); overwriting to establish schema",
+                table_name, scd2_required,
+            )
             self.write_table(df, table_name, mode="overwrite", format="delta")
             return
         view_name = "_gold_scd2_source_" + table_name.replace(".", "_")

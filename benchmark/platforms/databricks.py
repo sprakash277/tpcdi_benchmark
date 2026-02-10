@@ -62,6 +62,15 @@ class DatabricksPlatform:
                               schema: Optional[StructType] = None, **options) -> DataFrame:
         return self.read_batch_files(1, file_pattern, schema=schema, **options)
 
+    def drop_table_if_exists(self, table_name: str) -> None:
+        """Drop the table if it exists. No-op if table does not exist."""
+        try:
+            if self.spark.catalog.tableExists(table_name):
+                self.spark.sql(f"DROP TABLE IF EXISTS {table_name}")
+                logger.info("Dropped table %s", table_name)
+        except Exception as e:
+            logger.warning("Could not drop table %s: %s", table_name, e)
+
     def write_table(self, df: DataFrame, table_name: str, mode: str = "overwrite",
                     partition_by: Optional[list] = None, format: str = "delta"):
         logger.info(f"Writing table: {table_name} (mode={mode}, format={format})")
@@ -71,10 +80,7 @@ class DatabricksPlatform:
         except Exception as e:
             logger.warning(f"Could not check if table {table_name} exists: {e}")
         if mode == "overwrite" and format == "delta" and table_exists:
-            try:
-                self.spark.sql(f"DROP TABLE IF EXISTS {table_name}")
-            except Exception as e:
-                logger.warning(f"Could not drop table {table_name}: {e}")
+            self.drop_table_if_exists(table_name)
         actual_mode = mode
         if mode == "append" and not table_exists:
             actual_mode = "overwrite"
@@ -131,6 +137,16 @@ class DatabricksPlatform:
         except Exception as e:
             logger.warning(f"Could not check if table {table_name} exists: {e}")
         if not table_exists:
+            self.write_table(df, table_name, mode="overwrite", format=format)
+            return
+        # If target was created before SCD2 columns existed, it won't have is_current/end_date/effective_date
+        target_columns = [f.lower() for f in self.spark.table(table_name).schema.fieldNames()]
+        scd2_required = {is_current_column.lower(), end_date_column.lower(), effective_date_column.lower()}
+        if not scd2_required.issubset(set(target_columns)):
+            logger.info(
+                "Target table %s missing SCD2 columns (%s); overwriting to establish schema",
+                table_name, scd2_required,
+            )
             self.write_table(df, table_name, mode="overwrite", format=format)
             return
         view_name = "_gold_scd2_source_" + table_name.replace(".", "_")
