@@ -18,108 +18,70 @@ logger = logging.getLogger(__name__)
 
 
 class GoldDimCustomer(GoldLoaderBase):
-    """Gold dimension table: DimCustomer (current customer versions)."""
-    
+    """Gold dimension table: DimCustomer (SCD Type 2 in Gold per TPC-DI spec)."""
+
     def load(self, silver_table: str, target_table: str) -> DataFrame:
         """
-        Create DimCustomer from silver_customers (current versions only).
-        
-        Args:
-            silver_table: silver_customers table name
-            target_table: gold.DimCustomer table name
-            
-        Returns:
-            DataFrame with DimCustomer schema
+        Create/update DimCustomer from silver_customers using SCD Type 2 MERGE:
+        expire old rows (set is_current=false, end_date=effective_date), insert new.
         """
-        logger.info(f"Loading gold.DimCustomer from {silver_table}")
-        
-        # Select current versions only
+        logger.info("Loading gold.DimCustomer from %s (SCD2 MERGE)", silver_table)
         current_df = self._select_current_version(silver_table)
-        
-        # Gold dimension: select all columns (already cleaned in Silver)
-        gold_df = current_df.select(
-            col("sk_customer_id"),
-            col("customer_id"),
-            col("tax_id"),
-            col("status"),
-            col("last_name"),
-            col("first_name"),
-            col("middle_name"),
-            col("gender"),
-            col("tier"),
-            col("dob"),
-            col("address_line1"),
-            col("address_line2"),
-            col("postal_code"),
-            col("city"),
-            col("state_prov"),
-            col("country"),
-            col("email1"),
-            col("email2"),
-            col("local_tax_id"),
-            col("national_tax_id"),
-            current_timestamp().alias("etl_timestamp"),
-        )
-        # Placeholder row for late-arriving facts (trade before customer exists)
-        placeholder_row = self.spark.range(1).select(
+        # Gold: all dimension cols + effective_date, end_date, is_current for SCD2
+        want = [
+            "sk_customer_id", "customer_id", "tax_id", "status", "last_name", "first_name",
+            "middle_name", "gender", "tier", "dob", "address_line1", "address_line2",
+            "postal_code", "city", "state_prov", "country", "email1", "email2",
+            "local_tax_id", "national_tax_id", "effective_date", "end_date", "is_current",
+        ]
+        select_cols = [c for c in want if c in current_df.columns]
+        gold_df = current_df.select(*select_cols).withColumn("etl_timestamp", current_timestamp())
+        from pyspark.sql.types import TimestampType
+        ph = self.spark.range(1).select(
             lit(PLACEHOLDER_CUSTOMER_ID).alias("sk_customer_id"),
             lit(PLACEHOLDER_CUSTOMER_ID).alias("customer_id"),
-            lit("Unknown").alias("tax_id"),
-            lit("Unknown").alias("status"),
-            lit("Unknown").alias("last_name"),
-            lit("Unknown").alias("first_name"),
-            lit("Unknown").alias("middle_name"),
-            lit("Unknown").alias("gender"),
-            lit(1).alias("tier"),
-            lit(None).cast("date").alias("dob"),
-            lit("").alias("address_line1"),
-            lit("").alias("address_line2"),
-            lit("").alias("postal_code"),
-            lit("").alias("city"),
-            lit("").alias("state_prov"),
-            lit("").alias("country"),
-            lit("").alias("email1"),
-            lit("").alias("email2"),
-            lit("").alias("local_tax_id"),
-            lit("").alias("national_tax_id"),
+            lit("Unknown").alias("tax_id"), lit("Unknown").alias("status"),
+            lit("Unknown").alias("last_name"), lit("Unknown").alias("first_name"),
+            lit("Unknown").alias("middle_name"), lit("Unknown").alias("gender"),
+            lit(1).alias("tier"), lit(None).cast("date").alias("dob"),
+            lit("").alias("address_line1"), lit("").alias("address_line2"),
+            lit("").alias("postal_code"), lit("").alias("city"),
+            lit("").alias("state_prov"), lit("").alias("country"),
+            lit("").alias("email1"), lit("").alias("email2"),
+            lit("").alias("local_tax_id"), lit("").alias("national_tax_id"),
+            current_timestamp().cast(TimestampType()).alias("effective_date"),
+            lit(None).cast(TimestampType()).alias("end_date"),
+            lit(True).alias("is_current"),
             current_timestamp().alias("etl_timestamp"),
         )
-        gold_df = gold_df.unionByName(placeholder_row, allowMissingColumns=True)
-        return self._write_gold_table(gold_df, target_table, mode="overwrite")
+        gold_df = gold_df.unionByName(ph, allowMissingColumns=True)
+        if hasattr(self.platform, "merge_scd2"):
+            self.platform.merge_scd2(gold_df, target_table, key_column="customer_id")
+        else:
+            self._write_gold_table(gold_df, target_table, mode="overwrite")
+        return gold_df
 
 
 class GoldDimAccount(GoldLoaderBase):
-    """Gold dimension table: DimAccount (current account versions)."""
-    
+    """Gold dimension table: DimAccount (SCD Type 2 in Gold per TPC-DI spec)."""
+
     def load(self, silver_table: str, target_table: str) -> DataFrame:
         """
-        Create DimAccount from silver_accounts (current versions only).
-        
-        Args:
-            silver_table: silver_accounts table name
-            target_table: gold.DimAccount table name
-            
-        Returns:
-            DataFrame with DimAccount schema
+        Create/update DimAccount from silver_accounts using SCD Type 2 MERGE:
+        expire old rows, insert new.
         """
-        logger.info(f"Loading gold.DimAccount from {silver_table}")
-        
-        # Select current versions only
+        logger.info("Loading gold.DimAccount from %s (SCD2 MERGE)", silver_table)
         current_df = self._select_current_version(silver_table)
-        
-        # Gold dimension: select all columns
+        base_cols = ["account_id", "broker_id", "customer_id", "account_name", "tax_status", "status_id"]
+        scd2_cols = ["effective_date", "end_date", "is_current"]
+        select_cols = [c for c in base_cols + scd2_cols if c in current_df.columns]
         gold_df = current_df.select(
             col("account_id").alias("sk_account_id"),
-            col("account_id"),
-            col("broker_id"),
-            col("customer_id"),
-            col("account_name"),
-            col("tax_status"),
-            col("status_id"),
-            current_timestamp().alias("etl_timestamp"),
-        )
-        # Placeholder row for late-arriving facts (trade before account exists)
-        placeholder_row = self.spark.range(1).select(
+            *[col(c) for c in base_cols if c in current_df.columns],
+            *[col(c) for c in scd2_cols if c in current_df.columns],
+        ).withColumn("etl_timestamp", current_timestamp())
+        from pyspark.sql.types import TimestampType
+        ph = self.spark.range(1).select(
             lit(PLACEHOLDER_ACCOUNT_ID).alias("sk_account_id"),
             lit(PLACEHOLDER_ACCOUNT_ID).alias("account_id"),
             lit(PLACEHOLDER_ACCOUNT_ID).alias("broker_id"),
@@ -127,10 +89,17 @@ class GoldDimAccount(GoldLoaderBase):
             lit("Unknown").alias("account_name"),
             lit(0).alias("tax_status"),
             lit("ACTV").alias("status_id"),
+            current_timestamp().cast(TimestampType()).alias("effective_date"),
+            lit(None).cast(TimestampType()).alias("end_date"),
+            lit(True).alias("is_current"),
             current_timestamp().alias("etl_timestamp"),
         )
-        gold_df = gold_df.unionByName(placeholder_row, allowMissingColumns=True)
-        return self._write_gold_table(gold_df, target_table, mode="overwrite")
+        gold_df = gold_df.unionByName(ph, allowMissingColumns=True)
+        if hasattr(self.platform, "merge_scd2"):
+            self.platform.merge_scd2(gold_df, target_table, key_column="account_id")
+        else:
+            self._write_gold_table(gold_df, target_table, mode="overwrite")
+        return gold_df
 
 
 class GoldDimCompany(GoldLoaderBase):

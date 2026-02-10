@@ -442,7 +442,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             metrics.start_step("gold_etl")
             from benchmark.etl.gold import GoldETL
             gold_etl = GoldETL(platform)
-            gold_etl.run_gold_load(db_or_catalog, effective_schema)
+            gold_etl.run_gold_load(db_or_catalog, effective_schema, load_type=config.load_type, batch_id=1)
             
             gold_tables = ["gold_dim_customer", "gold_dim_account", "gold_dim_company",
                           "gold_dim_security", "gold_dim_date", "gold_dim_trade_type",
@@ -492,7 +492,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             metrics.start_step(f"gold_incremental_batch{config.batch_id}")
             from benchmark.etl.gold import GoldETL
             gold_etl = GoldETL(platform)
-            gold_etl.run_gold_load(db_or_catalog, effective_schema)
+            gold_etl.run_gold_load(db_or_catalog, effective_schema, load_type=config.load_type, batch_id=config.batch_id)
             metrics.finish_step()
 
             table_timing_job_end()

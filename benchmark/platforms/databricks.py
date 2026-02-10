@@ -4,7 +4,7 @@ Handles DBFS and Unity Catalog Volume paths.
 """
 
 import logging
-from typing import Optional
+from typing import Optional, List
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import StructType
 
@@ -84,6 +84,70 @@ class DatabricksPlatform:
         if partition_by:
             writer = writer.partitionBy(*partition_by)
         writer.saveAsTable(table_name)
+
+    def merge_upsert(self, df: DataFrame, table_name: str, key_columns: List[str],
+                     format: str = "delta") -> None:
+        """
+        MERGE (upsert) into Delta table. SCD Type 1: update existing rows, insert new.
+        If table does not exist, create with overwrite.
+        """
+        table_exists = False
+        try:
+            table_exists = self.spark.catalog.tableExists(table_name)
+        except Exception as e:
+            logger.warning(f"Could not check if table {table_name} exists: {e}")
+        if not table_exists:
+            self.write_table(df, table_name, mode="overwrite", format=format)
+            return
+        view_name = "_gold_merge_source_" + table_name.replace(".", "_")
+        df.createOrReplaceTempView(view_name)
+        cols = [c for c in df.columns]
+        on_clause = " AND ".join(f"t.`{k}` = s.`{k}`" for k in key_columns)
+        update_set = ", ".join(f"t.`{c}` = s.`{c}`" for c in cols)
+        insert_cols = ", ".join(f"`{c}`" for c in cols)
+        insert_vals = ", ".join(f"s.`{c}`" for c in cols)
+        merge_sql = (
+            f"MERGE INTO {table_name} AS t "
+            f"USING {view_name} AS s ON {on_clause} "
+            f"WHEN MATCHED THEN UPDATE SET {update_set} "
+            f"WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_vals})"
+        )
+        logger.info("Executing MERGE (upsert) into %s on keys %s", table_name, key_columns)
+        self.spark.sql(merge_sql)
+        self.spark.catalog.dropTempView(view_name)
+
+    def merge_scd2(self, df: DataFrame, table_name: str, key_column: str,
+                   effective_date_column: str = "effective_date",
+                   end_date_column: str = "end_date",
+                   is_current_column: str = "is_current",
+                   format: str = "delta") -> None:
+        """
+        MERGE into Delta table with SCD Type 2: expire old row (set is_current=false, end_date=effective_date), insert new.
+        Source = new version rows. If table does not exist, create with overwrite.
+        """
+        table_exists = False
+        try:
+            table_exists = self.spark.catalog.tableExists(table_name)
+        except Exception as e:
+            logger.warning(f"Could not check if table {table_name} exists: {e}")
+        if not table_exists:
+            self.write_table(df, table_name, mode="overwrite", format=format)
+            return
+        view_name = "_gold_scd2_source_" + table_name.replace(".", "_")
+        df.createOrReplaceTempView(view_name)
+        cols = [c for c in df.columns]
+        on_clause = f"t.`{key_column}` = s.`{key_column}` AND t.`{is_current_column}` = true"
+        insert_cols = ", ".join(f"`{c}`" for c in cols)
+        insert_vals = ", ".join(f"s.`{c}`" for c in cols)
+        merge_sql = (
+            f"MERGE INTO {table_name} AS t "
+            f"USING {view_name} AS s ON {on_clause} "
+            f"WHEN MATCHED THEN UPDATE SET t.`{is_current_column}` = false, t.`{end_date_column}` = s.`{effective_date_column}` "
+            f"WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_vals})"
+        )
+        logger.info("Executing MERGE (SCD2) into %s on key %s", table_name, key_column)
+        self.spark.sql(merge_sql)
+        self.spark.catalog.dropTempView(view_name)
 
     def create_database(
         self,

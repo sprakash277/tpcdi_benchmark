@@ -19,18 +19,17 @@ class GoldFactTrade(GoldLoaderBase):
     def load(self, silver_trade_table: str, target_table: str,
              dim_customer_table: str, dim_account_table: str,
              dim_security_table: str, dim_date_table: str,
-             dim_trade_type_table: str) -> DataFrame:
+             dim_trade_type_table: str,
+             fact_write_mode: str = "overwrite") -> DataFrame:
         """
         Create FactTrade by joining silver_trades with dimension tables.
+        TPC-DI spec: append only after $SK$ lookups (fact_write_mode=append for incremental).
         
         Args:
             silver_trade_table: silver_trades table name
             target_table: gold.FactTrade table name
-            dim_customer_table: gold.DimCustomer table name
-            dim_account_table: gold.DimAccount table name
-            dim_security_table: gold.DimSecurity table name
-            dim_date_table: gold.DimDate table name
-            dim_trade_type_table: gold.DimTradeType table name
+            dim_*_table: gold dimension table names
+            fact_write_mode: "overwrite" (batch) or "append" (incremental)
         """
         logger.info(f"Loading gold.FactTrade from {silver_trade_table}")
         
@@ -41,9 +40,13 @@ class GoldFactTrade(GoldLoaderBase):
             # If no is_current column, use all records
             silver_trades = self.spark.table(silver_trade_table)
         
-        # Read dimension tables
+        # Read dimension tables (SCD2: use current version only for $SK$ lookups)
         dim_customer = self.spark.table(dim_customer_table)
+        if "is_current" in dim_customer.columns:
+            dim_customer = dim_customer.filter(col("is_current") == True)
         dim_account = self.spark.table(dim_account_table)
+        if "is_current" in dim_account.columns:
+            dim_account = dim_account.filter(col("is_current") == True)
         dim_security = self.spark.table(dim_security_table)
         dim_date = self.spark.table(dim_date_table)
         dim_trade_type = self.spark.table(dim_trade_type_table)
@@ -92,22 +95,18 @@ class GoldFactTrade(GoldLoaderBase):
                 current_timestamp().alias("etl_timestamp"),
             )
         
-        return self._write_gold_table(fact_df, target_table, mode="overwrite")
+        return self._write_gold_table(fact_df, target_table, mode=fact_write_mode)
 
 
 class GoldFactMarketHistory(GoldLoaderBase):
     """Gold fact table: FactMarketHistory (daily market data with dimension keys)."""
     
     def load(self, silver_daily_market_table: str, target_table: str,
-             dim_date_table: str, dim_security_table: str) -> DataFrame:
+             dim_date_table: str, dim_security_table: str,
+             fact_write_mode: str = "overwrite") -> DataFrame:
         """
         Create FactMarketHistory by joining silver_daily_market with dimensions.
-        
-        Args:
-            silver_daily_market_table: silver_daily_market table name
-            target_table: gold.FactMarketHistory table name
-            dim_date_table: gold.DimDate table name
-            dim_security_table: gold.DimSecurity table name
+        TPC-DI spec: append only (fact_write_mode=append for incremental).
         """
         logger.info(f"Loading gold.FactMarketHistory from {silver_daily_market_table}")
         
@@ -144,22 +143,18 @@ class GoldFactMarketHistory(GoldLoaderBase):
                 current_timestamp().alias("etl_timestamp"),
             )
         
-        return self._write_gold_table(fact_df, target_table, mode="overwrite")
+        return self._write_gold_table(fact_df, target_table, mode=fact_write_mode)
 
 
 class GoldFactCashBalances(GoldLoaderBase):
     """Gold fact table: FactCashBalances (cash transaction aggregates)."""
     
     def load(self, silver_cash_transaction_table: str, target_table: str,
-             dim_date_table: str, dim_account_table: str) -> DataFrame:
+             dim_date_table: str, dim_account_table: str,
+             fact_write_mode: str = "overwrite") -> DataFrame:
         """
         Create FactCashBalances by aggregating silver_cash_transaction.
-        
-        Args:
-            silver_cash_transaction_table: silver_cash_transaction table name
-            target_table: gold.FactCashBalances table name
-            dim_date_table: gold.DimDate table name
-            dim_account_table: gold.DimAccount table name
+        TPC-DI spec: append only (fact_write_mode=append for incremental).
         """
         logger.info(f"Loading gold.FactCashBalances from {silver_cash_transaction_table}")
         
@@ -170,6 +165,8 @@ class GoldFactCashBalances(GoldLoaderBase):
             
             dim_date = self.spark.table(dim_date_table)
             dim_account = self.spark.table(dim_account_table)
+            if "is_current" in dim_account.columns:
+                dim_account = dim_account.filter(col("is_current") == True)
             
             # Aggregate cash by account and date (spec: FactCashBalances Cash = sum of CT_AMT per account/date)
             fact_df = silver_ct \
@@ -197,7 +194,7 @@ class GoldFactCashBalances(GoldLoaderBase):
                     current_timestamp().alias("etl_timestamp"),
                 )
             
-            return self._write_gold_table(fact_df, target_table, mode="overwrite")
+            return self._write_gold_table(fact_df, target_table, mode=fact_write_mode)
         except Exception as e:
             logger.warning(f"Could not load FactCashBalances: {e}")
             return None
@@ -208,16 +205,11 @@ class GoldFactHoldings(GoldLoaderBase):
     
     def load(self, silver_holding_history_table: str, target_table: str,
              dim_date_table: str, dim_account_table: str,
-             dim_security_table: str) -> DataFrame:
+             dim_security_table: str,
+             fact_write_mode: str = "overwrite") -> DataFrame:
         """
         Create FactHoldings from silver_holding_history.
-        
-        Args:
-            silver_holding_history_table: silver_holding_history table name
-            target_table: gold.FactHoldings table name
-            dim_date_table: gold.DimDate table name
-            dim_account_table: gold.DimAccount table name
-            dim_security_table: gold.DimSecurity table name
+        TPC-DI spec: append only (fact_write_mode=append for incremental).
         """
         logger.info(f"Loading gold.FactHoldings from {silver_holding_history_table}")
         
@@ -226,6 +218,8 @@ class GoldFactHoldings(GoldLoaderBase):
             
             dim_date = self.spark.table(dim_date_table)
             dim_account = self.spark.table(dim_account_table)
+            if "is_current" in dim_account.columns:
+                dim_account = dim_account.filter(col("is_current") == True)
             dim_security = self.spark.table(dim_security_table)
             
             # Get current holdings (qualify columns to avoid ambiguity)
@@ -251,7 +245,7 @@ class GoldFactHoldings(GoldLoaderBase):
                     current_timestamp().alias("etl_timestamp"),
                 )
             
-            return self._write_gold_table(fact_df, target_table, mode="overwrite")
+            return self._write_gold_table(fact_df, target_table, mode=fact_write_mode)
         except Exception as e:
             logger.warning(f"Could not load FactHoldings: {e}")
             return None
