@@ -706,7 +706,7 @@ def run_local(args):
     if cb is not None or total_cost is not None:
         print("\nCost (estimated):")
         if cb:
-            if cb.get('compute_usd') is not None:
+            if cb.get('compute_usd') is not None and (cb.get('compute_usd') or 0) > 0:
                 print(f"  Compute: ${cb['compute_usd']:.2f}")
             if cb.get('software_usd') is not None:
                 print(f"  Software: ${cb['software_usd']:.2f}")

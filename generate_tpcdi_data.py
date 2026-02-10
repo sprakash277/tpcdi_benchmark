@@ -228,32 +228,90 @@ def _upload_local(local_dir: Path, output_path: str) -> None:
             shutil.copy2(src, dest / rel)
 
 
+def _parse_gs_path(gs_path: str) -> tuple:
+    """Return (bucket_name, prefix) for gs://bucket/prefix/path. prefix may be empty."""
+    if not gs_path.startswith("gs://"):
+        raise ValueError("GCS path must start with gs://")
+    rest = gs_path[5:].lstrip("/")  # after gs://
+    if "/" in rest:
+        bucket, prefix = rest.split("/", 1)
+        return bucket, prefix.rstrip("/")
+    return rest, ""
+
+
+def _upload_to_gcs_with_python(local_dir: Path, gs_path: str) -> None:
+    """Upload directory to GCS using google-cloud-storage (when gsutil is not available, e.g. Databricks)."""
+    try:
+        from google.cloud import storage
+    except ImportError:
+        raise RuntimeError(
+            "GCS upload requires gsutil or the google-cloud-storage package. "
+            "Install with: pip install google-cloud-storage"
+        ) from None
+    bucket_name, prefix = _parse_gs_path(gs_path)
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    base = str(local_dir) + os.sep
+    uploaded = 0
+    for root_dir, _dirs, files in os.walk(local_dir, topdown=True):
+        for f in files:
+            src = Path(root_dir) / f
+            rel = os.path.relpath(src, local_dir)
+            dest_key = f"{prefix}/{rel}" if prefix else rel
+            dest_key = dest_key.replace("\\", "/")
+            blob = bucket.blob(dest_key)
+            blob.upload_from_filename(str(src), content_type="application/octet-stream")
+            uploaded += 1
+    print(f"Successfully uploaded {uploaded} file(s) to {gs_path}/")
+
+
 def _upload_to_gcs(local_dir: Path, gs_path: str) -> None:
-    """Upload generated files to GCS using gsutil. gs_path must start with gs://."""
+    """Upload generated files to GCS. Uses gsutil if available; else google-cloud-storage (e.g. on Databricks)."""
     if not gs_path.startswith("gs://"):
         raise ValueError("GCS path must start with gs://")
     gs_path = gs_path.rstrip("/")
-    # Use gsutil -m cp -r for parallel upload; gsutil expects destination to be a directory
-    cmd = ["gsutil", "-m", "cp", "-r", str(local_dir) + "/*", gs_path + "/"]
     print(f"Uploading to GCS: {gs_path}/ ...")
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"gsutil upload failed (exit {result.returncode}): {result.stderr or result.stdout}"
-        )
-    print(f"Successfully uploaded to {gs_path}/")
+    # Try gsutil first (common on GCE/Dataproc)
+    try:
+        cmd = ["gsutil", "-m", "cp", "-r", str(local_dir) + "/*", gs_path + "/"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"gsutil upload failed (exit {result.returncode}): {result.stderr or result.stdout}"
+            )
+        print(f"Successfully uploaded to {gs_path}/")
+        return
+    except FileNotFoundError:
+        pass  # gsutil not found (e.g. Databricks), fall back to Python client
+    _upload_to_gcs_with_python(local_dir, gs_path)
 
 
 def _gcs_path_exists(gs_path: str) -> bool:
-    """Return True if the GCS path exists and has objects (e.g. Batch1/)."""
+    """Return True if the GCS path exists and has objects (e.g. Batch1/). Uses gsutil or google-cloud-storage."""
     if not gs_path.startswith("gs://"):
         return False
-    result = subprocess.run(
-        ["gsutil", "ls", gs_path.rstrip("/") + "/"],
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0 and bool(result.stdout.strip())
+    gs_path = gs_path.rstrip("/") + "/"
+    try:
+        result = subprocess.run(
+            ["gsutil", "ls", gs_path],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return True
+        if result.returncode != 0:
+            return False
+    except FileNotFoundError:
+        pass  # gsutil not found, try Python client
+    try:
+        from google.cloud import storage
+        bucket_name, prefix = _parse_gs_path(gs_path.rstrip("/"))
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        it = bucket.list_blobs(prefix=prefix, max_results=1)
+        return next(iter(it), None) is not None
+    except Exception:
+        return False
 
 
 # -----------------------------------------------------------------------------
