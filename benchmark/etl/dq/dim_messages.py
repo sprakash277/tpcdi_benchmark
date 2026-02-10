@@ -27,27 +27,30 @@ def ensure_dim_messages_exists(spark, table_name: str, platform) -> None:
     """
     Create gold.dim_messages if it does not exist.
 
-    Uses CREATE TABLE IF NOT EXISTS so the table is registered in the catalog
-    before any append (avoids Delta "table doesn't exist" on Dataproc when
-    creating via empty DataFrame overwrite).
+    Always runs CREATE TABLE IF NOT EXISTS so the table is registered before any
+    append (avoids Delta "table doesn't exist" on Dataproc; tableExists can be
+    wrong or stale). If DDL fails, falls back to empty DataFrame overwrite.
 
     Args:
         spark: SparkSession
-        table_name: Full table name (e.g. catalog.schema.gold_dim_messages)
+        table_name: Full table name (e.g. database.gold_dim_messages or catalog.database.gold_dim_messages)
         platform: Platform adapter (for table_format: delta | parquet)
     """
-    try:
-        if spark.catalog.tableExists(table_name):
-            logger.debug(f"DimMessages table already exists: {table_name}")
-            return
-    except Exception as e:
-        logger.warning(f"Could not check table existence for {table_name}: {e}")
-    # Use DDL so the table is registered before any append (reliable on Dataproc + Delta)
     fmt = getattr(platform, "table_format", "delta") or "delta"
     fmt = str(fmt).lower().strip()
     if fmt not in ("delta", "parquet"):
         fmt = "delta"
-    quoted = ".".join(f"`{p}`" for p in table_name.split("."))
+    parts = [p.strip() for p in table_name.split(".") if p.strip()]
+    quoted = ".".join(f"`{p}`" for p in parts)
+    # Use full 3-part name (catalog.database.table) when only 2 parts given (Spark 3.4+)
+    try:
+        current_catalog = getattr(spark.catalog, "currentCatalog", None)
+        if callable(current_catalog) and len(parts) == 2:
+            cat = current_catalog()
+            if cat:
+                quoted = f"`{cat}`." + quoted
+    except Exception:
+        pass
     ddl = (
         f"CREATE TABLE IF NOT EXISTS {quoted} ("
         "message_timestamp TIMESTAMP NOT NULL, "
