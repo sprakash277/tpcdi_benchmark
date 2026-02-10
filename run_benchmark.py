@@ -428,6 +428,7 @@ def create_databricks_job(host: str, token: str, args) -> int:
         benchmark_notebook_path=args.benchmark_notebook or "benchmark_databricks_notebook",
         default_scale_factor=args.scale_factor,
         default_output_path=args.output_path or "dbfs:/mnt/tpcdi",
+        default_local_gen_path=getattr(args, "local_gen_path", "") or "",
         default_load_type=args.load_type,
         default_target_schema=args.target_schema or "dw",
         default_target_catalog=args.target_catalog or "main",
@@ -549,6 +550,8 @@ def run_databricks(args):
     
     if args.output_path:
         params["tpcdi_raw_data_path"] = args.output_path
+    if getattr(args, "local_gen_path", None):
+        params["tpcdi_local_gen_path"] = args.local_gen_path
     if args.target_schema:
         params["target_schema"] = args.target_schema
     # target_catalog is required for Databricks
@@ -809,6 +812,8 @@ Examples:
                                    help="Job name (used to find existing job or name new job)")
     parser_databricks.add_argument("--output-path",
                                   help="Raw data location: DBFS, Volume, or GCS path")
+    parser_databricks.add_argument("--local-gen-path", default="",
+                                  help="Local path for datagen output (e.g. /mnt/disks/ssd0 on GCP; passed as tpcdi_local_gen_path)")
     parser_databricks.add_argument("--target-catalog", required=True,
                                   help="Unity Catalog name (required for Databricks)")
     parser_databricks.add_argument("--workspace-path",

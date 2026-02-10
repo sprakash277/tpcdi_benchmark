@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
 """
-TPC-DI Data Generation for Databricks
+TPC-DI Data Generation for Databricks and GCP
 
 Generates TPC-DI benchmark raw data per the TPC-DI v1.1.0 specification
 (https://www.tpc.org/tpcdi/). Uses the official DIGen (Java) tool invoked
-via a Python wrapper. Designed to run on Databricks (driver node).
+via a Python wrapper. Designed to run on Databricks (driver node) or on
+GCP (VM/Dataproc driver) with optional local SSD for large scale factors.
 
 Usage:
     # Databricks notebook: use widgets or set variables, then call main()
     # CLI (local or Databricks job):
     python generate_tpcdi_data.py --scale-factor 10 --output dbfs:/mnt/tpcdi
+
+    # GCP with local SSDs (e.g. n2-standard-16 + 4×375GB): use --local-gen-path
+    # so DIGen writes to the SSD instead of /tmp (avoids "No space left on device"):
+    python generate_tpcdi_data.py -s 1000 -o gs://BUCKET/tpcdi --local-gen-path /mnt/disks/ssd0
+    # Or set env: TPCDI_LOCAL_GEN_PATH=/mnt/disks/ssd0
+
+    # Databricks: driver /local_disk0 is small (~100–200GB). For 1TB SF set tpcdi_local_gen_path
+    # to a larger path, e.g. DBFS: /dbfs/tmp/tpcdi_gen (workflow param or widget).
 
 Prerequisites:
     - Java 7+ (available on Databricks runtime)
@@ -51,10 +60,14 @@ except Exception:
 # -----------------------------------------------------------------------------
 
 DRIVER_ROOT = "/local_disk0"  # Databricks driver local disk
+# GCP/Dataproc: local SSDs are at /mnt/disks/ssd0, ssd1, ... (375GB each). Use for large SF to avoid "No space left on device".
+LOCAL_SSD_GCP = "/mnt/disks/ssd0"  # typical first local SSD on GCP VMs/Dataproc
 DEFAULT_SCALE_FACTOR = 10
 DEFAULT_DIGEN_PATH = "tools/datagen"
 DEFAULT_UPLOAD_THREADS = 8
 TPCDI_TMP = "tpcdi_tmp"
+# Env var to override local generation dir (e.g. TPCDI_LOCAL_GEN_PATH=/mnt/disks/ssd0 on GCP with local SSDs)
+ENV_LOCAL_GEN_PATH = "TPCDI_LOCAL_GEN_PATH"
 
 
 def _repo_root() -> Path:
@@ -325,6 +338,7 @@ def generate_tpcdi_data(
     digen_path: Optional[str] = None,
     skip_if_exists: bool = True,
     upload_threads: int = DEFAULT_UPLOAD_THREADS,
+    local_gen_path: Optional[str] = None,
 ) -> str:
     """
     Generate TPC-DI raw data and optionally upload to DBFS, UC Volume, or GCS.
@@ -341,6 +355,9 @@ def generate_tpcdi_data(
         digen_path: Path to folder containing DIGen.jar and pdgf/. Default: tools/datagen.
         skip_if_exists: If output already exists, skip generation.
         upload_threads: Number of parallel threads for DBFS file uploads. Default: 8.
+        local_gen_path: Local directory for generation (DIGen writes here first; then upload to raw_output_path).
+            When set, used on both Databricks and GCP (driver /local_disk0 is small ~100–200GB; use this for large SF).
+            GCP: e.g. /mnt/disks/ssd0. Databricks: e.g. /dbfs/tmp/tpcdi_gen (DBFS has more space). Env: TPCDI_LOCAL_GEN_PATH.
 
     Returns:
         Final path where data was written (DBFS, Volume, or GCS path).
@@ -350,9 +367,14 @@ def generate_tpcdi_data(
     if not digen.is_absolute():
         digen = root / digen
 
-    # Determine where to generate (use driver local disk on Databricks)
-    if IN_DATABRICKS and Path(DRIVER_ROOT).exists():
+    # Determine where to generate. Explicit local_gen_path/env is always honored (driver disk is small on Databricks).
+    explicit = local_gen_path or os.environ.get(ENV_LOCAL_GEN_PATH)
+    if explicit:
+        base_tmp = Path(explicit).resolve() / TPCDI_TMP
+        print(f"Using local generation path (large capacity): {base_tmp}")
+    elif IN_DATABRICKS and Path(DRIVER_ROOT).exists():
         base_tmp = Path(DRIVER_ROOT) / "tmp" / TPCDI_TMP
+        print(f"Using driver local disk (limited size; for large SF set tpcdi_local_gen_path e.g. /dbfs/tmp/tpcdi_gen): {base_tmp}")
     else:
         base_tmp = Path("/tmp") / TPCDI_TMP
     driver_tmp = base_tmp / "datagen"
@@ -486,6 +508,12 @@ def main() -> None:
         action="store_true",
         help="Always regenerate even if output exists",
     )
+    ap.add_argument(
+        "--local-gen-path",
+        dest="local_gen_path",
+        default=None,
+        help=f"Local directory for datagen output (avoids filling /tmp). On GCP with local SSDs use e.g. /mnt/disks/ssd0. Env: {ENV_LOCAL_GEN_PATH}",
+    )
     args = ap.parse_args()
 
     generate_tpcdi_data(
@@ -494,6 +522,7 @@ def main() -> None:
         digen_path=args.digen_path,
         skip_if_exists=not args.no_skip_existing,
         upload_threads=args.upload_threads,
+        local_gen_path=args.local_gen_path,
     )
 
 

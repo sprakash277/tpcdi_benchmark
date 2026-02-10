@@ -37,12 +37,17 @@ try:
     dbutils.widgets.drop("upload_threads")
 except Exception:
     pass
+try:
+    dbutils.widgets.drop("tpcdi_local_gen_path")
+except Exception:
+    pass
 
 # Create widgets with defaults (for interactive use)
 # When run as workflow task, these will be overridden by workflow parameters
 dbutils.widgets.text("scale_factor", "10", "Scale factor (e.g. 10 ~ 1GB)")
 dbutils.widgets.text("tpcdi_raw_data_path", "dbfs:/mnt/tpcdi", "TPC-DI raw data path: dbfs:/... (DBFS), /Volumes/... (Volume), gs://... (GCS), or local")
 dbutils.widgets.text("upload_threads", "8", "Upload threads for DBFS (parallel file uploads)")
+dbutils.widgets.text("tpcdi_local_gen_path", "", "Local path for datagen output (e.g. /mnt/disks/ssd0 on GCP; empty = use default)")
 
 # COMMAND ----------
 
@@ -60,11 +65,17 @@ except Exception:
         tpcdi_raw_data_path = "dbfs:/mnt/tpcdi"
 raw_output_path = tpcdi_raw_data_path  # Use for generate_tpcdi_data() call
 upload_threads = int(dbutils.widgets.get("upload_threads").strip() or "8")
+try:
+    tpcdi_local_gen_path = (dbutils.widgets.get("tpcdi_local_gen_path") or "").strip()
+except Exception:
+    tpcdi_local_gen_path = ""
+local_gen_path = tpcdi_local_gen_path if tpcdi_local_gen_path else None
 
 print(f"Data Generation Parameters:")
 print(f"  Scale Factor: {scale_factor}")
 print(f"  TPC-DI Raw Data Path: {tpcdi_raw_data_path} (dbfs=DBFS, /Volumes/=Volume, gs://=GCS)")
 print(f"  Upload Threads: {upload_threads}")
+print(f"  Local Gen Path: {local_gen_path or '(default)'}")
 
 # COMMAND ----------
 
@@ -98,6 +109,7 @@ out = generate_tpcdi_data(
     digen_path=None,
     skip_if_exists=True,
     upload_threads=upload_threads,
+    local_gen_path=local_gen_path,
 )
 print("Output location:", out)
 

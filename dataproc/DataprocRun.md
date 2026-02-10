@@ -7,7 +7,7 @@ This guide describes how to run the benchmark on **Dataproc**: prerequisites, al
 ## Prerequisites
 
 1. **Dataproc cluster** with GCS connector installed. To create a custom VPC, subnet (with Private Google Access), internal firewall, and a cluster in that subnet, see **§0. Infrastructure: VPC, Subnet, Firewall, and Cluster**.
-2. **TPC-DI raw data** must already exist in GCS. `run_benchmark_dataproc.py` does **not** generate data. Generate separately (e.g. TPC-DI DIGen, then upload to GCS).
+2. **TPC-DI raw data** must already exist in GCS. `run_benchmark_dataproc.py` does **not** generate data. Generate separately (e.g. run `generate_tpcdi_data.py` on a GCP VM or the Dataproc master, then upload to GCS). For **large scale factors (e.g. 1TB)** on GCP, use **local SSDs** so DIGen does not fill the boot disk: run with `--local-gen-path /mnt/disks/ssd0` (or set `TPCDI_LOCAL_GEN_PATH=/mnt/disks/ssd0`). See `generate_tpcdi_data.py --help`.
 3. Data path: `gs://<bucket>/tpcdi/sf=<scale_factor>/` (or your `--raw-data-path`).
 4. GCP **project ID** and **region**.
 5. **Metastore (optional):** Without a [Dataproc Metastore](https://cloud.google.com/dataproc-metastore/docs), Spark uses the default metastore. The benchmark sets the warehouse to GCS (`gs://<bucket>/spark-warehouse`) and uses two-part table names (`database.table`) and Parquet by default. See **../docs/DATAPROC_METASTORE.md**.
