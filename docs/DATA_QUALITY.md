@@ -41,12 +41,11 @@ Beyond the mandatory TPC-DI rules, the following are also run:
 
 | Table | Rule | Severity |
 |-------|------|----------|
-| **silver_customers** | gender in (M, F, U) when present | Alert |
-| **silver_customers** | status non-null and non-empty | Alert |
+| **silver_customers** | customer_id/tax_id non-null; tier 1–3; dob not future; duplicate customer_id; end_date >= effective_date; gender M/F/U; status non-empty and in (ACTV,INAC,ACTIVE,NEW,UPDCUST,INACT); first/last name non-empty; tax_id non-empty; duplicate tax_id; dob not before 1900; effective_date not future; postal_code length ≤ 20; email1/email2 contain @ when non-empty | Alert / Reject |
+| **silver_customers** | (legacy) gender in (M, F, U) when present; status non-null and non-empty | Alert |
 | **silver_accounts** | account_id IS NOT NULL | Reject |
-| **silver_trades** | account_id IS NOT NULL | Reject |
-| **silver_trades** | trade_price > 0 when present | Alert |
-| **silver_trades** | commission >= 0, tax >= 0 | Alert |
+| **silver_trades** | account_id IS NOT NULL; bid_price/quantity positive; duplicate trade_id; trade_price > 0; commission/tax/cash_amount >= 0; trade_dts non-null; record_type in (I,U,D); symbol non-empty; trade_dts not future; charge >= 0; quantity ≤ 1e9; end_date >= effective_date; RI: account_id in silver_accounts, symbol in silver_securities | Alert / Reject |
+| **silver_trades** | (legacy) trade_price > 0 when present; commission >= 0, tax >= 0 | Alert |
 | **silver_securities** | symbol non-null and non-empty | Alert |
 | **silver_securities** | duplicate symbol (uniqueness) | Alert |
 | **silver_daily_market** | dm_date IS NOT NULL | Alert |
@@ -56,9 +55,9 @@ Beyond the mandatory TPC-DI rules, the following are also run:
 | **silver_status_type** | st_id, st_name non-null and non-empty | Alert |
 | **silver_trade_type** | tt_id, tt_name non-null and non-empty | Alert |
 | **silver_industry** | in_id, in_name non-null and non-empty | Alert |
-| **silver_customers** | first_name, last_name non-null and non-empty | Alert |
+| **silver_customers** | (see consolidated row above) first_name, last_name non-null and non-empty | Alert |
 | **silver_accounts** | account_name/ca_name non-empty; duplicate account_id within batch | Alert |
-| **silver_trades** | trade_dts IS NOT NULL; cash_amount >= 0 | Alert |
+| **silver_trades** | (see consolidated row above) trade_dts IS NOT NULL; cash_amount >= 0 | Alert |
 | **silver_date** | sk_date_id in range 19000101–21001231 | Alert |
 | **silver_securities** | name non-null and non-empty | Alert |
 | **silver_daily_market** | dm_high >= dm_low; dm_close in [dm_low, dm_high] | Alert |
@@ -67,7 +66,7 @@ Beyond the mandatory TPC-DI rules, the following are also run:
 | **silver_financials** | year 1900–2100; quarter 1–4; revenue/earnings/assets/liabilities >= 0; co_name_or_cik non-empty | Alert |
 | **silver_prospect** | agency_id non-empty; last/first name not both empty; gender M/F/U; income >= 0; age 0–120 | Alert |
 | **silver_watch_history** | w_c_id, w_s_symb non-null/non-empty; w_action in (ACTV, CNCL, INAC) | Alert |
-| **silver_holding_history** | hh_h_t_id, hh_t_id non-null; hh_before_qty, hh_after_qty >= 0; hh_t_id in silver_trades | Alert |
+| **silver_holding_history** | hh_h_t_id, hh_t_id non-null; hh_before_qty, hh_after_qty >= 0; record_type in (I,U,D); quantity = hh_after_qty; purchase_price >= 0; account_id/symbol non-empty when trade linked; no duplicate hh_h_t_id in batch 1; holding_date/effective_date not in future; hh_after_qty <= 1e12; RI: hh_t_id in silver_trades, account_id in silver_accounts, symbol in silver_securities | Alert |
 
 ---
 

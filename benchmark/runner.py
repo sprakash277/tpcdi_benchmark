@@ -193,6 +193,20 @@ def _get_gcp_machine_type() -> Optional[str]:
         return None
 
 
+def _get_dataproc_worker_count_from_metadata() -> Optional[int]:
+    """Get number of worker nodes from Dataproc GCP instance metadata (attributes/dataproc-worker-count)."""
+    try:
+        req = urllib.request.Request(
+            "http://metadata.google.internal/computeMetadata/v1/instance/attributes/dataproc-worker-count",
+            headers={"Metadata-Flavor": "Google"},
+        )
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            val = resp.read().decode().strip()
+            return int(val) if val else None
+    except Exception:
+        return None
+
+
 def _get_executor_count(spark: SparkSession) -> Optional[int]:
     """Get number of executors (worker nodes) from Spark. Excludes driver."""
     try:
@@ -260,7 +274,13 @@ def get_cluster_info(config: BenchmarkConfig, spark: SparkSession) -> Tuple[Opti
             logger.info(f"Auto-detected cluster_instance_type (from driver; pass --cluster-instance-type if workers differ): {instance_type}")
         if worker_count is None:
             worker_count = _get_executor_count(spark)
-            if worker_count is not None:
+            # Spark executor count can be 0 early or on single-node; use Dataproc metadata when available
+            if (worker_count is None or worker_count == 0):
+                meta_count = _get_dataproc_worker_count_from_metadata()
+                if meta_count is not None:
+                    worker_count = meta_count
+                    logger.info(f"Auto-detected cluster_worker_count (Dataproc metadata): {worker_count}")
+            elif worker_count is not None:
                 logger.info(f"Auto-detected cluster_worker_count: {worker_count}")
     elif config.platform == Platform.DATABRICKS:
         worker_type, driver_type = _get_databricks_node_types(spark)

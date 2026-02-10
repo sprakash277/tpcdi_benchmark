@@ -16,7 +16,7 @@ import time
 from datetime import datetime
 from typing import Callable, List, Optional, Dict, Any
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, count, length, trim
+from pyspark.sql.functions import col, count, current_date, current_timestamp, length, lit, trim
 
 from benchmark.etl.dq.dim_messages import ensure_dim_messages_exists, log_message
 from benchmark.etl.table_timing import is_detailed as table_timing_is_detailed
@@ -208,7 +208,6 @@ class SilverDQRunner:
         if n > 0:
             log("Silver_Customer_Validation", f"tier not in (1,2,3): {n} row(s)", "Alert", source)
 
-        from pyspark.sql.functions import current_date
         today = current_date()
         future_dob = df.filter(col("dob").isNotNull() & (col("dob") > today))
         n = future_dob.count()
@@ -231,28 +230,68 @@ class SilverDQRunner:
         # Gender valid (M/F/U or empty)
         if "gender" in df.columns:
             bad_gender = df.filter(
-                col("gender").isNotNull() & (trim(col("gender")) != "")
-                & ~(trim(col("gender")).isin("M", "F", "U"))
+                col("gender").isNotNull() & (trim(col("gender").cast("string")) != "")
+                & ~(trim(col("gender").cast("string")).isin("M", "F", "U"))
             )
             n = bad_gender.count()
             if n > 0:
                 log("Silver_Customer_Validation", f"gender not in (M,F,U): {n} row(s)", "Alert", source)
 
-        # Status non-empty when present (business key consistency)
+        # Status non-empty and in valid set (ACTV, INAC, etc.)
         if "status" in df.columns:
-            null_status = df.filter(col("status").isNull() | (trim(col("status")) == ""))
+            null_status = df.filter(col("status").isNull() | (trim(col("status").cast("string")) == ""))
             n = null_status.count()
             if n > 0:
                 log("Silver_Customer_Validation", f"status NULL or empty: {n} row(s)", "Alert", source)
+            valid_status = ["ACTV", "INAC", "ACTIVE", "NEW", "UPDCUST", "INACT"]
+            st = trim(col("status").cast("string"))
+            bad_status = df.filter(col("status").isNotNull() & (st != "") & ~(st.isin(valid_status)))
+            if bad_status.count() > 0:
+                log("Silver_Customer_Validation", "status not in (ACTV,INAC,NEW,UPDCUST,INACT)", "Alert", source)
+
         # First/last name non-empty when present
         if "first_name" in df.columns:
-            empty_first = df.filter(col("first_name").isNull() | (trim(col("first_name")) == ""))
+            empty_first = df.filter(col("first_name").isNull() | (trim(col("first_name").cast("string")) == ""))
             if empty_first.count() > 0:
                 log("Silver_Customer_Validation", "first_name NULL or empty", "Alert", source)
         if "last_name" in df.columns:
-            empty_last = df.filter(col("last_name").isNull() | (trim(col("last_name")) == ""))
+            empty_last = df.filter(col("last_name").isNull() | (trim(col("last_name").cast("string")) == ""))
             if empty_last.count() > 0:
                 log("Silver_Customer_Validation", "last_name NULL or empty", "Alert", source)
+
+        # tax_id non-empty when present (beyond null check)
+        if "tax_id" in df.columns:
+            empty_tax = df.filter(col("customer_id").isNotNull() & (trim(col("tax_id").cast("string")) == ""))
+            if empty_tax.count() > 0:
+                log("Silver_Customer_Validation", "tax_id empty for non-null customer", "Alert", source)
+        # Duplicate tax_id within batch
+        if "tax_id" in df.columns:
+            dup_tax = df.groupBy(trim(col("tax_id").cast("string"))).agg(count("*").alias("cnt")).filter(col("cnt") > 1)
+            if dup_tax.count() > 0:
+                log("Silver_Customer_Validation", "duplicate tax_id within batch", "Alert", source)
+        # dob in reasonable range (e.g. not before 1900)
+        if "dob" in df.columns:
+            old_dob = df.filter(col("dob").isNotNull() & (col("dob") < lit("1900-01-01").cast("date")))
+            if old_dob.count() > 0:
+                log("Silver_Customer_Validation", "dob before 1900-01-01", "Alert", source)
+        # effective_date not in future
+        if "effective_date" in df.columns:
+            future_eff = df.filter(col("effective_date").isNotNull() & (col("effective_date") > current_timestamp()))
+            if future_eff.count() > 0:
+                log("Silver_Customer_Validation", "effective_date in future", "Alert", source)
+        # postal_code length when present (e.g. 1–20 chars)
+        if "postal_code" in df.columns:
+            pc = trim(col("postal_code").cast("string"))
+            bad_pc = df.filter((pc != "") & (length(pc) > 20))
+            if bad_pc.count() > 0:
+                log("Silver_Customer_Validation", "postal_code length > 20", "Alert", source)
+        # email format: when non-empty, contain @
+        for email_col in ("email1", "email2"):
+            if email_col in df.columns:
+                em = trim(col(email_col).cast("string"))
+                bad_email = df.filter((em != "") & ~(em.contains("@")))
+                if bad_email.count() > 0:
+                    log("Silver_Customer_Validation", f"{email_col} missing @ when non-empty", "Alert", source)
 
     def _run_account_rules(self, prefix: str, batch_id: int, log, messages_table: str) -> None:
         source = f"{prefix}.silver_accounts"
@@ -356,6 +395,70 @@ class SilverDQRunner:
             bad_cash = df.filter(col("cash_amount").isNotNull() & (col("cash_amount") < 0))
             if bad_cash.count() > 0:
                 log("Silver_Trade_Validation", "cash_amount < 0", "Alert", source)
+
+        # --- Complex DQ: record_type, symbol, RI, temporal, consistency ---
+        # record_type valid (I, U, D)
+        if "record_type" in df.columns:
+            rt = trim(col("record_type").cast("string"))
+            bad_rt = df.filter(col("record_type").isNotNull() & (rt != "") & ~(rt.isin("I", "U", "D")))
+            if bad_rt.count() > 0:
+                log("Silver_Trade_Validation", "record_type not in (I,U,D)", "Alert", source)
+        # symbol non-empty when present
+        if "symbol" in df.columns:
+            empty_symb = df.filter(col("symbol").isNull() | (trim(col("symbol").cast("string")) == ""))
+            if empty_symb.count() > 0:
+                log("Silver_Trade_Validation", "symbol NULL or empty", "Alert", source)
+        # trade_dts not in future
+        if "trade_dts" in df.columns:
+            future_dts = df.filter(col("trade_dts").isNotNull() & (col("trade_dts") > current_timestamp()))
+            if future_dts.count() > 0:
+                log("Silver_Trade_Validation", "trade_dts in future", "Alert", source)
+        # charge non-negative when present
+        if "charge" in df.columns:
+            bad_charge = df.filter(col("charge").isNotNull() & (col("charge") < 0))
+            if bad_charge.count() > 0:
+                log("Silver_Trade_Validation", "charge < 0", "Alert", source)
+        # quantity in reasonable range (e.g. not > 1e9)
+        if "quantity" in df.columns:
+            unreason_qty = df.filter(col("quantity").isNotNull() & (col("quantity") > 1e9))
+            if unreason_qty.count() > 0:
+                log("Silver_Trade_Validation", "quantity exceeds 1e9", "Alert", source)
+        # effective_date/end_date consistency
+        if "end_date" in df.columns and "effective_date" in df.columns:
+            bad_dates = df.filter(
+                col("end_date").isNotNull() & col("effective_date").isNotNull()
+                & (col("end_date") < col("effective_date"))
+            )
+            if bad_dates.count() > 0:
+                log("Silver_Trade_Validation", "end_date < effective_date", "Alert", source)
+        # RI: account_id in silver_accounts
+        if "account_id" in df.columns:
+            try:
+                accounts = self.spark.table(f"{prefix}.silver_accounts")
+                acc_ids = accounts.select(col("account_id").alias("_acc_id")).distinct()
+                trades_with_acc = df.filter(col("account_id").isNotNull())
+                missing_acc = trades_with_acc.join(acc_ids, trades_with_acc["account_id"] == acc_ids["_acc_id"], "left_anti")
+                n = missing_acc.count()
+                if n > 0:
+                    log("Silver_Trade_Validation", f"account_id not in silver_accounts: {n} row(s)", "Alert", source)
+            except Exception as e:
+                log("Silver_Trade_Validation", f"RI check (silver_accounts) failed: {e}", "Alert", source)
+        # RI: symbol in silver_securities
+        if "symbol" in df.columns:
+            try:
+                sec = self.spark.table(f"{prefix}.silver_securities")
+                symbs = sec.select(col("symbol").alias("_sym")).distinct()
+                trades_with_symb = df.filter(trim(col("symbol").cast("string")) != "")
+                missing_symb = trades_with_symb.join(
+                    symbs,
+                    trim(trades_with_symb["symbol"].cast("string")) == trim(symbs["_sym"].cast("string")),
+                    "left_anti",
+                )
+                n = missing_symb.count()
+                if n > 0:
+                    log("Silver_Trade_Validation", f"symbol not in silver_securities: {n} row(s)", "Alert", source)
+            except Exception as e:
+                log("Silver_Trade_Validation", f"RI check (silver_securities) failed: {e}", "Alert", source)
 
     def _run_date_rules(self, prefix: str, log, messages_table: str) -> None:
         source = f"{prefix}.silver_date"
@@ -653,6 +756,7 @@ class SilverDQRunner:
             return
         if "batch_id" in df.columns:
             df = df.filter(col("batch_id") == batch_id)
+        # --- Keys and non-null ---
         if "hh_h_t_id" in df.columns:
             null_ht = df.filter(col("hh_h_t_id").isNull())
             if null_ht.count() > 0:
@@ -661,6 +765,7 @@ class SilverDQRunner:
             null_t = df.filter(col("hh_t_id").isNull())
             if null_t.count() > 0:
                 log("Silver_HoldingHistory_Validation", "hh_t_id NULL", "Alert", source)
+        # --- Quantities non-negative ---
         if "hh_before_qty" in df.columns:
             neg_before = df.filter(col("hh_before_qty").isNotNull() & (col("hh_before_qty") < 0))
             if neg_before.count() > 0:
@@ -669,7 +774,54 @@ class SilverDQRunner:
             neg_after = df.filter(col("hh_after_qty").isNotNull() & (col("hh_after_qty") < 0))
             if neg_after.count() > 0:
                 log("Silver_HoldingHistory_Validation", "hh_after_qty < 0", "Alert", source)
-        # Referential integrity: hh_t_id should exist in silver_trades
+        # --- record_type valid (I, U, D) ---
+        if "record_type" in df.columns:
+            valid_rec = ["I", "U", "D"]
+            rt = trim(col("record_type").cast("string"))
+            bad_rt = df.filter(col("record_type").isNotNull() & (rt != "") & ~(rt.isin(valid_rec)))
+            if bad_rt.count() > 0:
+                log("Silver_HoldingHistory_Validation", "record_type not in (I,U,D)", "Alert", source)
+        # --- quantity = hh_after_qty when both present ---
+        if "quantity" in df.columns and "hh_after_qty" in df.columns:
+            mismatch = df.filter(
+                col("quantity").isNotNull() & col("hh_after_qty").isNotNull()
+                & (col("quantity") != col("hh_after_qty"))
+            )
+            if mismatch.count() > 0:
+                log("Silver_HoldingHistory_Validation", "quantity != hh_after_qty", "Alert", source)
+        # --- purchase_price non-negative when present ---
+        if "purchase_price" in df.columns:
+            neg_price = df.filter(col("purchase_price").isNotNull() & (col("purchase_price") < 0))
+            if neg_price.count() > 0:
+                log("Silver_HoldingHistory_Validation", "purchase_price < 0", "Alert", source)
+        # --- account_id required for fact join (from silver_trades) ---
+        if "account_id" in df.columns:
+            null_acc = df.filter(col("hh_t_id").isNotNull() & col("account_id").isNull())
+            n = null_acc.count()
+            if n > 0:
+                log("Silver_HoldingHistory_Validation", f"account_id NULL (trade not in silver_trades): {n} row(s)", "Alert", source)
+        # --- symbol non-empty when present ---
+        if "symbol" in df.columns:
+            empty_symb = df.filter(col("hh_t_id").isNotNull() & (col("symbol").isNull() | (trim(col("symbol").cast("string")) == "")))
+            if empty_symb.count() > 0:
+                log("Silver_HoldingHistory_Validation", "symbol NULL or empty for linked trade", "Alert", source)
+        # --- Duplicate hh_h_t_id within batch (batch 1: expect unique hh_h_t_id; incremental: may have I/U/D per key) ---
+        if "hh_h_t_id" in df.columns and batch_id == 1:
+            dup_key = df.groupBy("hh_h_t_id").agg(count("*").alias("cnt")).filter(col("cnt") > 1)
+            if dup_key.count() > 0:
+                log("Silver_HoldingHistory_Validation", "duplicate hh_h_t_id in batch 1", "Alert", source)
+        # --- holding_date / effective_date not in future when present ---
+        if "holding_date" in df.columns or "effective_date" in df.columns:
+            ts_col = col("effective_date") if "effective_date" in df.columns else col("holding_date")
+            future = df.filter(ts_col.isNotNull() & (ts_col > current_timestamp()))
+            if future.count() > 0:
+                log("Silver_HoldingHistory_Validation", "holding_date/effective_date in future", "Alert", source)
+        # --- Quantity in reasonable range (e.g. not > 1e12) ---
+        if "hh_after_qty" in df.columns:
+            unreason = df.filter(col("hh_after_qty").isNotNull() & (col("hh_after_qty") > 1e12))
+            if unreason.count() > 0:
+                log("Silver_HoldingHistory_Validation", "hh_after_qty exceeds 1e12", "Alert", source)
+        # --- Referential integrity: hh_t_id should exist in silver_trades ---
         try:
             trades = self.spark.table(f"{prefix}.silver_trades").filter(col("batch_id") == batch_id)
             trade_ids = trades.select("trade_id").distinct()
@@ -679,3 +831,27 @@ class SilverDQRunner:
                 log("Silver_HoldingHistory_Validation", f"hh_t_id not in silver_trades: {n} row(s)", "Alert", source)
         except Exception as e:
             log("Silver_HoldingHistory_Validation", f"RI check (silver_trades) failed: {e}", "Alert", source)
+        # --- RI: account_id in silver_accounts (when present) ---
+        if "account_id" in df.columns:
+            try:
+                accounts = self.spark.table(f"{prefix}.silver_accounts")
+                acc_ids = accounts.select(col("account_id").alias("_acc_id")).distinct()
+                hh_with_acc = df.filter(col("account_id").isNotNull())
+                missing_acc = hh_with_acc.join(acc_ids, hh_with_acc["account_id"] == acc_ids["_acc_id"], "left_anti")
+                n = missing_acc.count()
+                if n > 0:
+                    log("Silver_HoldingHistory_Validation", f"account_id not in silver_accounts: {n} row(s)", "Alert", source)
+            except Exception as e:
+                log("Silver_HoldingHistory_Validation", f"RI check (silver_accounts) failed: {e}", "Alert", source)
+        # --- RI: symbol in silver_securities (when present) ---
+        if "symbol" in df.columns:
+            try:
+                sec = self.spark.table(f"{prefix}.silver_securities")
+                symbs = sec.select(col("symbol").alias("_sym")).distinct()
+                hh_with_symb = df.filter(trim(col("symbol").cast("string")) != "")
+                missing_symb = hh_with_symb.join(symbs, trim(hh_with_symb["symbol"].cast("string")) == trim(symbs["_sym"].cast("string")), "left_anti")
+                n = missing_symb.count()
+                if n > 0:
+                    log("Silver_HoldingHistory_Validation", f"symbol not in silver_securities: {n} row(s)", "Alert", source)
+            except Exception as e:
+                log("Silver_HoldingHistory_Validation", f"RI check (silver_securities) failed: {e}", "Alert", source)
