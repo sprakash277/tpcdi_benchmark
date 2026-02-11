@@ -277,6 +277,9 @@ df_bronze = df.withColumn("_batch_id", lit(batch_id)) \
     .withColumn("_load_timestamp", current_timestamp()) \
     .withColumn("_source_file", lit("CustomerMgmt.xml"))
 
+# Drop table if exists before writing
+spark.sql(f"DROP TABLE IF EXISTS {catalog}.{schema_name}.bronze_customer_mgmt")
+
 # Write parsed DataFrame to bronze (same as v1: store nested struct, not raw XML)
 df_bronze.write.format("delta").mode("overwrite").saveAsTable(f"{catalog}.{schema_name}.bronze_customer_mgmt")
 print(f"Successfully loaded {df_bronze.count()} rows into bronze_customer_mgmt")
