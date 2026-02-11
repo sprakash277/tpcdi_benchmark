@@ -149,13 +149,14 @@ WHERE value IS NOT NULL AND value != '';
 
 # COMMAND ----------
 
-# Load CustomerMgmt.xml using PySpark with schema (referencing v1 implementation)
+# Load CustomerMgmt.xml using same logic as v1 (no UDTF): spark-xml with schema/format fallbacks, write parsed struct to bronze
 from pyspark.sql.types import (
     StructType, StructField, StringType, LongType, DateType, TimestampType
 )
+from pyspark.sql.functions import lit, current_timestamp
 
 def get_customer_mgmt_schema():
-    """CustomerMgmt XML schema definition (from v1 customer_mgmt_schema_definition.py)"""
+    """CustomerMgmt XML schema (from v1 customer_mgmt_schema_definition.py)."""
     return StructType([
         StructField("Customer", StructType([
             StructField("Account", StructType([
@@ -213,171 +214,70 @@ def get_customer_mgmt_schema():
         StructField("_ActionType", StringType(), True),
     ])
 
-# Read XML file with schema (like v1) for validation, then read as text for raw storage
 xml_path = f"{full_raw_data_path}/Batch1/CustomerMgmt.xml"
 schema = get_customer_mgmt_schema()
+fmt = (xml_format or "xml").strip() or "xml"
+df = None
+success = False
 
-# First, validate XML can be read with schema (like v1 does)
-df_xml_validation = None
 for row_tag, root_tag in [("TPCDI:Action", "TPCDI:Actions"), ("Action", None)]:
+    if success:
+        break
     try:
-        reader = spark.read.format(xml_format)
-        reader = reader.option("rowTag", row_tag)
+        reader = spark.read.format(fmt).option("rowTag", row_tag)
         if root_tag:
             reader = reader.option("rootTag", root_tag)
-        reader = reader.schema(schema)
-        df_xml_validation = reader.load(xml_path)
-        print(f"Successfully validated CustomerMgmt.xml with schema (rowTag={row_tag}, rootTag={root_tag})")
-        break
+        if schema is not None:
+            reader = reader.schema(schema)
+        df = reader.load(xml_path)
+        if df.count() > 0:
+            print(f"Successfully read CustomerMgmt.xml with rowTag={row_tag}, format={fmt}")
+            success = True
+            break
+        df = None
     except Exception as e:
-        print(f"Schema validation failed with rowTag={row_tag}, rootTag={root_tag}: {e}")
-        # Try without schema for validation
-        try:
-            reader = spark.read.format(xml_format)
-            reader = reader.option("rowTag", row_tag)
-            if root_tag:
-                reader = reader.option("rootTag", root_tag)
-            df_xml_validation = reader.load(xml_path)
-            print(f"Successfully validated CustomerMgmt.xml with inference (rowTag={row_tag})")
-            break
-        except Exception as e2:
-            print(f"Validation failed: {e2}")
+        err_msg = str(e)
+        if fmt == "com.databricks.spark.xml" and (
+            "ServiceConfigurationError" in err_msg or "Unable to get public no-arg constructor" in err_msg
+        ):
+            print(f"Format com.databricks.spark.xml failed; falling back to 'xml'")
+            fmt = "xml"
+            try:
+                reader = spark.read.format(fmt).option("rowTag", row_tag)
+                if root_tag:
+                    reader = reader.option("rootTag", root_tag)
+                if schema is not None:
+                    reader = reader.schema(schema)
+                df = reader.load(xml_path)
+                if df.count() > 0:
+                    print(f"Successfully read CustomerMgmt.xml with rowTag={row_tag}, format={fmt}")
+                    success = True
+                    break
+            except Exception as e2:
+                print(f"Fallback format 'xml' also failed: {e2}")
+            if success:
+                break
+            df = None
             continue
+        if schema is not None:
+            print(f"Read with schema failed, will infer: {e}")
+            schema = None
+            continue
+        print(f"Failed to read XML with rowTag={row_tag}: {e}")
+        df = None
 
-if df_xml_validation is None:
-    raise RuntimeError(f"Failed to read/validate CustomerMgmt.xml from {xml_path}")
-
-# For bronze layer, read XML file and extract individual action elements as raw XML strings
-# Use Python's xml.etree.ElementTree for reliable XML parsing (no UDF needed)
-from pyspark.sql.functions import lit, current_timestamp, col
-from pyspark.sql import Row
-import xml.etree.ElementTree as ET
-import io
-
-# Get expected count from validation
-expected_count = df_xml_validation.count()
-print(f"Expected {expected_count} action elements from XML validation")
-
-# Read XML file as text (whole file content)
-df_xml_text = spark.read.option("wholetext", "true").text(xml_path)
-xml_content = df_xml_text.select(col("value")).first()[0]
-
-# Parse XML using ElementTree to extract action elements
-actions = []
-try:
-    # Parse the XML content
-    # Handle namespace - register TPCDI namespace
-    ET.register_namespace('TPCDI', 'http://www.tpc.org/tpcdi')
-    
-    root = ET.fromstring(xml_content)
-    
-    # Try to find action elements with namespace
-    # ElementTree uses {namespace}localname format for namespaced elements
-    # First, try to find the namespace URI
-    ns = {}
-    if root.tag.startswith('{'):
-        # Extract namespace from root tag
-        ns_uri = root.tag[1:root.tag.index('}')]
-        ns['tpcdi'] = ns_uri
-    
-    # Find all Action elements (try both namespaced and non-namespaced)
-    action_elements = []
-    
-    # Try namespaced: {http://...}Action or TPCDI:Action
-    if ns:
-        action_elements = root.findall('.//{http://www.tpc.org/tpcdi}Action', ns)
-        if not action_elements:
-            action_elements = root.findall('.//tpcdi:Action', ns)
-    else:
-        # Try without namespace
-        action_elements = root.findall('.//Action')
-        if not action_elements:
-            # Try with TPCDI prefix
-            for elem in root.iter():
-                if 'Action' in elem.tag and ('TPCDI' in elem.tag or 'tpcdi' in elem.tag.lower()):
-                    action_elements.append(elem)
-    
-    # If still not found, search more broadly
-    if not action_elements:
-        for elem in root.iter():
-            if 'Action' in elem.tag:
-                action_elements.append(elem)
-    
-    # Convert each element back to XML string
-    for elem in action_elements:
-        # Get the XML string representation of this element
-        xml_str = ET.tostring(elem, encoding='unicode')
-        actions.append(xml_str)
-    
-    print(f"Extracted {len(actions)} actions using ElementTree")
-    
-except Exception as e:
-    print(f"ElementTree parsing failed: {e}")
-    # Fallback to regex-based extraction
-    import re
-    
-    # Try regex patterns as fallback
-    patterns = [
-        (r"<TPCDI:Action[^>]*>[\s\S]*?</TPCDI:Action>", "namespaced with [\\s\\S]"),
-        (r"<Action[^>]*>[\s\S]*?</Action>", "non-namespaced with [\\s\\S]"),
-    ]
-    
-    for pattern, desc in patterns:
-        actions = re.findall(pattern, xml_content, re.DOTALL)
-        if actions:
-            print(f"Extracted {len(actions)} actions using regex pattern: {desc}")
-            break
-    
-    # If regex also fails, try tag matching approach
-    if not actions:
-        opening_tag = "<TPCDI:Action"
-        closing_tag = "</TPCDI:Action>"
-        if opening_tag in xml_content:
-            parts = xml_content.split(opening_tag)[1:]  # Skip content before first action
-            for part in parts:
-                end_idx = part.find(closing_tag)
-                if end_idx != -1:
-                    action_xml = opening_tag + part[:end_idx + len(closing_tag)]
-                    actions.append(action_xml)
-            print(f"Extracted {len(actions)} actions using tag splitting")
-        
-        # Try without namespace
-        if not actions:
-            opening_tag = "<Action"
-            closing_tag = "</Action>"
-            if opening_tag in xml_content:
-                parts = xml_content.split(opening_tag)[1:]
-                for part in parts:
-                    end_idx = part.find(closing_tag)
-                    if end_idx != -1:
-                        action_xml = opening_tag + part[:end_idx + len(closing_tag)]
-                        actions.append(action_xml)
-                print(f"Extracted {len(actions)} actions using non-namespaced tag splitting")
-
-if not actions:
+if not success or df is None:
     raise RuntimeError(
-        f"Failed to extract any action elements from CustomerMgmt.xml. "
-        f"Expected {expected_count} actions. "
-        f"XML content length: {len(xml_content)}, "
-        f"First 500 chars: {xml_content[:500]}"
+        f"Could not read CustomerMgmt.xml from {xml_path}. "
+        "Ensure spark-xml is available (e.g. com.databricks:spark-xml_2.12:0.15.0)."
     )
 
-# Verify we got a reasonable number (allow some variance)
-if expected_count > 0 and abs(len(actions) - expected_count) > max(10, expected_count * 0.2):
-    print(f"Warning: Extracted {len(actions)} actions but expected {expected_count}")
+# Add metadata columns (same as v1 _write_bronze_table)
+df_bronze = df.withColumn("_batch_id", lit(batch_id)) \
+    .withColumn("_load_timestamp", current_timestamp()) \
+    .withColumn("_source_file", lit("CustomerMgmt.xml"))
 
-# Create DataFrame from extracted XML strings
-df_actions = spark.createDataFrame([Row(raw_xml=action) for action in actions])
-
-# Add metadata columns
-df_bronze = df_actions.select(
-    col("raw_xml"),
-    lit(batch_id).alias("_batch_id"),
-    current_timestamp().alias("_load_timestamp"),
-    lit("CustomerMgmt.xml").alias("_source_file")
-)
-
-# Write to bronze table
+# Write parsed DataFrame to bronze (same as v1: store nested struct, not raw XML)
 df_bronze.write.format("delta").mode("overwrite").saveAsTable(f"{catalog}.{schema_name}.bronze_customer_mgmt")
 print(f"Successfully loaded {df_bronze.count()} rows into bronze_customer_mgmt")
 

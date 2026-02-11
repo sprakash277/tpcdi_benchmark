@@ -294,9 +294,8 @@ spark.sql(f"USE {catalog}.{schema_name}")
 # MAGIC     current_timestamp() AS load_timestamp,
 # MAGIC     Customer._C_ACTION AS record_type  -- NEW, UPDCUST, INACT, etc.
 # MAGIC FROM bronze_customer_mgmt
-# MAGIC LATERAL VIEW explode(Customer) AS Customer
 # MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND raw_xml IS NOT NULL;
+# MAGIC   AND Customer IS NOT NULL;
 
 # COMMAND ----------
 
@@ -320,10 +319,9 @@ spark.sql(f"USE {catalog}.{schema_name}")
 # MAGIC     current_timestamp() AS load_timestamp,
 # MAGIC     Account._CA_ACTION AS record_type  -- NEW, ADDACCT, UPDACCT, CLOSEACCT, etc.
 # MAGIC FROM bronze_customer_mgmt
-# MAGIC LATERAL VIEW explode(Customer) AS Customer
 # MAGIC LATERAL VIEW explode(Customer.Account) AS Account
 # MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND raw_xml IS NOT NULL;
+# MAGIC   AND Customer IS NOT NULL;
 
 # COMMAND ----------
 
