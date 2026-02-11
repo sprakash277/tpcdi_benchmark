@@ -167,177 +167,189 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- gold_dim_account: MERGE upsert
-# MAGIC MERGE INTO gold_dim_account AS target
-# MAGIC USING (
-# MAGIC     SELECT 
-# MAGIC         monotonically_increasing_id() AS sk_account_id,
-# MAGIC         account_id,
-# MAGIC         broker_id,
-# MAGIC         customer_id,
-# MAGIC         account_name,
-# MAGIC         tax_status,
-# MAGIC         status_id
-# MAGIC     FROM silver_accounts
-# MAGIC     WHERE is_current = true
-# MAGIC       AND batch_id = ${var.batch_id}
-# MAGIC       AND account_id != -1
-# MAGIC     QUALIFY ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY effective_date DESC) = 1
-# MAGIC ) AS source
-# MAGIC ON target.account_id = source.account_id
-# MAGIC WHEN MATCHED THEN UPDATE SET
-# MAGIC     target.broker_id = source.broker_id,
-# MAGIC     target.customer_id = source.customer_id,
-# MAGIC     target.account_name = source.account_name,
-# MAGIC     target.tax_status = source.tax_status,
-# MAGIC     target.status_id = source.status_id,
-# MAGIC     target.etl_timestamp = current_timestamp()
-# MAGIC WHEN NOT MATCHED THEN INSERT *;
+# COMMAND ----------
+
+spark.sql(f"""
+-- gold_dim_account: MERGE upsert
+MERGE INTO gold_dim_account AS target
+USING (
+    SELECT 
+        monotonically_increasing_id() AS sk_account_id,
+        account_id,
+        broker_id,
+        customer_id,
+        account_name,
+        tax_status,
+        status_id
+    FROM silver_accounts
+    WHERE is_current = true
+      AND batch_id = {batch_id}
+      AND account_id != -1
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY effective_date DESC) = 1
+) AS source
+ON target.account_id = source.account_id
+WHEN MATCHED THEN UPDATE SET
+    target.broker_id = source.broker_id,
+    target.customer_id = source.customer_id,
+    target.account_name = source.account_name,
+    target.tax_status = source.tax_status,
+    target.status_id = source.status_id,
+    target.etl_timestamp = current_timestamp()
+WHEN NOT MATCHED THEN INSERT *;
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- gold_dim_security: MERGE upsert (new securities may appear)
-# MAGIC MERGE INTO gold_dim_security AS target
-# MAGIC USING (
-# MAGIC     SELECT 
-# MAGIC         ss.symbol AS sk_security_id,
-# MAGIC         ss.symbol AS security_id,
-# MAGIC         ss.symbol,
-# MAGIC         ss.issue_type,
-# MAGIC         ss.status,
-# MAGIC         ss.name,
-# MAGIC         ss.ex_id AS exchange_id,
-# MAGIC         ss.sh_out AS shares_outstanding,
-# MAGIC         ss.first_trade_date,
-# MAGIC         ss.first_trade_exchg AS first_trade_exchange,
-# MAGIC         ss.dividend,
-# MAGIC         ss.co_name_or_cik AS company_id
-# MAGIC     FROM silver_securities ss
-# MAGIC     WHERE ss.batch_id = ${var.batch_id}
-# MAGIC ) AS source
-# MAGIC ON target.symbol = source.symbol
-# MAGIC WHEN MATCHED THEN UPDATE SET
-# MAGIC     target.issue_type = source.issue_type,
-# MAGIC     target.status = source.status,
-# MAGIC     target.name = source.name,
-# MAGIC     target.exchange_id = source.exchange_id,
-# MAGIC     target.shares_outstanding = source.shares_outstanding,
-# MAGIC     target.first_trade_date = source.first_trade_date,
-# MAGIC     target.first_trade_exchange = source.first_trade_exchange,
-# MAGIC     target.dividend = source.dividend,
-# MAGIC     target.company_id = source.company_id,
-# MAGIC     target.is_current = true,
-# MAGIC     target.etl_timestamp = current_timestamp()
-# MAGIC WHEN NOT MATCHED THEN INSERT (
-# MAGIC     sk_security_id, security_id, symbol, issue_type, status, name,
-# MAGIC     exchange_id, shares_outstanding, first_trade_date, first_trade_exchange,
-# MAGIC     dividend, company_id, is_current, etl_timestamp
-# MAGIC ) VALUES (
-# MAGIC     source.sk_security_id, source.security_id, source.symbol, source.issue_type,
-# MAGIC     source.status, source.name, source.exchange_id, source.shares_outstanding,
-# MAGIC     source.first_trade_date, source.first_trade_exchange, source.dividend,
-# MAGIC     source.company_id, true, current_timestamp()
-# MAGIC );
+# COMMAND ----------
+
+spark.sql(f"""
+-- gold_dim_security: MERGE upsert (new securities may appear)
+MERGE INTO gold_dim_security AS target
+USING (
+    SELECT 
+        ss.symbol AS sk_security_id,
+        ss.symbol AS security_id,
+        ss.symbol,
+        ss.issue_type,
+        ss.status,
+        ss.name,
+        ss.ex_id AS exchange_id,
+        ss.sh_out AS shares_outstanding,
+        ss.first_trade_date,
+        ss.first_trade_exchg AS first_trade_exchange,
+        ss.dividend,
+        ss.co_name_or_cik AS company_id
+    FROM silver_securities ss
+    WHERE ss.batch_id = {batch_id}
+) AS source
+ON target.symbol = source.symbol
+WHEN MATCHED THEN UPDATE SET
+    target.issue_type = source.issue_type,
+    target.status = source.status,
+    target.name = source.name,
+    target.exchange_id = source.exchange_id,
+    target.shares_outstanding = source.shares_outstanding,
+    target.first_trade_date = source.first_trade_date,
+    target.first_trade_exchange = source.first_trade_exchange,
+    target.dividend = source.dividend,
+    target.company_id = source.company_id,
+    target.is_current = true,
+    target.etl_timestamp = current_timestamp()
+WHEN NOT MATCHED THEN INSERT (
+    sk_security_id, security_id, symbol, issue_type, status, name,
+    exchange_id, shares_outstanding, first_trade_date, first_trade_exchange,
+    dividend, company_id, is_current, etl_timestamp
+) VALUES (
+    source.sk_security_id, source.security_id, source.symbol, source.issue_type,
+    source.status, source.name, source.exchange_id, source.shares_outstanding,
+    source.first_trade_date, source.first_trade_exchange, source.dividend,
+    source.company_id, true, current_timestamp()
+);
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- gold_dim_company: MERGE upsert
-# MAGIC MERGE INTO gold_dim_company AS target
-# MAGIC USING (
-# MAGIC     SELECT 
-# MAGIC         sc.sk_company_id,
-# MAGIC         sc.company_id,
-# MAGIC         sc.company_name,
-# MAGIC         sc.industry_id,
-# MAGIC         si.in_sc_id AS sector,
-# MAGIC         sc.status,
-# MAGIC         sc.address_line1,
-# MAGIC         sc.address_line2,
-# MAGIC         sc.postal_code,
-# MAGIC         sc.city,
-# MAGIC         sc.state_province AS state_prov,
-# MAGIC         sc.country,
-# MAGIC         sc.description,
-# MAGIC         sc.founding_date,
-# MAGIC         sc.ceo_name
-# MAGIC     FROM silver_companies sc
-# MAGIC     LEFT JOIN silver_industry si ON sc.industry_id = si.in_id
-# MAGIC     WHERE sc.batch_id = ${var.batch_id}
-# MAGIC ) AS source
-# MAGIC ON target.company_id = source.company_id
-# MAGIC WHEN MATCHED THEN UPDATE SET
-# MAGIC     target.company_name = source.company_name,
-# MAGIC     target.industry_id = source.industry_id,
-# MAGIC     target.sector = source.sector,
-# MAGIC     target.status = source.status,
-# MAGIC     target.address_line1 = source.address_line1,
-# MAGIC     target.address_line2 = source.address_line2,
-# MAGIC     target.postal_code = source.postal_code,
-# MAGIC     target.city = source.city,
-# MAGIC     target.state_prov = source.state_prov,
-# MAGIC     target.country = source.country,
-# MAGIC     target.description = source.description,
-# MAGIC     target.founding_date = source.founding_date,
-# MAGIC     target.ceo_name = source.ceo_name,
-# MAGIC     target.is_current = true,
-# MAGIC     target.etl_timestamp = current_timestamp()
-# MAGIC WHEN NOT MATCHED THEN INSERT (
-# MAGIC     sk_company_id, company_id, company_name, industry_id, sector, status,
-# MAGIC     address_line1, address_line2, postal_code, city, state_prov, country,
-# MAGIC     description, founding_date, ceo_name, is_current, etl_timestamp
-# MAGIC ) VALUES (
-# MAGIC     source.sk_company_id, source.company_id, source.company_name, source.industry_id,
-# MAGIC     source.sector, source.status, source.address_line1, source.address_line2,
-# MAGIC     source.postal_code, source.city, source.state_prov, source.country,
-# MAGIC     source.description, source.founding_date, source.ceo_name, true, current_timestamp()
-# MAGIC );
+# COMMAND ----------
+
+spark.sql(f"""
+-- gold_dim_company: MERGE upsert
+MERGE INTO gold_dim_company AS target
+USING (
+    SELECT 
+        sc.sk_company_id,
+        sc.company_id,
+        sc.company_name,
+        sc.industry_id,
+        si.in_sc_id AS sector,
+        sc.status,
+        sc.address_line1,
+        sc.address_line2,
+        sc.postal_code,
+        sc.city,
+        sc.state_province AS state_prov,
+        sc.country,
+        sc.description,
+        sc.founding_date,
+        sc.ceo_name
+    FROM silver_companies sc
+    LEFT JOIN silver_industry si ON sc.industry_id = si.in_id
+    WHERE sc.batch_id = {batch_id}
+) AS source
+ON target.company_id = source.company_id
+WHEN MATCHED THEN UPDATE SET
+    target.company_name = source.company_name,
+    target.industry_id = source.industry_id,
+    target.sector = source.sector,
+    target.status = source.status,
+    target.address_line1 = source.address_line1,
+    target.address_line2 = source.address_line2,
+    target.postal_code = source.postal_code,
+    target.city = source.city,
+    target.state_prov = source.state_prov,
+    target.country = source.country,
+    target.description = source.description,
+    target.founding_date = source.founding_date,
+    target.ceo_name = source.ceo_name,
+    target.is_current = true,
+    target.etl_timestamp = current_timestamp()
+WHEN NOT MATCHED THEN INSERT (
+    sk_company_id, company_id, company_name, industry_id, sector, status,
+    address_line1, address_line2, postal_code, city, state_prov, country,
+    description, founding_date, ceo_name, is_current, etl_timestamp
+) VALUES (
+    source.sk_company_id, source.company_id, source.company_name, source.industry_id,
+    source.sector, source.status, source.address_line1, source.address_line2,
+    source.postal_code, source.city, source.state_prov, source.country,
+    source.description, source.founding_date, source.ceo_name, true, current_timestamp()
+);
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- gold_financials: MERGE upsert (SCD Type 1 - latest only)
-# MAGIC MERGE INTO gold_financials AS target
-# MAGIC USING (
-# MAGIC     SELECT 
-# MAGIC         co_name_or_cik,
-# MAGIC         year,
-# MAGIC         quarter,
-# MAGIC         qtr_start_date,
-# MAGIC         posting_date,
-# MAGIC         revenue,
-# MAGIC         earnings,
-# MAGIC         eps,
-# MAGIC         diluted_eps,
-# MAGIC         margin,
-# MAGIC         inventory,
-# MAGIC         assets,
-# MAGIC         liabilities,
-# MAGIC         sh_out,
-# MAGIC         diluted_sh_out
-# MAGIC     FROM silver_financials
-# MAGIC     WHERE batch_id = ${var.batch_id}
-# MAGIC ) AS source
-# MAGIC ON target.co_name_or_cik = source.co_name_or_cik
-# MAGIC    AND target.year = source.year
-# MAGIC    AND target.quarter = source.quarter
-# MAGIC WHEN MATCHED THEN UPDATE SET
-# MAGIC     target.qtr_start_date = source.qtr_start_date,
-# MAGIC     target.posting_date = source.posting_date,
-# MAGIC     target.revenue = source.revenue,
-# MAGIC     target.earnings = source.earnings,
-# MAGIC     target.eps = source.eps,
-# MAGIC     target.diluted_eps = source.diluted_eps,
-# MAGIC     target.margin = source.margin,
-# MAGIC     target.inventory = source.inventory,
-# MAGIC     target.assets = source.assets,
-# MAGIC     target.liabilities = source.liabilities,
-# MAGIC     target.sh_out = source.sh_out,
-# MAGIC     target.diluted_sh_out = source.diluted_sh_out,
-# MAGIC     target.etl_timestamp = current_timestamp()
-# MAGIC WHEN NOT MATCHED THEN INSERT *;
+# COMMAND ----------
+
+spark.sql(f"""
+-- gold_financials: MERGE upsert (SCD Type 1 - latest only)
+MERGE INTO gold_financials AS target
+USING (
+    SELECT 
+        co_name_or_cik,
+        year,
+        quarter,
+        qtr_start_date,
+        posting_date,
+        revenue,
+        earnings,
+        eps,
+        diluted_eps,
+        margin,
+        inventory,
+        assets,
+        liabilities,
+        sh_out,
+        diluted_sh_out
+    FROM silver_financials
+    WHERE batch_id = {batch_id}
+) AS source
+ON target.co_name_or_cik = source.co_name_or_cik
+   AND target.year = source.year
+   AND target.quarter = source.quarter
+WHEN MATCHED THEN UPDATE SET
+    target.qtr_start_date = source.qtr_start_date,
+    target.posting_date = source.posting_date,
+    target.revenue = source.revenue,
+    target.earnings = source.earnings,
+    target.eps = source.eps,
+    target.diluted_eps = source.diluted_eps,
+    target.margin = source.margin,
+    target.inventory = source.inventory,
+    target.assets = source.assets,
+    target.liabilities = source.liabilities,
+    target.sh_out = source.sh_out,
+    target.diluted_sh_out = source.diluted_sh_out,
+    target.etl_timestamp = current_timestamp()
+WHEN NOT MATCHED THEN INSERT *;
+""")
 
 # COMMAND ----------
 
@@ -382,186 +394,204 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Log late-arriving trades to DI_Messages
-# MAGIC INSERT INTO gold_dim_messages
-# MAGIC SELECT 
-# MAGIC     current_timestamp() AS message_timestamp,
-# MAGIC     ${var.batch_id} AS batch_id,
-# MAGIC     'FactTrade' AS originating_table,
-# MAGIC     CONCAT('Late-arriving trade: TradeID=', st.trade_id, ' AccountID=', st.account_id) AS message_text,
-# MAGIC     'Alert' AS message_type,
-# MAGIC     'Gold_FactTrade_Load' AS component_name,
-# MAGIC     'Warning' AS severity
-# MAGIC FROM silver_trades st
-# MAGIC LEFT JOIN gold_dim_account da ON st.account_id = da.account_id
-# MAGIC WHERE st.batch_id = ${var.batch_id}
-# MAGIC   AND st.is_current = true
-# MAGIC   AND da.account_id IS NULL;  -- Account not found
+# COMMAND ----------
+
+spark.sql(f"""
+-- Log late-arriving trades to DI_Messages
+INSERT INTO gold_dim_messages
+SELECT 
+    current_timestamp() AS message_timestamp,
+    {batch_id} AS batch_id,
+    'FactTrade' AS originating_table,
+    CONCAT('Late-arriving trade: TradeID=', st.trade_id, ' AccountID=', st.account_id) AS message_text,
+    'Alert' AS message_type,
+    'Gold_FactTrade_Load' AS component_name,
+    'Warning' AS severity
+FROM silver_trades st
+LEFT JOIN gold_dim_account da ON st.account_id = da.account_id
+WHERE st.batch_id = {batch_id}
+  AND st.is_current = true
+  AND da.account_id IS NULL;  -- Account not found
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- gold_fact_market_history: Append new market data
-# MAGIC INSERT INTO gold_fact_market_history
-# MAGIC SELECT 
-# MAGIC     dd.sk_date_id,
-# MAGIC     ds.sk_security_id,
-# MAGIC     dc.sk_company_id,
-# MAGIC     sdm.dm_date AS market_date,
-# MAGIC     sdm.dm_s_symb AS symbol,
-# MAGIC     sdm.dm_close AS close_price,
-# MAGIC     sdm.dm_high AS high_price,
-# MAGIC     sdm.dm_low AS low_price,
-# MAGIC     sdm.dm_vol AS volume,
-# MAGIC     sdm.batch_id,
-# MAGIC     current_timestamp() AS etl_timestamp
-# MAGIC FROM silver_daily_market sdm
-# MAGIC INNER JOIN gold_dim_date dd ON sdm.dm_date = dd.date_value
-# MAGIC INNER JOIN gold_dim_security ds ON sdm.dm_s_symb = ds.symbol
-# MAGIC LEFT JOIN gold_dim_company dc ON ds.company_id = dc.company_id
-# MAGIC WHERE sdm.batch_id = ${var.batch_id};
+# COMMAND ----------
+
+spark.sql(f"""
+-- gold_fact_market_history: Append new market data
+INSERT INTO gold_fact_market_history
+SELECT 
+    dd.sk_date_id,
+    ds.sk_security_id,
+    dc.sk_company_id,
+    sdm.dm_date AS market_date,
+    sdm.dm_s_symb AS symbol,
+    sdm.dm_close AS close_price,
+    sdm.dm_high AS high_price,
+    sdm.dm_low AS low_price,
+    sdm.dm_vol AS volume,
+    sdm.batch_id,
+    current_timestamp() AS etl_timestamp
+FROM silver_daily_market sdm
+INNER JOIN gold_dim_date dd ON sdm.dm_date = dd.date_value
+INNER JOIN gold_dim_security ds ON sdm.dm_s_symb = ds.symbol
+LEFT JOIN gold_dim_company dc ON ds.company_id = dc.company_id
+WHERE sdm.batch_id = {batch_id};
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- gold_fact_cash_balances: MERGE (update existing, insert new)
-# MAGIC MERGE INTO gold_fact_cash_balances AS target
-# MAGIC USING (
-# MAGIC     SELECT 
-# MAGIC         dd.sk_date_id,
-# MAGIC         da.sk_account_id,
-# MAGIC         dc.sk_customer_id,
-# MAGIC         sct.ct_ca_id AS account_id,
-# MAGIC         SUM(sct.ct_amt) AS cash_balance,
-# MAGIC         COUNT(*) AS transaction_count
-# MAGIC     FROM silver_cash_transaction sct
-# MAGIC     INNER JOIN gold_dim_date dd ON DATE(sct.ct_dts) = dd.date_value
-# MAGIC     INNER JOIN gold_dim_account da ON sct.ct_ca_id = da.account_id
-# MAGIC     INNER JOIN gold_dim_customer dc ON da.customer_id = dc.customer_id
-# MAGIC     WHERE sct.batch_id = ${var.batch_id}
-# MAGIC       AND sct.is_current = true
-# MAGIC     GROUP BY dd.sk_date_id, da.sk_account_id, dc.sk_customer_id, sct.ct_ca_id
-# MAGIC ) AS source
-# MAGIC ON target.sk_date_id = source.sk_date_id
-# MAGIC    AND target.sk_account_id = source.sk_account_id
-# MAGIC WHEN MATCHED THEN UPDATE SET
-# MAGIC     target.cash_balance = source.cash_balance,
-# MAGIC     target.transaction_count = source.transaction_count,
-# MAGIC     target.etl_timestamp = current_timestamp()
-# MAGIC WHEN NOT MATCHED THEN INSERT *;
+# COMMAND ----------
+
+spark.sql(f"""
+-- gold_fact_cash_balances: MERGE (update existing, insert new)
+MERGE INTO gold_fact_cash_balances AS target
+USING (
+    SELECT 
+        dd.sk_date_id,
+        da.sk_account_id,
+        dc.sk_customer_id,
+        sct.ct_ca_id AS account_id,
+        SUM(sct.ct_amt) AS cash_balance,
+        COUNT(*) AS transaction_count
+    FROM silver_cash_transaction sct
+    INNER JOIN gold_dim_date dd ON DATE(sct.ct_dts) = dd.date_value
+    INNER JOIN gold_dim_account da ON sct.ct_ca_id = da.account_id
+    INNER JOIN gold_dim_customer dc ON da.customer_id = dc.customer_id
+    WHERE sct.batch_id = {batch_id}
+      AND sct.is_current = true
+    GROUP BY dd.sk_date_id, da.sk_account_id, dc.sk_customer_id, sct.ct_ca_id
+) AS source
+ON target.sk_date_id = source.sk_date_id
+   AND target.sk_account_id = source.sk_account_id
+WHEN MATCHED THEN UPDATE SET
+    target.cash_balance = source.cash_balance,
+    target.transaction_count = source.transaction_count,
+    target.etl_timestamp = current_timestamp()
+WHEN NOT MATCHED THEN INSERT *;
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- gold_fact_holdings: MERGE (update existing holdings)
-# MAGIC MERGE INTO gold_fact_holdings AS target
-# MAGIC USING (
-# MAGIC     SELECT 
-# MAGIC         dd.sk_date_id,
-# MAGIC         da.sk_account_id,
-# MAGIC         ds.sk_security_id,
-# MAGIC         st.account_id,
-# MAGIC         st.symbol,
-# MAGIC         shh.hh_after_qty AS quantity,
-# MAGIC         st.trade_price AS purchase_price,
-# MAGIC         DATE(st.trade_dts) AS purchase_date
-# MAGIC     FROM silver_holding_history shh
-# MAGIC     INNER JOIN silver_trades st ON shh.hh_t_id = st.trade_id
-# MAGIC     INNER JOIN gold_dim_date dd ON DATE(st.trade_dts) = dd.date_value
-# MAGIC     INNER JOIN gold_dim_account da ON st.account_id = da.account_id
-# MAGIC     INNER JOIN gold_dim_security ds ON st.symbol = ds.symbol
-# MAGIC     WHERE shh.batch_id = ${var.batch_id}
-# MAGIC       AND shh.is_current = true
-# MAGIC       AND st.is_current = true
-# MAGIC ) AS source
-# MAGIC ON target.sk_date_id = source.sk_date_id
-# MAGIC    AND target.sk_account_id = source.sk_account_id
-# MAGIC    AND target.sk_security_id = source.sk_security_id
-# MAGIC WHEN MATCHED THEN UPDATE SET
-# MAGIC     target.quantity = source.quantity,
-# MAGIC     target.purchase_price = source.purchase_price,
-# MAGIC     target.purchase_date = source.purchase_date,
-# MAGIC     target.etl_timestamp = current_timestamp()
-# MAGIC WHEN NOT MATCHED THEN INSERT *;
+# COMMAND ----------
+
+spark.sql(f"""
+-- gold_fact_holdings: MERGE (update existing holdings)
+MERGE INTO gold_fact_holdings AS target
+USING (
+    SELECT 
+        dd.sk_date_id,
+        da.sk_account_id,
+        ds.sk_security_id,
+        st.account_id,
+        st.symbol,
+        shh.hh_after_qty AS quantity,
+        st.trade_price AS purchase_price,
+        DATE(st.trade_dts) AS purchase_date
+    FROM silver_holding_history shh
+    INNER JOIN silver_trades st ON shh.hh_t_id = st.trade_id
+    INNER JOIN gold_dim_date dd ON DATE(st.trade_dts) = dd.date_value
+    INNER JOIN gold_dim_account da ON st.account_id = da.account_id
+    INNER JOIN gold_dim_security ds ON st.symbol = ds.symbol
+    WHERE shh.batch_id = {batch_id}
+      AND shh.is_current = true
+      AND st.is_current = true
+) AS source
+ON target.sk_date_id = source.sk_date_id
+   AND target.sk_account_id = source.sk_account_id
+   AND target.sk_security_id = source.sk_security_id
+WHEN MATCHED THEN UPDATE SET
+    target.quantity = source.quantity,
+    target.purchase_price = source.purchase_price,
+    target.purchase_date = source.purchase_date,
+    target.etl_timestamp = current_timestamp()
+WHEN NOT MATCHED THEN INSERT *;
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- gold_fact_watches: Append new watches
-# MAGIC INSERT INTO gold_fact_watches
-# MAGIC SELECT 
-# MAGIC     dc.sk_customer_id,
-# MAGIC     ds.sk_security_id,
-# MAGIC     swh.w_c_id AS customer_id,
-# MAGIC     swh.w_s_symb AS symbol,
-# MAGIC     swh.w_dts AS watch_date,
-# MAGIC     swh.w_action AS watch_action,
-# MAGIC     current_timestamp() AS etl_timestamp
-# MAGIC FROM silver_watch_history swh
-# MAGIC INNER JOIN gold_dim_customer dc ON swh.w_c_id = dc.customer_id
-# MAGIC INNER JOIN gold_dim_security ds ON swh.w_s_symb = ds.symbol
-# MAGIC WHERE swh.batch_id = ${var.batch_id}
-# MAGIC   AND swh.is_current = true
-# MAGIC   AND swh.record_type IN ('I', 'U');
+# COMMAND ----------
+
+spark.sql(f"""
+-- gold_fact_watches: Append new watches
+INSERT INTO gold_fact_watches
+SELECT 
+    dc.sk_customer_id,
+    ds.sk_security_id,
+    swh.w_c_id AS customer_id,
+    swh.w_s_symb AS symbol,
+    swh.w_dts AS watch_date,
+    swh.w_action AS watch_action,
+    current_timestamp() AS etl_timestamp
+FROM silver_watch_history swh
+INNER JOIN gold_dim_customer dc ON swh.w_c_id = dc.customer_id
+INNER JOIN gold_dim_security ds ON swh.w_s_symb = ds.symbol
+WHERE swh.batch_id = {batch_id}
+  AND swh.is_current = true
+  AND swh.record_type IN ('I', 'U');
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- gold_prospect: MERGE upsert
-# MAGIC MERGE INTO gold_prospect AS target
-# MAGIC USING (
-# MAGIC     SELECT 
-# MAGIC         agency_id,
-# MAGIC         last_name,
-# MAGIC         first_name,
-# MAGIC         middle_initial,
-# MAGIC         gender,
-# MAGIC         address_line1,
-# MAGIC         address_line2,
-# MAGIC         postal_code,
-# MAGIC         city,
-# MAGIC         state,
-# MAGIC         country,
-# MAGIC         phone,
-# MAGIC         income,
-# MAGIC         number_cars,
-# MAGIC         number_children,
-# MAGIC         marital_status,
-# MAGIC         age,
-# MAGIC         credit_rating,
-# MAGIC         own_or_rent_flag,
-# MAGIC         employer,
-# MAGIC         number_credit_cards,
-# MAGIC         net_worth
-# MAGIC     FROM silver_prospect
-# MAGIC     WHERE batch_id = ${var.batch_id}
-# MAGIC ) AS source
-# MAGIC ON target.agency_id = source.agency_id
-# MAGIC WHEN MATCHED THEN UPDATE SET
-# MAGIC     target.last_name = source.last_name,
-# MAGIC     target.first_name = source.first_name,
-# MAGIC     target.middle_initial = source.middle_initial,
-# MAGIC     target.gender = source.gender,
-# MAGIC     target.address_line1 = source.address_line1,
-# MAGIC     target.address_line2 = source.address_line2,
-# MAGIC     target.postal_code = source.postal_code,
-# MAGIC     target.city = source.city,
-# MAGIC     target.state = source.state,
-# MAGIC     target.country = source.country,
-# MAGIC     target.phone = source.phone,
-# MAGIC     target.income = source.income,
-# MAGIC     target.number_cars = source.number_cars,
-# MAGIC     target.number_children = source.number_children,
-# MAGIC     target.marital_status = source.marital_status,
-# MAGIC     target.age = source.age,
-# MAGIC     target.credit_rating = source.credit_rating,
-# MAGIC     target.own_or_rent_flag = source.own_or_rent_flag,
-# MAGIC     target.employer = source.employer,
-# MAGIC     target.number_credit_cards = source.number_credit_cards,
-# MAGIC     target.net_worth = source.net_worth,
-# MAGIC     target.etl_timestamp = current_timestamp()
-# MAGIC WHEN NOT MATCHED THEN INSERT *;
+# COMMAND ----------
+
+spark.sql(f"""
+-- gold_prospect: MERGE upsert
+MERGE INTO gold_prospect AS target
+USING (
+    SELECT 
+        agency_id,
+        last_name,
+        first_name,
+        middle_initial,
+        gender,
+        address_line1,
+        address_line2,
+        postal_code,
+        city,
+        state,
+        country,
+        phone,
+        income,
+        number_cars,
+        number_children,
+        marital_status,
+        age,
+        credit_rating,
+        own_or_rent_flag,
+        employer,
+        number_credit_cards,
+        net_worth
+    FROM silver_prospect
+    WHERE batch_id = {batch_id}
+) AS source
+ON target.agency_id = source.agency_id
+WHEN MATCHED THEN UPDATE SET
+    target.last_name = source.last_name,
+    target.first_name = source.first_name,
+    target.middle_initial = source.middle_initial,
+    target.gender = source.gender,
+    target.address_line1 = source.address_line1,
+    target.address_line2 = source.address_line2,
+    target.postal_code = source.postal_code,
+    target.city = source.city,
+    target.state = source.state,
+    target.country = source.country,
+    target.phone = source.phone,
+    target.income = source.income,
+    target.number_cars = source.number_cars,
+    target.number_children = source.number_children,
+    target.marital_status = source.marital_status,
+    target.age = source.age,
+    target.credit_rating = source.credit_rating,
+    target.own_or_rent_flag = source.own_or_rent_flag,
+    target.employer = source.employer,
+    target.number_credit_cards = source.number_credit_cards,
+    target.net_worth = source.net_worth,
+    target.etl_timestamp = current_timestamp()
+WHEN NOT MATCHED THEN INSERT *;
+""")
 
 # COMMAND ----------
 

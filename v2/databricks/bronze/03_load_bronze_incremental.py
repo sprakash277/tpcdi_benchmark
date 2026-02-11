@@ -105,117 +105,137 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load Customer.txt (incremental)
+# COMMAND ----------
+
+# Load Customer.txt (incremental)
+spark.sql(f"""
+INSERT INTO bronze_customer (raw_line, _batch_id, _load_timestamp, _source_file)
+SELECT 
+    value AS raw_line,
+    {batch_id} AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'Customer.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch{batch_id}/Customer.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != ''
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC INSERT INTO bronze_customer (raw_line, _batch_id, _load_timestamp, _source_file)
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     ${var.batch_id} AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'Customer.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch${var.batch_id}/Customer.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load Account.txt (incremental)
+INSERT INTO bronze_account (raw_line, _batch_id, _load_timestamp, _source_file)
+SELECT 
+    value AS raw_line,
+    ${var.batch_id} AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'Account.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch${var.batch_id}/Account.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load Account.txt (incremental)
-# MAGIC INSERT INTO bronze_account (raw_line, _batch_id, _load_timestamp, _source_file)
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     ${var.batch_id} AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'Account.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch${var.batch_id}/Account.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+# ============================================================================
+spark.sql(f"""
+-- Transaction Data (Batch 2+: All batches)
+-- ============================================================================
+-- Load Trade.txt (incremental)
+INSERT INTO bronze_trade (raw_line, _batch_id, _load_timestamp, _source_file)
+SELECT 
+    value AS raw_line,
+    {batch_id} AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'Trade.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch{batch_id}/Trade.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- ============================================================================
-# MAGIC -- Transaction Data (Batch 2+: All batches)
-# MAGIC -- ============================================================================
-# MAGIC -- Load Trade.txt (incremental)
-# MAGIC INSERT INTO bronze_trade (raw_line, _batch_id, _load_timestamp, _source_file)
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     ${var.batch_id} AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'Trade.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch${var.batch_id}/Trade.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load DailyMarket.txt (incremental)
+INSERT INTO bronze_daily_market (raw_line, _batch_id, _load_timestamp, _source_file)
+SELECT 
+    value AS raw_line,
+    ${var.batch_id} AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'DailyMarket.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch${var.batch_id}/DailyMarket.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load DailyMarket.txt (incremental)
-# MAGIC INSERT INTO bronze_daily_market (raw_line, _batch_id, _load_timestamp, _source_file)
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     ${var.batch_id} AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'DailyMarket.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch${var.batch_id}/DailyMarket.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load CashTransaction.txt (incremental)
+INSERT INTO bronze_cash_transaction (raw_line, _batch_id, _load_timestamp, _source_file)
+SELECT 
+    value AS raw_line,
+    ${var.batch_id} AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'CashTransaction.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch${var.batch_id}/CashTransaction.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load CashTransaction.txt (incremental)
-# MAGIC INSERT INTO bronze_cash_transaction (raw_line, _batch_id, _load_timestamp, _source_file)
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     ${var.batch_id} AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'CashTransaction.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch${var.batch_id}/CashTransaction.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load HoldingHistory.txt (incremental)
+INSERT INTO bronze_holding_history (raw_line, _batch_id, _load_timestamp, _source_file)
+SELECT 
+    value AS raw_line,
+    ${var.batch_id} AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'HoldingHistory.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch${var.batch_id}/HoldingHistory.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load HoldingHistory.txt (incremental)
-# MAGIC INSERT INTO bronze_holding_history (raw_line, _batch_id, _load_timestamp, _source_file)
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     ${var.batch_id} AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'HoldingHistory.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch${var.batch_id}/HoldingHistory.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load WatchHistory.txt (incremental)
+INSERT INTO bronze_watch_history (raw_line, _batch_id, _load_timestamp, _source_file)
+SELECT 
+    value AS raw_line,
+    ${var.batch_id} AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'WatchHistory.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch${var.batch_id}/WatchHistory.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load WatchHistory.txt (incremental)
-# MAGIC INSERT INTO bronze_watch_history (raw_line, _batch_id, _load_timestamp, _source_file)
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     ${var.batch_id} AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'WatchHistory.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch${var.batch_id}/WatchHistory.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
-
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- ============================================================================
-# MAGIC -- Other Sources (Batch 2+: Prospect only)
-# MAGIC -- ============================================================================
-# MAGIC -- Load Prospect.csv (incremental)
-# MAGIC INSERT INTO bronze_prospect (raw_line, _batch_id, _load_timestamp, _source_file)
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     ${var.batch_id} AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'Prospect.csv' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch${var.batch_id}/Prospect.csv', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# ============================================================================
+spark.sql(f"""
+-- Other Sources (Batch 2+: Prospect only)
+-- ============================================================================
+-- Load Prospect.csv (incremental)
+INSERT INTO bronze_prospect (raw_line, _batch_id, _load_timestamp, _source_file)
+SELECT 
+    value AS raw_line,
+    {batch_id} AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'Prospect.csv' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch{batch_id}/Prospect.csv', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 

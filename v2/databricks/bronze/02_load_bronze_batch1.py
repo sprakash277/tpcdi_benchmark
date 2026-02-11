@@ -98,82 +98,97 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load Date.txt
-# MAGIC
-# MAGIC CREATE OR REPLACE TABLE bronze_date AS
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     1 AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'Date.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch1/Date.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# Load Date.txt
+spark.sql(f"""
+CREATE OR REPLACE TABLE bronze_date AS
+SELECT 
+    value AS raw_line,
+    1 AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'Date.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch1/Date.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != ''
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load Time.txt
-# MAGIC CREATE OR REPLACE TABLE bronze_time AS
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     1 AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'Time.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch1/Time.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load Time.txt
+CREATE OR REPLACE TABLE bronze_time AS
+SELECT 
+    value AS raw_line,
+    1 AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'Time.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch1/Time.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load StatusType.txt
-# MAGIC CREATE OR REPLACE TABLE bronze_status_type AS
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     1 AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'StatusType.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch1/StatusType.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load StatusType.txt
+CREATE OR REPLACE TABLE bronze_status_type AS
+SELECT 
+    value AS raw_line,
+    1 AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'StatusType.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch1/StatusType.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load TradeType.txt
-# MAGIC CREATE OR REPLACE TABLE bronze_trade_type AS
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     1 AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'TradeType.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch1/TradeType.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load TradeType.txt
+CREATE OR REPLACE TABLE bronze_trade_type AS
+SELECT 
+    value AS raw_line,
+    1 AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'TradeType.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch1/TradeType.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load Industry.txt
-# MAGIC CREATE OR REPLACE TABLE bronze_industry AS
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     1 AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'Industry.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch1/Industry.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load Industry.txt
+CREATE OR REPLACE TABLE bronze_industry AS
+SELECT 
+    value AS raw_line,
+    1 AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'Industry.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch1/Industry.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load TaxRate.txt
-# MAGIC CREATE OR REPLACE TABLE bronze_tax_rate AS
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     1 AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'TaxRate.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch1/TaxRate.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load TaxRate.txt
+CREATE OR REPLACE TABLE bronze_tax_rate AS
+SELECT 
+    value AS raw_line,
+    1 AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'TaxRate.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch1/TaxRate.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 
@@ -182,15 +197,18 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load CustomerMgmt.xml (XML file - use spark-xml or native XML reader)
-# MAGIC CREATE OR REPLACE TABLE bronze_customer_mgmt AS
-# MAGIC SELECT 
-# MAGIC     _c0 AS raw_xml,
-# MAGIC     1 AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'CustomerMgmt.xml' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch1/CustomerMgmt.xml', format => 'xml', rowTag => 'Customer');
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load CustomerMgmt.xml (XML file - use spark-xml or native XML reader)
+CREATE OR REPLACE TABLE bronze_customer_mgmt AS
+SELECT 
+    _c0 AS raw_xml,
+    1 AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'CustomerMgmt.xml' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch1/CustomerMgmt.xml', format => 'xml', rowTag => 'Customer');
+""")
 
 # COMMAND ----------
 
@@ -199,16 +217,19 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load FINWIRE files (multiple files: FINWIRE1967Q1.txt, FINWIRE1967Q2.txt, etc.)
-# MAGIC CREATE OR REPLACE TABLE bronze_finwire AS
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     1 AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     input_file_name() AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch1/FINWIRE*.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND length(value) >= 18;  -- Ensure minimum length for record type
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load FINWIRE files (multiple files: FINWIRE1967Q1.txt, FINWIRE1967Q2.txt, etc.)
+CREATE OR REPLACE TABLE bronze_finwire AS
+SELECT 
+    value AS raw_line,
+    1 AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    input_file_name() AS _source_file
+FROM read_files('{full_raw_data_path}/Batch1/FINWIRE*.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND length(value) >= 18;  -- Ensure minimum length for record type
+""")
 
 # COMMAND ----------
 
@@ -217,68 +238,83 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load Trade.txt
-# MAGIC CREATE OR REPLACE TABLE bronze_trade AS
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     1 AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'Trade.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch1/Trade.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load Trade.txt
+CREATE OR REPLACE TABLE bronze_trade AS
+SELECT 
+    value AS raw_line,
+    1 AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'Trade.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch1/Trade.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load DailyMarket.txt
-# MAGIC CREATE OR REPLACE TABLE bronze_daily_market AS
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     1 AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'DailyMarket.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch1/DailyMarket.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load DailyMarket.txt
+CREATE OR REPLACE TABLE bronze_daily_market AS
+SELECT 
+    value AS raw_line,
+    1 AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'DailyMarket.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch1/DailyMarket.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load CashTransaction.txt
-# MAGIC CREATE OR REPLACE TABLE bronze_cash_transaction AS
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     1 AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'CashTransaction.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch1/CashTransaction.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load CashTransaction.txt
+CREATE OR REPLACE TABLE bronze_cash_transaction AS
+SELECT 
+    value AS raw_line,
+    1 AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'CashTransaction.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch1/CashTransaction.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load HoldingHistory.txt
-# MAGIC CREATE OR REPLACE TABLE bronze_holding_history AS
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     1 AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'HoldingHistory.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch1/HoldingHistory.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load HoldingHistory.txt
+CREATE OR REPLACE TABLE bronze_holding_history AS
+SELECT 
+    value AS raw_line,
+    1 AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'HoldingHistory.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch1/HoldingHistory.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load WatchHistory.txt
-# MAGIC CREATE OR REPLACE TABLE bronze_watch_history AS
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     1 AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'WatchHistory.txt' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch1/WatchHistory.txt', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load WatchHistory.txt
+CREATE OR REPLACE TABLE bronze_watch_history AS
+SELECT 
+    value AS raw_line,
+    1 AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'WatchHistory.txt' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch1/WatchHistory.txt', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 
@@ -287,29 +323,35 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load HR.csv
-# MAGIC CREATE OR REPLACE TABLE bronze_hr AS
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     1 AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'HR.csv' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch1/HR.csv', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load HR.csv
+CREATE OR REPLACE TABLE bronze_hr AS
+SELECT 
+    value AS raw_line,
+    1 AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'HR.csv' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch1/HR.csv', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Load Prospect.csv
-# MAGIC CREATE OR REPLACE TABLE bronze_prospect AS
-# MAGIC SELECT 
-# MAGIC     value AS raw_line,
-# MAGIC     1 AS _batch_id,
-# MAGIC     current_timestamp() AS _load_timestamp,
-# MAGIC     'Prospect.csv' AS _source_file
-# MAGIC FROM read_files('${var.raw_data_path}/Batch1/Prospect.csv', format => 'text', lineSep => '\n')
-# MAGIC WHERE value IS NOT NULL AND value != '';
+# COMMAND ----------
+
+spark.sql(f"""
+-- Load Prospect.csv
+CREATE OR REPLACE TABLE bronze_prospect AS
+SELECT 
+    value AS raw_line,
+    1 AS _batch_id,
+    current_timestamp() AS _load_timestamp,
+    'Prospect.csv' AS _source_file
+FROM read_files('{full_raw_data_path}/Batch1/Prospect.csv', format => 'text', lineSep => '\n')
+WHERE value IS NOT NULL AND value != '';
+""")
 
 # COMMAND ----------
 

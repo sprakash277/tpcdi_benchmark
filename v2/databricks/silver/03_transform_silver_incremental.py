@@ -335,35 +335,38 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- silver_daily_market: Parse DailyMarket.txt (8 columns incremental: +CDC_FLAG, +CDC_DSN)
-# MAGIC MERGE INTO silver_daily_market AS target
-# MAGIC USING (
-# MAGIC     SELECT 
-# MAGIC         CONCAT(CAST(split(raw_line, '\\|')[2] AS DATE), '|', split(raw_line, '\\|')[3]) AS dm_key,
-# MAGIC         CAST(split(raw_line, '\\|')[2] AS DATE) AS dm_date,
-# MAGIC         split(raw_line, '\\|')[3] AS dm_s_symb,
-# MAGIC         CAST(split(raw_line, '\\|')[4] AS DOUBLE) AS dm_close,
-# MAGIC         CAST(split(raw_line, '\\|')[5] AS DOUBLE) AS dm_high,
-# MAGIC         CAST(split(raw_line, '\\|')[6] AS DOUBLE) AS dm_low,
-# MAGIC         CAST(split(raw_line, '\\|')[7] AS BIGINT) AS dm_vol,
-# MAGIC         ${var.batch_id} AS batch_id,
-# MAGIC         current_timestamp() AS load_timestamp
-# MAGIC     FROM bronze_daily_market
-# MAGIC     WHERE _batch_id = ${var.batch_id}
-# MAGIC       AND raw_line IS NOT NULL
-# MAGIC       AND raw_line != ''
-# MAGIC       AND size(split(raw_line, '\\|')) = 8  -- Incremental = 8 columns
-# MAGIC ) AS source
-# MAGIC ON target.dm_key = source.dm_key
-# MAGIC WHEN MATCHED THEN UPDATE SET
-# MAGIC     target.dm_close = source.dm_close,
-# MAGIC     target.dm_high = source.dm_high,
-# MAGIC     target.dm_low = source.dm_low,
-# MAGIC     target.dm_vol = source.dm_vol,
-# MAGIC     target.batch_id = source.batch_id,
-# MAGIC     target.load_timestamp = source.load_timestamp
-# MAGIC WHEN NOT MATCHED THEN INSERT *;
+# COMMAND ----------
+
+spark.sql(f"""
+-- silver_daily_market: Parse DailyMarket.txt (8 columns incremental: +CDC_FLAG, +CDC_DSN)
+MERGE INTO silver_daily_market AS target
+USING (
+    SELECT 
+        CONCAT(CAST(split(raw_line, '\\|')[2] AS DATE), '|', split(raw_line, '\\|')[3]) AS dm_key,
+        CAST(split(raw_line, '\\|')[2] AS DATE) AS dm_date,
+        split(raw_line, '\\|')[3] AS dm_s_symb,
+        CAST(split(raw_line, '\\|')[4] AS DOUBLE) AS dm_close,
+        CAST(split(raw_line, '\\|')[5] AS DOUBLE) AS dm_high,
+        CAST(split(raw_line, '\\|')[6] AS DOUBLE) AS dm_low,
+        CAST(split(raw_line, '\\|')[7] AS BIGINT) AS dm_vol,
+        {batch_id} AS batch_id,
+        current_timestamp() AS load_timestamp
+    FROM bronze_daily_market
+    WHERE _batch_id = {batch_id}
+      AND raw_line IS NOT NULL
+      AND raw_line != ''
+      AND size(split(raw_line, '\\|')) = 8  -- Incremental = 8 columns
+) AS source
+ON target.dm_key = source.dm_key
+WHEN MATCHED THEN UPDATE SET
+    target.dm_close = source.dm_close,
+    target.dm_high = source.dm_high,
+    target.dm_low = source.dm_low,
+    target.dm_vol = source.dm_vol,
+    target.batch_id = source.batch_id,
+    target.load_timestamp = source.load_timestamp
+WHEN NOT MATCHED THEN INSERT *;
+""")
 
 # COMMAND ----------
 
