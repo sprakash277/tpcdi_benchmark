@@ -247,37 +247,126 @@ for row_tag, root_tag in [("TPCDI:Action", "TPCDI:Actions"), ("Action", None)]:
 if df_xml_validation is None:
     raise RuntimeError(f"Failed to read/validate CustomerMgmt.xml from {xml_path}")
 
-# For bronze layer, read XML file as text and extract individual action elements as raw XML strings
-# Since Spark SQL regex doesn't support (?s) flag, we'll use a pattern that matches across newlines
-from pyspark.sql.functions import lit, current_timestamp, regexp_extract_all, explode, col, regexp_replace
+# For bronze layer, read XML file and extract individual action elements as raw XML strings
+# Use Python's xml.etree.ElementTree for reliable XML parsing (no UDF needed)
+from pyspark.sql.functions import lit, current_timestamp, col
+from pyspark.sql import Row
+import xml.etree.ElementTree as ET
+import io
+
+# Get expected count from validation
+expected_count = df_xml_validation.count()
+print(f"Expected {expected_count} action elements from XML validation")
 
 # Read XML file as text (whole file content)
 df_xml_text = spark.read.option("wholetext", "true").text(xml_path)
-
-# Replace newlines with a placeholder to make regex matching easier, then restore them
-# Pattern to match XML action elements (handles multi-line by matching any character including newlines)
-# Use [\s\S] instead of . with (?s) flag since Spark SQL doesn't support regex flags
 xml_content = df_xml_text.select(col("value")).first()[0]
 
-# Extract action elements using Python regex (since Spark SQL regex has limitations)
-import re
-
-# Try namespaced tag first: <TPCDI:Action>...</TPCDI:Action>
-pattern_ns = r"<TPCDI:Action[^>]*>[\s\S]*?</TPCDI:Action>"
-actions_ns = re.findall(pattern_ns, xml_content)
-
-# If no matches, try without namespace
-if not actions_ns:
-    pattern = r"<Action[^>]*>[\s\S]*?</Action>"
-    actions = re.findall(pattern, xml_content)
-else:
-    actions = actions_ns
+# Parse XML using ElementTree to extract action elements
+actions = []
+try:
+    # Parse the XML content
+    # Handle namespace - register TPCDI namespace
+    ET.register_namespace('TPCDI', 'http://www.tpc.org/tpcdi')
+    
+    root = ET.fromstring(xml_content)
+    
+    # Try to find action elements with namespace
+    # ElementTree uses {namespace}localname format for namespaced elements
+    # First, try to find the namespace URI
+    ns = {}
+    if root.tag.startswith('{'):
+        # Extract namespace from root tag
+        ns_uri = root.tag[1:root.tag.index('}')]
+        ns['tpcdi'] = ns_uri
+    
+    # Find all Action elements (try both namespaced and non-namespaced)
+    action_elements = []
+    
+    # Try namespaced: {http://...}Action or TPCDI:Action
+    if ns:
+        action_elements = root.findall('.//{http://www.tpc.org/tpcdi}Action', ns)
+        if not action_elements:
+            action_elements = root.findall('.//tpcdi:Action', ns)
+    else:
+        # Try without namespace
+        action_elements = root.findall('.//Action')
+        if not action_elements:
+            # Try with TPCDI prefix
+            for elem in root.iter():
+                if 'Action' in elem.tag and ('TPCDI' in elem.tag or 'tpcdi' in elem.tag.lower()):
+                    action_elements.append(elem)
+    
+    # If still not found, search more broadly
+    if not action_elements:
+        for elem in root.iter():
+            if 'Action' in elem.tag:
+                action_elements.append(elem)
+    
+    # Convert each element back to XML string
+    for elem in action_elements:
+        # Get the XML string representation of this element
+        xml_str = ET.tostring(elem, encoding='unicode')
+        actions.append(xml_str)
+    
+    print(f"Extracted {len(actions)} actions using ElementTree")
+    
+except Exception as e:
+    print(f"ElementTree parsing failed: {e}")
+    # Fallback to regex-based extraction
+    import re
+    
+    # Try regex patterns as fallback
+    patterns = [
+        (r"<TPCDI:Action[^>]*>[\s\S]*?</TPCDI:Action>", "namespaced with [\\s\\S]"),
+        (r"<Action[^>]*>[\s\S]*?</Action>", "non-namespaced with [\\s\\S]"),
+    ]
+    
+    for pattern, desc in patterns:
+        actions = re.findall(pattern, xml_content, re.DOTALL)
+        if actions:
+            print(f"Extracted {len(actions)} actions using regex pattern: {desc}")
+            break
+    
+    # If regex also fails, try tag matching approach
+    if not actions:
+        opening_tag = "<TPCDI:Action"
+        closing_tag = "</TPCDI:Action>"
+        if opening_tag in xml_content:
+            parts = xml_content.split(opening_tag)[1:]  # Skip content before first action
+            for part in parts:
+                end_idx = part.find(closing_tag)
+                if end_idx != -1:
+                    action_xml = opening_tag + part[:end_idx + len(closing_tag)]
+                    actions.append(action_xml)
+            print(f"Extracted {len(actions)} actions using tag splitting")
+        
+        # Try without namespace
+        if not actions:
+            opening_tag = "<Action"
+            closing_tag = "</Action>"
+            if opening_tag in xml_content:
+                parts = xml_content.split(opening_tag)[1:]
+                for part in parts:
+                    end_idx = part.find(closing_tag)
+                    if end_idx != -1:
+                        action_xml = opening_tag + part[:end_idx + len(closing_tag)]
+                        actions.append(action_xml)
+                print(f"Extracted {len(actions)} actions using non-namespaced tag splitting")
 
 if not actions:
-    raise RuntimeError(f"Failed to extract any action elements from CustomerMgmt.xml")
+    raise RuntimeError(
+        f"Failed to extract any action elements from CustomerMgmt.xml. "
+        f"Expected {expected_count} actions. "
+        f"XML content length: {len(xml_content)}, "
+        f"First 500 chars: {xml_content[:500]}"
+    )
+
+# Verify we got a reasonable number (allow some variance)
+if expected_count > 0 and abs(len(actions) - expected_count) > max(10, expected_count * 0.2):
+    print(f"Warning: Extracted {len(actions)} actions but expected {expected_count}")
 
 # Create DataFrame from extracted XML strings
-from pyspark.sql import Row
 df_actions = spark.createDataFrame([Row(raw_xml=action) for action in actions])
 
 # Add metadata columns
