@@ -32,57 +32,6 @@ spark.sql(f"SET var.sf = {sf}")
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## Create Silver Tables
-# MAGIC
-# MAGIC Create all silver tables before transforming data.
-
-# COMMAND ----------
-
-# Get the current notebook path to determine the base path for table creation notebooks
-import os
-current_notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-base_path = os.path.dirname(current_notebook_path)
-tables_path = f"{base_path}/tables"
-
-# List of all silver tables to create (in order)
-silver_tables = [
-    "silver_date",
-    "silver_time",
-    "silver_status_type",
-    "silver_trade_type",
-    "silver_industry",
-    "silver_tax_rate",
-    "silver_companies",
-    "silver_securities",
-    "silver_financials",
-    "silver_customers",
-    "silver_accounts",
-    "silver_trades",
-    "silver_daily_market",
-    "silver_prospect",
-    "silver_cash_transaction",
-    "silver_watch_history",
-    "silver_holding_history"
-]
-
-# Create all silver tables
-for table_name in silver_tables:
-    create_notebook = f"{tables_path}/create_{table_name}"
-    print(f"Creating table: {table_name} via {create_notebook}")
-    try:
-        dbutils.notebook.run(create_notebook, timeout_seconds=300, arguments={
-            "catalog": catalog,
-            "schema_name": schema_name
-        })
-    except Exception as e:
-        # If table already exists, that's okay (CREATE TABLE IF NOT EXISTS handles this)
-        if "already exists" not in str(e).lower() and "table" not in str(e).lower():
-            print(f"Warning: Error creating {table_name}: {e}")
-            raise
-
-# COMMAND ----------
-
 # MAGIC %sql
 # MAGIC -- ============================================================================
 # MAGIC -- TPC-DI v2: Silver Layer - Batch 1 Transformations

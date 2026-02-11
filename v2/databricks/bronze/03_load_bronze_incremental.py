@@ -11,6 +11,7 @@ dbutils.widgets.text("schema_name", "tpcdi_schema_sf10", "Schema Name")
 dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw Data Path")
 dbutils.widgets.text("sf", "10", "Scale Factor")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
+dbutils.widgets.text("xml_format", "com.databricks.spark.xml", "XML Format (xml, com.databricks.spark.xml, or org.apache.spark.sql.execution.datasources.xml)")
 
 # COMMAND ----------
 
@@ -19,6 +20,7 @@ schema_name = dbutils.widgets.get("schema_name")
 raw_data_path = dbutils.widgets.get("raw_data_path")
 sf = dbutils.widgets.get("sf")
 batch_id = int(dbutils.widgets.get("batch_id"))
+xml_format = dbutils.widgets.get("xml_format") or "com.databricks.spark.xml"
 
 # Construct full path with sf appended
 full_raw_data_path = f"{raw_data_path}/sf={sf}"

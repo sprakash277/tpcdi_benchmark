@@ -67,6 +67,7 @@ dbutils.widgets.text("sf", "10", "Scale Factor (SF)")
 dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw Data Path (base path, sf will be appended)")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
 dbutils.widgets.text("metrics_output", "gs://sumit_prakash_gcs/tpcdi/metrics", "Metrics Output Path")
+dbutils.widgets.text("xml_format", "com.databricks.spark.xml", "XML Format (xml, com.databricks.spark.xml, or org.apache.spark.sql.execution.datasources.xml)")
 # Note: Notebook tasks use clusters, not SQL warehouses (warehouse_id removed)
 
 # Cluster configuration
@@ -131,6 +132,7 @@ sf = dbutils.widgets.get("sf")
 raw_data_path_base = dbutils.widgets.get("raw_data_path")
 batch_id_str = dbutils.widgets.get("batch_id")
 metrics_output = dbutils.widgets.get("metrics_output")
+xml_format = dbutils.widgets.get("xml_format") or "com.databricks.spark.xml"
 
 # Append sf to schema name and raw data path
 schema_name_with_sf = f"{schema_name}_sf{sf}"
@@ -340,6 +342,7 @@ def create_workflow_definition():
                     "raw_data_path": raw_data_path_base,
                     "sf": sf,
                     "batch_id": "1",
+                    "xml_format": xml_format,
                 },
                 "source": "WORKSPACE"
             },
@@ -400,6 +403,7 @@ def create_workflow_definition():
                     "raw_data_path": raw_data_path_base,
                     "sf": sf,
                     "batch_id": str(batch_id),
+                    "xml_format": xml_format,
                 },
                 "source": "WORKSPACE"
             },
@@ -504,6 +508,11 @@ def create_workflow_definition():
                 "name": "metrics_output",
                 "default": metrics_output,
                 "description": "Path to save metrics JSON files"
+            },
+            {
+                "name": "xml_format",
+                "default": xml_format,
+                "description": "XML format for CustomerMgmt.xml (xml or org.apache.spark.sql.execution.datasources.xml)"
             },
         ],
         "tags": {
