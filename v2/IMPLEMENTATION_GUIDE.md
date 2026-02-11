@@ -9,16 +9,13 @@ This v2 implementation provides SQL-only implementations of the TPC-DI specifica
 ```
 v2/
 ├── databricks/          # Databricks-specific SQL (Delta Lake, Unity Catalog)
-│   ├── bronze/          # Bronze layer DDL and DML
-│   │   ├── 01_create_bronze_tables.sql
-│   │   ├── 02_load_bronze_batch1.sql
+│   ├── bronze/          # Bronze layer (tables/ has create_*.py per table)
+│   │   ├── 02_load_bronze_batch1.sql / .py
 │   │   └── 03_load_bronze_incremental.sql
-│   ├── silver/          # Silver layer DDL and DML
-│   │   ├── 01_create_silver_tables.sql
-│   │   ├── 02_transform_silver_batch1.sql
+│   ├── silver/          # Silver layer
+│   │   ├── 02_transform_silver_batch1.sql / .py
 │   │   └── 03_transform_silver_incremental.sql
-│   └── gold/            # Gold layer DDL and DML
-│       ├── 01_create_gold_tables.sql
+│   └── gold/            # Gold layer
 │       ├── 02_load_gold_batch1.sql
 │       └── 03_load_gold_incremental.sql
 ├── dataproc/            # Dataproc-specific SQL (Delta Lake on GCS)
@@ -51,16 +48,13 @@ v2/
 ### Batch 1 (Historical Load)
 
 1. **Bronze Layer**
-   - Execute `01_create_bronze_tables.sql` (create tables)
-   - Execute `02_load_bronze_batch1.sql` (load raw data)
+   - Execute `02_load_bronze_batch1.sql` or `.py` notebook (load raw data; tables created in load or via tables/create_*.py)
 
 2. **Silver Layer**
-   - Execute `01_create_silver_tables.sql` (create tables)
-   - Execute `02_transform_silver_batch1.sql` (transform Bronze → Silver)
+   - Execute `02_transform_silver_batch1.sql` or `.py` notebook (transform Bronze → Silver)
 
 3. **Gold Layer**
-   - Execute `01_create_gold_tables.sql` (create tables)
-   - Execute `02_load_gold_batch1.sql` (load Silver → Gold)
+   - Execute `02_load_gold_batch1.sql` or `.py` notebook (load Silver → Gold)
 
 ### Batch 2+ (Incremental Load)
 

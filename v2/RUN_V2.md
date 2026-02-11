@@ -50,11 +50,8 @@ SET var.batch_id = 1;
 USE CATALOG tpcdi_catalog;
 USE SCHEMA bronze_schema;
 
--- Create Bronze tables
--- Copy and execute: v2/databricks/bronze/01_create_bronze_tables.sql
-
--- Load Batch 1 data
--- Copy and execute: v2/databricks/bronze/02_load_bronze_batch1.sql
+-- Load Batch 1 data (tables created in load notebook or via tables/create_*.py)
+-- Copy and execute: v2/databricks/bronze/02_load_bronze_batch1.sql (or .py notebook)
 ```
 
 #### 2.2 Silver Layer
@@ -63,11 +60,8 @@ USE SCHEMA bronze_schema;
 USE CATALOG tpcdi_catalog;
 USE SCHEMA silver_schema;
 
--- Create Silver tables
--- Copy and execute: v2/databricks/silver/01_create_silver_tables.sql
-
 -- Transform Bronze → Silver (Batch 1)
--- Copy and execute: v2/databricks/silver/02_transform_silver_batch1.sql
+-- Copy and execute: v2/databricks/silver/02_transform_silver_batch1.sql (or .py notebook)
 ```
 
 #### 2.3 Gold Layer
@@ -76,11 +70,8 @@ USE SCHEMA silver_schema;
 USE CATALOG tpcdi_catalog;
 USE SCHEMA gold_schema;
 
--- Create Gold tables
--- Copy and execute: v2/databricks/gold/01_create_gold_tables.sql
-
 -- Load Silver → Gold (Batch 1)
--- Copy and execute: v2/databricks/gold/02_load_gold_batch1.sql
+-- Copy and execute: v2/databricks/gold/02_load_gold_batch1.sql (or .py notebook)
 ```
 
 ### Step 3: Execute Incremental Loads (Batch 2+)
@@ -281,29 +272,19 @@ SET var.batch_id = 1;
 
 ```sql
 -- Cell 3: Bronze - Load Batch 1
--- Paste: v2/databricks/bronze/02_load_bronze_batch1.sql
+-- Paste: v2/databricks/bronze/02_load_bronze_batch1.sql (or .py notebook)
 ```
 
 ```sql
--- Cell 4: Silver - Create Tables
+-- Cell 4: Silver - Transform Batch 1
 USE SCHEMA silver_schema;
--- Paste: v2/databricks/silver/01_create_silver_tables.sql
+-- Paste: v2/databricks/silver/02_transform_silver_batch1.sql (or .py notebook)
 ```
 
 ```sql
--- Cell 5: Silver - Transform Batch 1
--- Paste: v2/databricks/silver/02_transform_silver_batch1.sql
-```
-
-```sql
--- Cell 6: Gold - Create Tables
+-- Cell 5: Gold - Load Batch 1
 USE SCHEMA gold_schema;
--- Paste: v2/databricks/gold/01_create_gold_tables.sql
-```
-
-```sql
--- Cell 7: Gold - Load Batch 1
--- Paste: v2/databricks/gold/02_load_gold_batch1.sql
+-- Paste: v2/databricks/gold/02_load_gold_batch1.sql (or .py notebook)
 ```
 
 ### Dataproc Quick Start Script

@@ -248,25 +248,24 @@ v2/databricks/
 ├── collect_metrics.py                 # Python script for metrics collection
 ├── collect_metrics_notebook.py        # Databricks notebook for metrics
 ├── bronze/
-│   ├── tables/                        # Individual table creation files
-│   │   ├── create_bronze_customer_mgmt.sql
-│   │   ├── create_bronze_customer.sql
-│   │   └── ... (14 files)
-│   ├── 01_create_bronze_tables.sql   # Original combined file (for reference)
+│   ├── tables/                        # Individual table creation (create_*.py)
+│   │   ├── create_bronze_customer_mgmt.py
+│   │   ├── create_bronze_customer.py
+│   │   └── ... (per-table create notebooks)
 │   ├── 02_load_bronze_batch1.sql
+│   ├── 02_load_bronze_batch1.py       # Main load notebook (Batch 1)
 │   └── 03_load_bronze_incremental.sql
 ├── silver/
-│   ├── tables/                        # Individual table creation files
-│   │   ├── create_silver_customers.sql
-│   │   └── ... (17 files)
-│   ├── 01_create_silver_tables.sql
+│   ├── tables/                        # Individual table creation (create_*.py)
+│   │   ├── create_silver_customers.py
+│   │   └── ... (per-table create notebooks)
 │   ├── 02_transform_silver_batch1.sql
+│   ├── 02_transform_silver_batch1.py  # Main transform notebook (Batch 1)
 │   └── 03_transform_silver_incremental.sql
 └── gold/
-    ├── tables/                        # Individual table creation files
-    │   ├── create_gold_dim_customer.sql
-    │   └── ... (18 files)
-    ├── 01_create_gold_tables.sql
+    ├── tables/                        # Individual table creation (create_*.py)
+    │   ├── create_gold_dim_customer.py
+    │   └── ... (per-table create notebooks)
     ├── 02_load_gold_batch1.sql
     └── 03_load_gold_incremental.sql
 ```

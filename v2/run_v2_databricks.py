@@ -40,34 +40,16 @@ SET var.batch_id = {batch_id};"""
     })
     
     if not incremental or batch_id == 1:
-        # Bronze - Create Tables
-        cells.append({
-            "cell_type": "sql",
-            "source": f"-- Bronze Layer: Create Tables\nUSE SCHEMA bronze_schema;\n\n{read_sql_file(base_path / 'bronze' / '01_create_bronze_tables.sql')}"
-        })
-        
-        # Bronze - Load Batch 1
+        # Bronze - Load Batch 1 (tables created in load notebooks or via tables/ create_*.py)
         cells.append({
             "cell_type": "sql",
             "source": f"-- Bronze Layer: Load Batch {batch_id}\n{read_sql_file(base_path / 'bronze' / '02_load_bronze_batch1.sql')}"
-        })
-        
-        # Silver - Create Tables
-        cells.append({
-            "cell_type": "sql",
-            "source": f"-- Silver Layer: Create Tables\nUSE SCHEMA silver_schema;\n\n{read_sql_file(base_path / 'silver' / '01_create_silver_tables.sql')}"
         })
         
         # Silver - Transform Batch 1
         cells.append({
             "cell_type": "sql",
             "source": f"-- Silver Layer: Transform Batch {batch_id}\n{read_sql_file(base_path / 'silver' / '02_transform_silver_batch1.sql')}"
-        })
-        
-        # Gold - Create Tables
-        cells.append({
-            "cell_type": "sql",
-            "source": f"-- Gold Layer: Create Tables\nUSE SCHEMA gold_schema;\n\n{read_sql_file(base_path / 'gold' / '01_create_gold_tables.sql')}"
         })
         
         # Gold - Load Batch 1
@@ -124,14 +106,11 @@ def print_execution_guide(batch_id: int, incremental: bool):
     else:
         print("BATCH 1 (HISTORICAL) LOAD MODE\n")
         print("1. Bronze Layer:")
-        print("   - Execute: v2/databricks/bronze/01_create_bronze_tables.sql")
-        print("   - Execute: v2/databricks/bronze/02_load_bronze_batch1.sql")
+        print("   - Execute: v2/databricks/bronze/02_load_bronze_batch1.sql (or .py notebook)")
         print("\n2. Silver Layer:")
-        print("   - Execute: v2/databricks/silver/01_create_silver_tables.sql")
-        print("   - Execute: v2/databricks/silver/02_transform_silver_batch1.sql")
+        print("   - Execute: v2/databricks/silver/02_transform_silver_batch1.sql (or .py notebook)")
         print("\n3. Gold Layer:")
-        print("   - Execute: v2/databricks/gold/01_create_gold_tables.sql")
-        print("   - Execute: v2/databricks/gold/02_load_gold_batch1.sql")
+        print("   - Execute: v2/databricks/gold/02_load_gold_batch1.sql (or .py notebook)")
     
     print(f"\n{'='*60}")
     print("IMPORTANT: Before executing, set these variables:")
