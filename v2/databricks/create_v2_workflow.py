@@ -34,15 +34,13 @@ def create_sql_task(
     description: str,
     depends_on: List[str] = None,
     variables: Dict[str, str] = None,
-    job_cluster_key: str = "default_cluster"
 ) -> Dict[str, Any]:
     """Create a SQL task definition."""
     task = {
         "task_key": task_key,
         "description": description,
-        "job_cluster_key": job_cluster_key,
-        "sql_task": {
-            "query": {
+        "job_cluster_key": "default_cluster",
+        "notebook_task": {
                 "query_id": sql_file_path  # Will be replaced with actual SQL content
             },
             "warehouse_id": None  # Will be set by user
@@ -76,7 +74,6 @@ def create_workflow_definition(
     default_raw_data_path: str = "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume/sf=10",
     default_batch_id: int = 1,
     cluster_config: Dict[str, Any] = None,
-    warehouse_id: str = None,
 ) -> Dict[str, Any]:
     """
     Create Databricks workflow definition for v2 SQL implementation.
@@ -89,7 +86,7 @@ def create_workflow_definition(
         default_raw_data_path: Path to TPC-DI raw data
         default_batch_id: Default batch ID
         cluster_config: Cluster configuration
-        warehouse_id: SQL Warehouse ID (optional, can be set per task)
+        cluster_config: Cluster configuration for notebook tasks
     """
     if cluster_config is None:
         cluster_config = {
@@ -116,11 +113,14 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
         "task_key": "00_setup",
         "description": "Create catalog and schemas",
         "job_cluster_key": "default_cluster",
-        "sql_task": {
-            "query": {
-                "query": setup_sql
+        "job_cluster_key": "default_cluster",
+        "notebook_task": {
+            "notebook_path": f"{base_path}/00_setup",
+            "base_parameters": {
+                "catalog": default_catalog,
+                "schema_name": default_schema_name,
             },
-            "warehouse_id": warehouse_id
+            "source": "WORKSPACE"
         },
         "timeout_seconds": 300,
     })
@@ -136,20 +136,22 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
         sql_file_path = f"{base_path}/{relative_path}"
         
         task_key = f"bronze_create_{table_name}"
+        # Convert SQL file path to notebook path
+        notebook_path = sql_file_path.replace("/tables/create_", "/notebooks/create_").replace(".sql", "")
+        
         tasks.append({
             "task_key": task_key,
             "description": f"Create Bronze table: {table_name}",
             "job_cluster_key": "default_cluster",
+            "job_cluster_key": "default_cluster",
             "depends_on": [{"task_key": "00_setup"}],
-            "sql_task": {
-                "file": {
-                    "path": sql_file_path
+            "notebook_task": {
+                "notebook_path": notebook_path,
+                "base_parameters": {
+                    "catalog": default_catalog,
+                    "schema_name": default_schema_name,
                 },
-                "warehouse_id": warehouse_id,
-                "parameters": [
-                    {"key": "var.catalog", "value": default_catalog},
-                    {"key": "var.schema", "value": default_schema_name},
-                ]
+                "source": "WORKSPACE"
             },
             "timeout_seconds": 300,
         })
@@ -163,12 +165,9 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
         "description": "Load Bronze Batch 1 data",
         "job_cluster_key": "default_cluster",
         "depends_on": [{"task_key": t} for t in bronze_create_tasks],
-        "sql_task": {
-            "file": {
-                "path": f"{base_path}/bronze/02_load_bronze_batch1.sql"
-            },
-            "warehouse_id": warehouse_id,
-            "parameters": [
+        "notebook_task": {
+                "notebook_path": notebook_path,
+                "base_parameters": [
                 {"key": "var.catalog", "value": default_catalog},
                 {"key": "var.schema", "value": default_schema_name},
                 {"key": "var.raw_data_path", "value": default_raw_data_path},
@@ -183,11 +182,7 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
         "description": "Load Bronze incremental data",
         "job_cluster_key": "default_cluster",
         "depends_on": [{"task_key": t} for t in bronze_create_tasks],
-        "sql_task": {
-            "file": {
-                "path": f"{base_path}/bronze/03_load_bronze_incremental.sql"
-            },
-            "warehouse_id": warehouse_id,
+        "notebook_task": {
             "parameters": [
                 {"key": "var.catalog", "value": default_catalog},
                 {"key": "var.schema", "value": default_schema_name},
@@ -211,14 +206,10 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
         task_key = f"silver_create_{table_name}"
         tasks.append({
             "task_key": task_key,
-            "description": f"Create Silver table: {table_name}",
+            "description": f"Create Silver table: {table_name}"
             "job_cluster_key": "default_cluster",
             "depends_on": [{"task_key": "00_setup"}],
-            "sql_task": {
-                "file": {
-                    "path": sql_file_path
-                },
-                "warehouse_id": warehouse_id,
+            "notebook_task": {
                 "parameters": [
                     {"key": "var.catalog", "value": default_catalog},
                     {"key": "var.schema", "value": default_schema_name},
@@ -239,11 +230,7 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
             {"task_key": "bronze_load_batch1"},
             *[{"task_key": t} for t in silver_create_tasks]
         ],
-        "sql_task": {
-            "file": {
-                "path": f"{base_path}/silver/02_transform_silver_batch1.sql"
-            },
-            "warehouse_id": warehouse_id,
+        "notebook_task": {
             "parameters": [
                 {"key": "var.catalog", "value": default_catalog},
                 {"key": "var.schema", "value": default_schema_name},
@@ -262,11 +249,7 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
             {"task_key": "bronze_load_incremental"},
             *[{"task_key": t} for t in silver_create_tasks]
         ],
-        "sql_task": {
-            "file": {
-                "path": f"{base_path}/silver/03_transform_silver_incremental.sql"
-            },
-            "warehouse_id": warehouse_id,
+        "notebook_task": {
             "parameters": [
                 {"key": "var.catalog", "value": default_catalog},
                 {"key": "var.schema", "value": default_schema_name},
@@ -290,14 +273,10 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
         task_key = f"gold_create_{table_name}"
         tasks.append({
             "task_key": task_key,
-            "description": f"Create Gold table: {table_name}",
+            "description": f"Create Gold table: {table_name}"
             "job_cluster_key": "default_cluster",
             "depends_on": [{"task_key": "00_setup"}],
-            "sql_task": {
-                "file": {
-                    "path": sql_file_path
-                },
-                "warehouse_id": warehouse_id,
+            "notebook_task": {
                 "parameters": [
                     {"key": "var.catalog", "value": default_catalog},
                     {"key": "var.schema", "value": default_schema_name},
@@ -318,11 +297,7 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
             {"task_key": "silver_transform_batch1"},
             *[{"task_key": t} for t in gold_create_tasks]
         ],
-        "sql_task": {
-            "file": {
-                "path": f"{base_path}/gold/02_load_gold_batch1.sql"
-            },
-            "warehouse_id": warehouse_id,
+        "notebook_task": {
             "parameters": [
                 {"key": "var.catalog", "value": default_catalog},
                 {"key": "var.schema", "value": default_schema_name},
@@ -341,11 +316,7 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
             {"task_key": "silver_transform_incremental"},
             *[{"task_key": t} for t in gold_create_tasks]
         ],
-        "sql_task": {
-            "file": {
-                "path": f"{base_path}/gold/03_load_gold_incremental.sql"
-            },
-            "warehouse_id": warehouse_id,
+        "notebook_task": {
             "parameters": [
                 {"key": "var.catalog", "value": default_catalog},
                 {"key": "var.schema", "value": default_schema_name},
@@ -391,7 +362,7 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
         "job_clusters": [
             {
                 "job_cluster_key": "default_cluster",
-                "new_cluster": cluster_config.copy()
+                "new_cluster": cluster_config
             }
         ],
         "format": "MULTI_TASK",
