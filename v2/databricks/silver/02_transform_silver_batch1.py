@@ -581,41 +581,51 @@ silver_accounts.write.format("delta").mode("overwrite").saveAsTable(f"{catalog}.
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- ============================================================================
-# MAGIC -- Other Sources (Batch 1)
-# MAGIC -- ============================================================================
-# MAGIC -- silver_prospect: Parse Prospect.csv (23 columns comma-delimited)
-# MAGIC CREATE OR REPLACE TABLE silver_prospect AS
-# MAGIC SELECT 
-# MAGIC     split(raw_line, ',')[0] AS agency_id,
-# MAGIC     split(raw_line, ',')[1] AS last_name,
-# MAGIC     split(raw_line, ',')[2] AS first_name,
-# MAGIC     split(raw_line, ',')[3] AS middle_initial,
-# MAGIC     split(raw_line, ',')[4] AS gender,
-# MAGIC     split(raw_line, ',')[5] AS address_line1,
-# MAGIC     split(raw_line, ',')[6] AS address_line2,
-# MAGIC     split(raw_line, ',')[7] AS postal_code,
-# MAGIC     split(raw_line, ',')[8] AS city,
-# MAGIC     split(raw_line, ',')[9] AS state,
-# MAGIC     split(raw_line, ',')[10] AS country,
-# MAGIC     split(raw_line, ',')[11] AS phone,
-# MAGIC     CAST(split(raw_line, ',')[12] AS INT) AS income,
-# MAGIC     CAST(split(raw_line, ',')[13] AS INT) AS number_cars,
-# MAGIC     CAST(split(raw_line, ',')[14] AS INT) AS number_children,
-# MAGIC     split(raw_line, ',')[15] AS marital_status,
-# MAGIC     CAST(split(raw_line, ',')[16] AS INT) AS age,
-# MAGIC     CAST(split(raw_line, ',')[17] AS INT) AS credit_rating,
-# MAGIC     split(raw_line, ',')[18] AS own_or_rent_flag,
-# MAGIC     split(raw_line, ',')[19] AS employer,
-# MAGIC     CAST(split(raw_line, ',')[20] AS INT) AS number_credit_cards,
-# MAGIC     CAST(split(raw_line, ',')[21] AS INT) AS net_worth,
-# MAGIC     ${var.batch_id} AS batch_id,
-# MAGIC     current_timestamp() AS load_timestamp
-# MAGIC FROM bronze_prospect
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND raw_line IS NOT NULL
-# MAGIC   AND raw_line != '';
+# ============================================================================
+# Other Sources (Batch 1): silver_prospect from Prospect.csv (ref: _c0.._c21 + MarketingNameplate)
+# ============================================================================
+spark.sql(f"""
+CREATE OR REPLACE TABLE {catalog}.{schema_name}.silver_prospect AS
+SELECT
+  split(raw_line, ',')[0] AS agency_id,
+  split(raw_line, ',')[1] AS last_name,
+  split(raw_line, ',')[2] AS first_name,
+  split(raw_line, ',')[3] AS middle_initial,
+  split(raw_line, ',')[4] AS gender,
+  split(raw_line, ',')[5] AS address_line1,
+  split(raw_line, ',')[6] AS address_line2,
+  split(raw_line, ',')[7] AS postal_code,
+  split(raw_line, ',')[8] AS city,
+  split(raw_line, ',')[9] AS state,
+  split(raw_line, ',')[10] AS country,
+  split(raw_line, ',')[11] AS phone,
+  CAST(split(raw_line, ',')[12] AS INT) AS income,
+  CAST(split(raw_line, ',')[13] AS INT) AS number_cars,
+  CAST(split(raw_line, ',')[14] AS INT) AS number_children,
+  split(raw_line, ',')[15] AS marital_status,
+  CAST(split(raw_line, ',')[16] AS INT) AS age,
+  CAST(split(raw_line, ',')[17] AS INT) AS credit_rating,
+  split(raw_line, ',')[18] AS own_or_rent_flag,
+  split(raw_line, ',')[19] AS employer,
+  CAST(split(raw_line, ',')[20] AS BOOLEAN) AS is_customer,
+  CAST(split(raw_line, ',')[21] AS BIGINT) AS net_worth,
+  array_join(
+    array_compact(
+      array(
+        CASE WHEN CAST(split(raw_line, ',')[21] AS BIGINT) > 1000000 OR CAST(split(raw_line, ',')[12] AS INT) > 200000 THEN 'HighValue' ELSE NULL END,
+        CASE WHEN CAST(split(raw_line, ',')[16] AS INT) < 25 THEN 'YoungAdult' ELSE NULL END,
+        CASE WHEN CAST(split(raw_line, ',')[17] AS INT) > 700 THEN 'HighCredit' ELSE NULL END
+      )
+    ),
+    ','
+  ) AS marketing_nameplate,
+  _batch_id AS batch_id,
+  current_timestamp() AS load_timestamp
+FROM {catalog}.{schema_name}.bronze_prospect
+WHERE _batch_id = {batch_id}
+  AND raw_line IS NOT NULL
+  AND raw_line != ''
+""")
 
 # COMMAND ----------
 
