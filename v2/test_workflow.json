@@ -1,0 +1,2040 @@
+{
+  "name": "TPC-DI-v2-SQL",
+  "email_notifications": {
+    "on_success": [],
+    "on_failure": [],
+    "on_start": []
+  },
+  "webhook_notifications": {
+    "on_success": [],
+    "on_failure": [],
+    "on_start": []
+  },
+  "timeout_seconds": 0,
+  "max_concurrent_runs": 1,
+  "tasks": [
+    {
+      "task_key": "00_setup",
+      "description": "Create catalog and schemas",
+      "job_cluster_key": "default_cluster",
+      "sql_task": {
+        "query": {
+          "query": "\nCREATE CATALOG IF NOT EXISTS tpcdi_catalog;\nUSE CATALOG tpcdi_catalog;\nCREATE SCHEMA IF NOT EXISTS bronze_schema;\nCREATE SCHEMA IF NOT EXISTS silver_schema;\nCREATE SCHEMA IF NOT EXISTS gold_schema;\n"
+        },
+        "warehouse_id": null
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_create_bronze_account",
+      "description": "Create Bronze table: bronze_account",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/tables/create_bronze_account.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_create_bronze_cash_transaction",
+      "description": "Create Bronze table: bronze_cash_transaction",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/tables/create_bronze_cash_transaction.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_create_bronze_customer",
+      "description": "Create Bronze table: bronze_customer",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/tables/create_bronze_customer.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_create_bronze_customer_mgmt",
+      "description": "Create Bronze table: bronze_customer_mgmt",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/tables/create_bronze_customer_mgmt.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_create_bronze_daily_market",
+      "description": "Create Bronze table: bronze_daily_market",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/tables/create_bronze_daily_market.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_create_bronze_date",
+      "description": "Create Bronze table: bronze_date",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/tables/create_bronze_date.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_create_bronze_finwire",
+      "description": "Create Bronze table: bronze_finwire",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/tables/create_bronze_finwire.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_create_bronze_holding_history",
+      "description": "Create Bronze table: bronze_holding_history",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/tables/create_bronze_holding_history.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_create_bronze_hr",
+      "description": "Create Bronze table: bronze_hr",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/tables/create_bronze_hr.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_create_bronze_industry",
+      "description": "Create Bronze table: bronze_industry",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/tables/create_bronze_industry.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_create_bronze_prospect",
+      "description": "Create Bronze table: bronze_prospect",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/tables/create_bronze_prospect.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_create_bronze_status_type",
+      "description": "Create Bronze table: bronze_status_type",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/tables/create_bronze_status_type.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_create_bronze_tax_rate",
+      "description": "Create Bronze table: bronze_tax_rate",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/tables/create_bronze_tax_rate.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_create_bronze_time",
+      "description": "Create Bronze table: bronze_time",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/tables/create_bronze_time.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_create_bronze_trade",
+      "description": "Create Bronze table: bronze_trade",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/tables/create_bronze_trade.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_create_bronze_trade_type",
+      "description": "Create Bronze table: bronze_trade_type",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/tables/create_bronze_trade_type.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_create_bronze_watch_history",
+      "description": "Create Bronze table: bronze_watch_history",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/tables/create_bronze_watch_history.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "silver_create_silver_accounts",
+      "description": "Create Silver table: silver_accounts",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/tables/create_silver_accounts.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "silver_create_silver_cash_transaction",
+      "description": "Create Silver table: silver_cash_transaction",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/tables/create_silver_cash_transaction.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "silver_create_silver_companies",
+      "description": "Create Silver table: silver_companies",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/tables/create_silver_companies.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "silver_create_silver_customers",
+      "description": "Create Silver table: silver_customers",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/tables/create_silver_customers.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "silver_create_silver_daily_market",
+      "description": "Create Silver table: silver_daily_market",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/tables/create_silver_daily_market.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "silver_create_silver_date",
+      "description": "Create Silver table: silver_date",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/tables/create_silver_date.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "silver_create_silver_financials",
+      "description": "Create Silver table: silver_financials",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/tables/create_silver_financials.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "silver_create_silver_holding_history",
+      "description": "Create Silver table: silver_holding_history",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/tables/create_silver_holding_history.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "silver_create_silver_industry",
+      "description": "Create Silver table: silver_industry",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/tables/create_silver_industry.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "silver_create_silver_prospect",
+      "description": "Create Silver table: silver_prospect",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/tables/create_silver_prospect.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "silver_create_silver_securities",
+      "description": "Create Silver table: silver_securities",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/tables/create_silver_securities.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "silver_create_silver_status_type",
+      "description": "Create Silver table: silver_status_type",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/tables/create_silver_status_type.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "silver_create_silver_tax_rate",
+      "description": "Create Silver table: silver_tax_rate",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/tables/create_silver_tax_rate.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "silver_create_silver_time",
+      "description": "Create Silver table: silver_time",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/tables/create_silver_time.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "silver_create_silver_trade_type",
+      "description": "Create Silver table: silver_trade_type",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/tables/create_silver_trade_type.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "silver_create_silver_trades",
+      "description": "Create Silver table: silver_trades",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/tables/create_silver_trades.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "silver_create_silver_watch_history",
+      "description": "Create Silver table: silver_watch_history",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/tables/create_silver_watch_history.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_dim_account",
+      "description": "Create Gold table: gold_dim_account",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_dim_account.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_dim_broker",
+      "description": "Create Gold table: gold_dim_broker",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_dim_broker.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_dim_company",
+      "description": "Create Gold table: gold_dim_company",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_dim_company.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_dim_customer",
+      "description": "Create Gold table: gold_dim_customer",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_dim_customer.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_dim_date",
+      "description": "Create Gold table: gold_dim_date",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_dim_date.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_dim_industry",
+      "description": "Create Gold table: gold_dim_industry",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_dim_industry.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_dim_messages",
+      "description": "Create Gold table: gold_dim_messages",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_dim_messages.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_dim_security",
+      "description": "Create Gold table: gold_dim_security",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_dim_security.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_dim_status_type",
+      "description": "Create Gold table: gold_dim_status_type",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_dim_status_type.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_dim_time",
+      "description": "Create Gold table: gold_dim_time",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_dim_time.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_dim_trade",
+      "description": "Create Gold table: gold_dim_trade",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_dim_trade.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_dim_trade_type",
+      "description": "Create Gold table: gold_dim_trade_type",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_dim_trade_type.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_fact_cash_balances",
+      "description": "Create Gold table: gold_fact_cash_balances",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_fact_cash_balances.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_fact_holdings",
+      "description": "Create Gold table: gold_fact_holdings",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_fact_holdings.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_fact_market_history",
+      "description": "Create Gold table: gold_fact_market_history",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_fact_market_history.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_fact_trade",
+      "description": "Create Gold table: gold_fact_trade",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_fact_trade.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_fact_watches",
+      "description": "Create Gold table: gold_fact_watches",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_fact_watches.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_financials",
+      "description": "Create Gold table: gold_financials",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_financials.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "gold_create_gold_prospect",
+      "description": "Create Gold table: gold_prospect",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "00_setup"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/tables/create_gold_prospect.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          }
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "task_key": "bronze_load_batch1",
+      "description": "Load Bronze Batch 1 data",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "bronze_create_bronze_account"
+        },
+        {
+          "task_key": "bronze_create_bronze_cash_transaction"
+        },
+        {
+          "task_key": "bronze_create_bronze_customer"
+        },
+        {
+          "task_key": "bronze_create_bronze_customer_mgmt"
+        },
+        {
+          "task_key": "bronze_create_bronze_daily_market"
+        },
+        {
+          "task_key": "bronze_create_bronze_date"
+        },
+        {
+          "task_key": "bronze_create_bronze_finwire"
+        },
+        {
+          "task_key": "bronze_create_bronze_holding_history"
+        },
+        {
+          "task_key": "bronze_create_bronze_hr"
+        },
+        {
+          "task_key": "bronze_create_bronze_industry"
+        },
+        {
+          "task_key": "bronze_create_bronze_prospect"
+        },
+        {
+          "task_key": "bronze_create_bronze_status_type"
+        },
+        {
+          "task_key": "bronze_create_bronze_tax_rate"
+        },
+        {
+          "task_key": "bronze_create_bronze_time"
+        },
+        {
+          "task_key": "bronze_create_bronze_trade"
+        },
+        {
+          "task_key": "bronze_create_bronze_trade_type"
+        },
+        {
+          "task_key": "bronze_create_bronze_watch_history"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/02_load_bronze_batch1.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          },
+          {
+            "name": "var.raw_data_path",
+            "value": "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume/sf=10"
+          },
+          {
+            "name": "var.batch_id",
+            "value": "1"
+          }
+        ]
+      },
+      "timeout_seconds": 3600
+    },
+    {
+      "task_key": "bronze_load_incremental",
+      "description": "Load Bronze incremental data",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "bronze_create_bronze_account"
+        },
+        {
+          "task_key": "bronze_create_bronze_cash_transaction"
+        },
+        {
+          "task_key": "bronze_create_bronze_customer"
+        },
+        {
+          "task_key": "bronze_create_bronze_customer_mgmt"
+        },
+        {
+          "task_key": "bronze_create_bronze_daily_market"
+        },
+        {
+          "task_key": "bronze_create_bronze_date"
+        },
+        {
+          "task_key": "bronze_create_bronze_finwire"
+        },
+        {
+          "task_key": "bronze_create_bronze_holding_history"
+        },
+        {
+          "task_key": "bronze_create_bronze_hr"
+        },
+        {
+          "task_key": "bronze_create_bronze_industry"
+        },
+        {
+          "task_key": "bronze_create_bronze_prospect"
+        },
+        {
+          "task_key": "bronze_create_bronze_status_type"
+        },
+        {
+          "task_key": "bronze_create_bronze_tax_rate"
+        },
+        {
+          "task_key": "bronze_create_bronze_time"
+        },
+        {
+          "task_key": "bronze_create_bronze_trade"
+        },
+        {
+          "task_key": "bronze_create_bronze_trade_type"
+        },
+        {
+          "task_key": "bronze_create_bronze_watch_history"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/bronze/03_load_bronze_incremental.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          },
+          {
+            "name": "var.raw_data_path",
+            "value": "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume/sf=10"
+          },
+          {
+            "name": "var.batch_id",
+            "value": "1"
+          }
+        ]
+      },
+      "timeout_seconds": 3600
+    },
+    {
+      "task_key": "silver_transform_batch1",
+      "description": "Transform Bronze \u2192 Silver (Batch 1)",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "bronze_load_batch1"
+        },
+        {
+          "task_key": "silver_create_silver_accounts"
+        },
+        {
+          "task_key": "silver_create_silver_cash_transaction"
+        },
+        {
+          "task_key": "silver_create_silver_companies"
+        },
+        {
+          "task_key": "silver_create_silver_customers"
+        },
+        {
+          "task_key": "silver_create_silver_daily_market"
+        },
+        {
+          "task_key": "silver_create_silver_date"
+        },
+        {
+          "task_key": "silver_create_silver_financials"
+        },
+        {
+          "task_key": "silver_create_silver_holding_history"
+        },
+        {
+          "task_key": "silver_create_silver_industry"
+        },
+        {
+          "task_key": "silver_create_silver_prospect"
+        },
+        {
+          "task_key": "silver_create_silver_securities"
+        },
+        {
+          "task_key": "silver_create_silver_status_type"
+        },
+        {
+          "task_key": "silver_create_silver_tax_rate"
+        },
+        {
+          "task_key": "silver_create_silver_time"
+        },
+        {
+          "task_key": "silver_create_silver_trade_type"
+        },
+        {
+          "task_key": "silver_create_silver_trades"
+        },
+        {
+          "task_key": "silver_create_silver_watch_history"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/02_transform_silver_batch1.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          },
+          {
+            "name": "var.batch_id",
+            "value": "1"
+          }
+        ]
+      },
+      "timeout_seconds": 3600
+    },
+    {
+      "task_key": "silver_transform_incremental",
+      "description": "Transform Bronze \u2192 Silver (Incremental)",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "bronze_load_incremental"
+        },
+        {
+          "task_key": "silver_create_silver_accounts"
+        },
+        {
+          "task_key": "silver_create_silver_cash_transaction"
+        },
+        {
+          "task_key": "silver_create_silver_companies"
+        },
+        {
+          "task_key": "silver_create_silver_customers"
+        },
+        {
+          "task_key": "silver_create_silver_daily_market"
+        },
+        {
+          "task_key": "silver_create_silver_date"
+        },
+        {
+          "task_key": "silver_create_silver_financials"
+        },
+        {
+          "task_key": "silver_create_silver_holding_history"
+        },
+        {
+          "task_key": "silver_create_silver_industry"
+        },
+        {
+          "task_key": "silver_create_silver_prospect"
+        },
+        {
+          "task_key": "silver_create_silver_securities"
+        },
+        {
+          "task_key": "silver_create_silver_status_type"
+        },
+        {
+          "task_key": "silver_create_silver_tax_rate"
+        },
+        {
+          "task_key": "silver_create_silver_time"
+        },
+        {
+          "task_key": "silver_create_silver_trade_type"
+        },
+        {
+          "task_key": "silver_create_silver_trades"
+        },
+        {
+          "task_key": "silver_create_silver_watch_history"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/silver/03_transform_silver_incremental.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.bronze_schema",
+            "value": "bronze_schema"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          },
+          {
+            "name": "var.batch_id",
+            "value": "1"
+          }
+        ]
+      },
+      "timeout_seconds": 3600
+    },
+    {
+      "task_key": "gold_load_batch1",
+      "description": "Load Silver \u2192 Gold (Batch 1)",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "silver_transform_batch1"
+        },
+        {
+          "task_key": "gold_create_gold_dim_account"
+        },
+        {
+          "task_key": "gold_create_gold_dim_broker"
+        },
+        {
+          "task_key": "gold_create_gold_dim_company"
+        },
+        {
+          "task_key": "gold_create_gold_dim_customer"
+        },
+        {
+          "task_key": "gold_create_gold_dim_date"
+        },
+        {
+          "task_key": "gold_create_gold_dim_industry"
+        },
+        {
+          "task_key": "gold_create_gold_dim_messages"
+        },
+        {
+          "task_key": "gold_create_gold_dim_security"
+        },
+        {
+          "task_key": "gold_create_gold_dim_status_type"
+        },
+        {
+          "task_key": "gold_create_gold_dim_time"
+        },
+        {
+          "task_key": "gold_create_gold_dim_trade"
+        },
+        {
+          "task_key": "gold_create_gold_dim_trade_type"
+        },
+        {
+          "task_key": "gold_create_gold_fact_cash_balances"
+        },
+        {
+          "task_key": "gold_create_gold_fact_holdings"
+        },
+        {
+          "task_key": "gold_create_gold_fact_market_history"
+        },
+        {
+          "task_key": "gold_create_gold_fact_trade"
+        },
+        {
+          "task_key": "gold_create_gold_fact_watches"
+        },
+        {
+          "task_key": "gold_create_gold_financials"
+        },
+        {
+          "task_key": "gold_create_gold_prospect"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/02_load_gold_batch1.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          },
+          {
+            "name": "var.batch_id",
+            "value": "1"
+          }
+        ]
+      },
+      "timeout_seconds": 3600
+    },
+    {
+      "task_key": "gold_load_incremental",
+      "description": "Load Silver \u2192 Gold (Incremental)",
+      "job_cluster_key": "default_cluster",
+      "depends_on": [
+        {
+          "task_key": "silver_transform_incremental"
+        },
+        {
+          "task_key": "gold_create_gold_dim_account"
+        },
+        {
+          "task_key": "gold_create_gold_dim_broker"
+        },
+        {
+          "task_key": "gold_create_gold_dim_company"
+        },
+        {
+          "task_key": "gold_create_gold_dim_customer"
+        },
+        {
+          "task_key": "gold_create_gold_dim_date"
+        },
+        {
+          "task_key": "gold_create_gold_dim_industry"
+        },
+        {
+          "task_key": "gold_create_gold_dim_messages"
+        },
+        {
+          "task_key": "gold_create_gold_dim_security"
+        },
+        {
+          "task_key": "gold_create_gold_dim_status_type"
+        },
+        {
+          "task_key": "gold_create_gold_dim_time"
+        },
+        {
+          "task_key": "gold_create_gold_dim_trade"
+        },
+        {
+          "task_key": "gold_create_gold_dim_trade_type"
+        },
+        {
+          "task_key": "gold_create_gold_fact_cash_balances"
+        },
+        {
+          "task_key": "gold_create_gold_fact_holdings"
+        },
+        {
+          "task_key": "gold_create_gold_fact_market_history"
+        },
+        {
+          "task_key": "gold_create_gold_fact_trade"
+        },
+        {
+          "task_key": "gold_create_gold_fact_watches"
+        },
+        {
+          "task_key": "gold_create_gold_financials"
+        },
+        {
+          "task_key": "gold_create_gold_prospect"
+        }
+      ],
+      "sql_task": {
+        "file": {
+          "path": "/Workspace/Repos/test/v2/databricks/gold/03_load_gold_incremental.sql"
+        },
+        "warehouse_id": null,
+        "parameters": [
+          {
+            "name": "var.catalog",
+            "value": "tpcdi_catalog"
+          },
+          {
+            "name": "var.silver_schema",
+            "value": "silver_schema"
+          },
+          {
+            "name": "var.gold_schema",
+            "value": "gold_schema"
+          },
+          {
+            "name": "var.batch_id",
+            "value": "1"
+          }
+        ]
+      },
+      "timeout_seconds": 3600
+    }
+  ],
+  "job_clusters": [
+    {
+      "job_cluster_key": "default_cluster",
+      "new_cluster": {
+        "spark_version": "13.3.x-scala2.12",
+        "node_type_id": "i3.xlarge",
+        "num_workers": 2,
+        "driver_node_type_id": "i3.xlarge",
+        "runtime_engine": "PHOTON"
+      }
+    }
+  ],
+  "format": "MULTI_TASK",
+  "parameters": [
+    {
+      "name": "load_type",
+      "default": "batch",
+      "description": "Load type: batch or incremental"
+    },
+    {
+      "name": "batch_id",
+      "default": "1",
+      "description": "Batch ID (for incremental loads)"
+    },
+    {
+      "name": "catalog",
+      "default": "tpcdi_catalog",
+      "description": "Unity Catalog name"
+    },
+    {
+      "name": "bronze_schema",
+      "default": "bronze_schema",
+      "description": "Bronze schema name"
+    },
+    {
+      "name": "silver_schema",
+      "default": "silver_schema",
+      "description": "Silver schema name"
+    },
+    {
+      "name": "gold_schema",
+      "default": "gold_schema",
+      "description": "Gold schema name"
+    },
+    {
+      "name": "raw_data_path",
+      "default": "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume/sf=10",
+      "description": "Path to TPC-DI raw data"
+    }
+  ],
+  "run_as": {
+    "user_name": null
+  },
+  "tags": {
+    "project": "tpcdi",
+    "version": "v2",
+    "type": "sql-only"
+  }
+}
