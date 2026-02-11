@@ -379,29 +379,80 @@ silver_customers.write.format("delta").mode("overwrite").saveAsTable(f"{catalog}
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- silver_accounts: Extract from CustomerMgmt.xml
-# MAGIC CREATE OR REPLACE TABLE silver_accounts AS
-# MAGIC SELECT 
-# MAGIC     CAST(Account._CA_ID AS BIGINT) AS account_id,
-# MAGIC     CAST(Account._CA_B_ID AS BIGINT) AS broker_id,
-# MAGIC     CAST(Account._CA_C_ID AS BIGINT) AS customer_id,
-# MAGIC     Account._CA_NAME AS account_name,
-# MAGIC     CAST(Account._CA_TAX_ST AS INT) AS tax_status,
-# MAGIC     Account._CA_ST_ID AS status_id,
-# MAGIC     Account._CA_ACTION AS action_type,
-# MAGIC     CAST(Account._CA_ACTION_TS AS TIMESTAMP) AS action_timestamp,
-# MAGIC     -- SCD Type 2: All Batch 1 records are current
-# MAGIC     TRUE AS is_current,
-# MAGIC     CAST(Account._CA_ACTION_TS AS TIMESTAMP) AS effective_date,
-# MAGIC     NULL AS end_date,
-# MAGIC     ${var.batch_id} AS batch_id,
-# MAGIC     current_timestamp() AS load_timestamp,
-# MAGIC     Account._CA_ACTION AS record_type  -- NEW, ADDACCT, UPDACCT, CLOSEACCT, etc.
-# MAGIC FROM bronze_customer_mgmt
-# MAGIC LATERAL VIEW explode(Customer.Account) AS Account
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND Customer IS NOT NULL;
+# ============================================================================
+# silver_accounts: Extract from bronze_customer_mgmt (same as v1)
+# ============================================================================
+# v1 logic: read bronze_customer_mgmt, extract Customer.Account + Customer._C_ID, filter ADDACCT/UPDACCT/INACT, transform to silver, overwrite
+from pyspark.sql.functions import col, lit, when, to_timestamp, coalesce, trim
+from pyspark.sql.types import TimestampType
+
+bronze_accounts_df = spark.table(f"{catalog}.{schema_name}.bronze_customer_mgmt").filter(col("_batch_id") == batch_id)
+account_df = None
+
+# Strategy 1: Nested struct paths (Customer.Account.*, Customer._C_ID)
+try:
+    account_df = bronze_accounts_df.filter(
+        col("_ActionType").isin("ADDACCT", "UPDACCT", "INACT")
+        & col("Customer").isNotNull()
+        & col("Customer.Account").isNotNull()
+    ).select(
+        col("_ActionType").alias("action_type"),
+        col("_ActionTS").alias("action_ts"),
+        col("Customer.Account._CA_ID").alias("ca_id"),
+        col("Customer.Account.CA_B_ID").alias("ca_b_id"),
+        col("Customer._C_ID").alias("c_id"),
+        col("Customer.Account.CA_NAME").alias("ca_name"),
+        col("Customer.Account._CA_TAX_ST").alias("ca_tax_st"),
+        col("_batch_id").alias("batch_id"),
+        col("_load_timestamp").alias("load_timestamp"),
+    )
+    if account_df.count() == 0:
+        account_df = None
+except Exception:
+    account_df = None
+
+# Strategy 2: COALESCE for optional structs
+if account_df is None:
+    try:
+        account_df = bronze_accounts_df.filter(
+            col("_ActionType").isin("ADDACCT", "UPDACCT", "INACT")
+            & col("Customer").isNotNull()
+            & col("Customer.Account").isNotNull()
+        ).select(
+            col("_ActionType").alias("action_type"),
+            col("_ActionTS").alias("action_ts"),
+            col("Customer.Account._CA_ID").alias("ca_id"),
+            col("Customer.Account.CA_B_ID").alias("ca_b_id"),
+            col("Customer._C_ID").alias("c_id"),
+            trim(coalesce(col("Customer.Account.CA_NAME"), lit(""))).alias("ca_name"),
+            trim(coalesce(col("Customer.Account._CA_TAX_ST").cast("string"), lit("0"))).alias("ca_tax_st"),
+            col("_batch_id").alias("batch_id"),
+            col("_load_timestamp").alias("load_timestamp"),
+        )
+        if account_df.count() == 0:
+            account_df = None
+    except Exception:
+        account_df = None
+
+if account_df is None or account_df.count() == 0:
+    raise RuntimeError("Failed to extract accounts from bronze_customer_mgmt (Strategy 1 and 2)")
+
+# Transform to silver schema (same as v1 _transform_to_silver_schema)
+silver_accounts = account_df.select(
+    col("ca_id").cast("long").alias("account_id"),
+    coalesce(col("ca_b_id"), lit(0)).cast("long").alias("broker_id"),
+    coalesce(col("c_id"), lit(0)).cast("long").alias("customer_id"),
+    coalesce(col("ca_name"), lit("")).alias("account_name"),
+    coalesce(col("ca_tax_st"), lit(0)).cast("int").alias("tax_status"),
+    when(col("action_type") == "INACT", lit("INACT")).otherwise(lit("ACTV")).alias("status_id"),
+    lit(True).alias("is_current"),
+    to_timestamp(col("action_ts")).alias("effective_date"),
+    lit(None).cast(TimestampType()).alias("end_date"),
+    col("batch_id").cast("int"),
+    col("load_timestamp"),
+    coalesce(col("action_type"), lit("I")).alias("record_type"),
+)
+silver_accounts.write.format("delta").mode("overwrite").saveAsTable(f"{catalog}.{schema_name}.silver_accounts")
 
 # COMMAND ----------
 
