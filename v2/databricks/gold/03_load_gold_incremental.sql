@@ -405,8 +405,9 @@ USING (
         credit_rating,
         own_or_rent_flag,
         employer,
-        number_credit_cards,
-        net_worth
+        is_customer,
+        net_worth,
+        marketing_nameplate
     FROM silver_prospect
     WHERE batch_id = ${var.batch_id}
 ) AS source
@@ -431,7 +432,8 @@ WHEN MATCHED THEN UPDATE SET
     target.credit_rating = source.credit_rating,
     target.own_or_rent_flag = source.own_or_rent_flag,
     target.employer = source.employer,
-    target.number_credit_cards = source.number_credit_cards,
+    target.is_customer = source.is_customer,
     target.net_worth = source.net_worth,
+    target.marketing_nameplate = source.marketing_nameplate,
     target.etl_timestamp = current_timestamp()
 WHEN NOT MATCHED THEN INSERT *;

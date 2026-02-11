@@ -376,8 +376,9 @@ CREATE TABLE IF NOT EXISTS gold_prospect (
     credit_rating INT,
     own_or_rent_flag STRING,
     employer STRING,
-    number_credit_cards INT,
-    net_worth INT,
+    is_customer BOOLEAN,
+    net_worth BIGINT,
+    marketing_nameplate STRING,
     etl_timestamp TIMESTAMP NOT NULL
 ) USING DELTA
 TBLPROPERTIES (

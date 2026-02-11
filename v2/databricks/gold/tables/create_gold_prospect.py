@@ -50,8 +50,9 @@ spark.sql(f"USE {catalog}.{schema_name}")
 # MAGIC     credit_rating INT,
 # MAGIC     own_or_rent_flag STRING,
 # MAGIC     employer STRING,
-# MAGIC     number_credit_cards INT,
-# MAGIC     net_worth INT,
+# MAGIC     is_customer BOOLEAN,
+# MAGIC     net_worth BIGINT,
+# MAGIC     marketing_nameplate STRING,
 # MAGIC     etl_timestamp TIMESTAMP NOT NULL
 # MAGIC ) USING DELTA
 # MAGIC TBLPROPERTIES (

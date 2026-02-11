@@ -599,22 +599,22 @@ SELECT
   split(raw_line, ',')[9] AS state,
   split(raw_line, ',')[10] AS country,
   split(raw_line, ',')[11] AS phone,
-  CAST(split(raw_line, ',')[12] AS INT) AS income,
-  CAST(split(raw_line, ',')[13] AS INT) AS number_cars,
-  CAST(split(raw_line, ',')[14] AS INT) AS number_children,
+  try_cast(split(raw_line, ',')[12] AS INT) AS income,
+  try_cast(split(raw_line, ',')[13] AS INT) AS number_cars,
+  try_cast(split(raw_line, ',')[14] AS INT) AS number_children,
   split(raw_line, ',')[15] AS marital_status,
-  CAST(split(raw_line, ',')[16] AS INT) AS age,
-  CAST(split(raw_line, ',')[17] AS INT) AS credit_rating,
+  try_cast(split(raw_line, ',')[16] AS INT) AS age,
+  try_cast(split(raw_line, ',')[17] AS INT) AS credit_rating,
   split(raw_line, ',')[18] AS own_or_rent_flag,
   split(raw_line, ',')[19] AS employer,
-  CAST(split(raw_line, ',')[20] AS BOOLEAN) AS is_customer,
-  CAST(split(raw_line, ',')[21] AS BIGINT) AS net_worth,
+  try_cast(split(raw_line, ',')[20] AS BOOLEAN) AS is_customer,
+  try_cast(split(raw_line, ',')[21] AS BIGINT) AS net_worth,
   array_join(
     array_compact(
       array(
-        CASE WHEN CAST(split(raw_line, ',')[21] AS BIGINT) > 1000000 OR CAST(split(raw_line, ',')[12] AS INT) > 200000 THEN 'HighValue' ELSE NULL END,
-        CASE WHEN CAST(split(raw_line, ',')[16] AS INT) < 25 THEN 'YoungAdult' ELSE NULL END,
-        CASE WHEN CAST(split(raw_line, ',')[17] AS INT) > 700 THEN 'HighCredit' ELSE NULL END
+        CASE WHEN try_cast(split(raw_line, ',')[21] AS BIGINT) > 1000000 OR try_cast(split(raw_line, ',')[12] AS INT) > 200000 THEN 'HighValue' ELSE NULL END,
+        CASE WHEN try_cast(split(raw_line, ',')[16] AS INT) < 25 THEN 'YoungAdult' ELSE NULL END,
+        CASE WHEN try_cast(split(raw_line, ',')[17] AS INT) > 700 THEN 'HighCredit' ELSE NULL END
       )
     ),
     ','

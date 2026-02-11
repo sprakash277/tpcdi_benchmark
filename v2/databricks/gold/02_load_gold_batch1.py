@@ -466,8 +466,9 @@ spark.sql(f"USE {catalog}.{schema_name}")
 # MAGIC     credit_rating,
 # MAGIC     own_or_rent_flag,
 # MAGIC     employer,
-# MAGIC     number_credit_cards,
+# MAGIC     is_customer,
 # MAGIC     net_worth,
+# MAGIC     marketing_nameplate,
 # MAGIC     current_timestamp() AS etl_timestamp
 # MAGIC FROM silver_prospect
 # MAGIC WHERE batch_id = ${var.batch_id};

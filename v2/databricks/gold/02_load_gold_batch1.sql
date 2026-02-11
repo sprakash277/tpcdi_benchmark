@@ -378,8 +378,9 @@ SELECT
     credit_rating,
     own_or_rent_flag,
     employer,
-    number_credit_cards,
+    is_customer,
     net_worth,
+    marketing_nameplate,
     current_timestamp() AS etl_timestamp
 FROM silver_prospect
 WHERE batch_id = ${var.batch_id};
