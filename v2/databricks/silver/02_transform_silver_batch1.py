@@ -175,85 +175,87 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- ============================================================================
-# MAGIC -- Market Data: Parse FINWIRE (Fixed-Width)
-# MAGIC -- ============================================================================
-# MAGIC -- silver_companies: Extract CMP records from FINWIRE
-# MAGIC CREATE OR REPLACE TABLE silver_companies AS
-# MAGIC SELECT 
-# MAGIC     monotonically_increasing_id() AS sk_company_id,
-# MAGIC     TRIM(substring(raw_line, 79, 10)) AS company_id,  -- CIK
-# MAGIC     TRIM(substring(raw_line, 19, 60)) AS company_name,
-# MAGIC     TRIM(substring(raw_line, 93, 10)) AS industry_id,
-# MAGIC     TRIM(substring(raw_line, 103, 4)) AS sp_rating,
-# MAGIC     TRIM(substring(raw_line, 89, 4)) AS status,
-# MAGIC     CAST(TRIM(substring(raw_line, 107, 8)) AS DATE) AS founding_date,
-# MAGIC     TRIM(substring(raw_line, 115, 15)) AS ceo_name,
-# MAGIC     TRIM(substring(raw_line, 130, 45)) AS address_line1,
-# MAGIC     TRIM(substring(raw_line, 175, 45)) AS address_line2,
-# MAGIC     TRIM(substring(raw_line, 220, 25)) AS postal_code,
-# MAGIC     TRIM(substring(raw_line, 245, 25)) AS city,
-# MAGIC     TRIM(substring(raw_line, 270, 25)) AS state_province,
-# MAGIC     TRIM(substring(raw_line, 295, 25)) AS country,
-# MAGIC     TRIM(substring(raw_line, 320, 45)) AS description,
-# MAGIC     _batch_id AS batch_id,
-# MAGIC     current_timestamp() AS load_timestamp
-# MAGIC FROM bronze_finwire
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND substring(raw_line, 16, 3) = 'CMP'  -- Record type = CMP
-# MAGIC   AND length(raw_line) >= 364;
+# ============================================================================
+# Market Data: Parse FINWIRE (Fixed-Width) - silver_companies (CMP records)
+# ============================================================================
+spark.sql(f"""
+CREATE OR REPLACE TABLE {catalog}.{schema_name}.silver_companies AS
+SELECT 
+    monotonically_increasing_id() AS sk_company_id,
+    TRIM(substring(raw_line, 79, 10)) AS company_id,
+    TRIM(substring(raw_line, 19, 60)) AS company_name,
+    TRIM(substring(raw_line, 93, 2)) AS industry_id,
+    TRIM(substring(raw_line, 95, 4)) AS sp_rating,
+    TRIM(substring(raw_line, 89, 4)) AS status,
+    CAST(TRIM(substring(raw_line, 99, 8)) AS DATE) AS founding_date,
+    TRIM(substring(raw_line, 348, 46)) AS ceo_name,
+    TRIM(substring(raw_line, 107, 80)) AS address_line1,
+    TRIM(substring(raw_line, 187, 80)) AS address_line2,
+    TRIM(substring(raw_line, 267, 12)) AS postal_code,
+    TRIM(substring(raw_line, 279, 25)) AS city,
+    TRIM(substring(raw_line, 304, 20)) AS state_province,
+    TRIM(substring(raw_line, 324, 24)) AS country,
+    TRIM(substring(raw_line, 394, 150)) AS description,
+    _batch_id AS batch_id,
+    current_timestamp() AS load_timestamp
+FROM {catalog}.{schema_name}.bronze_finwire
+WHERE _batch_id = {batch_id}
+  AND substring(raw_line, 16, 3) = 'CMP'
+  AND length(raw_line) >= 394
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- silver_securities: Extract SEC records from FINWIRE
-# MAGIC CREATE OR REPLACE TABLE silver_securities AS
-# MAGIC SELECT 
-# MAGIC     TRIM(substring(raw_line, 19, 15)) AS symbol,
-# MAGIC     TRIM(substring(raw_line, 34, 6)) AS issue_type,
-# MAGIC     TRIM(substring(raw_line, 40, 10)) AS status,
-# MAGIC     TRIM(substring(raw_line, 50, 70)) AS name,
-# MAGIC     TRIM(substring(raw_line, 120, 12)) AS ex_id,
-# MAGIC     CAST(TRIM(substring(raw_line, 132, 18)) AS BIGINT) AS sh_out,
-# MAGIC     CAST(TRIM(substring(raw_line, 150, 16)) AS DATE) AS first_trade_date,
-# MAGIC     TRIM(substring(raw_line, 166, 16)) AS first_trade_exchg,
-# MAGIC     CAST(TRIM(substring(raw_line, 182, 8)) AS DOUBLE) AS dividend,
-# MAGIC     TRIM(substring(raw_line, 190, 60)) AS co_name_or_cik,
-# MAGIC     _batch_id AS batch_id,
-# MAGIC     current_timestamp() AS load_timestamp
-# MAGIC FROM bronze_finwire
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND substring(raw_line, 16, 3) = 'SEC'  -- Record type = SEC
-# MAGIC   AND length(raw_line) >= 250;
+# silver_securities: Extract SEC records from FINWIRE (fixed-width positions)
+spark.sql(f"""
+CREATE OR REPLACE TABLE {catalog}.{schema_name}.silver_securities AS
+SELECT 
+    TRIM(substring(raw_line, 19, 15)) AS symbol,
+    TRIM(substring(raw_line, 34, 6)) AS issue_type,
+    TRIM(substring(raw_line, 40, 4)) AS status,
+    TRIM(substring(raw_line, 44, 70)) AS name,
+    TRIM(substring(raw_line, 114, 6)) AS ex_id,
+    CAST(TRIM(substring(raw_line, 120, 13)) AS BIGINT) AS sh_out,
+    CAST(TRIM(substring(raw_line, 133, 8)) AS DATE) AS first_trade_date,
+    TRIM(substring(raw_line, 141, 8)) AS first_trade_exchg,
+    CAST(TRIM(substring(raw_line, 149, 12)) AS DOUBLE) AS dividend,
+    TRIM(substring(raw_line, 161, 60)) AS co_name_or_cik,
+    _batch_id AS batch_id,
+    current_timestamp() AS load_timestamp
+FROM {catalog}.{schema_name}.bronze_finwire
+WHERE _batch_id = {batch_id}
+  AND substring(raw_line, 16, 3) = 'SEC'
+  AND length(raw_line) >= 220
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- silver_financials: Extract FIN records from FINWIRE
-# MAGIC CREATE OR REPLACE TABLE silver_financials AS
-# MAGIC SELECT 
-# MAGIC     TRIM(substring(raw_line, 214, 60)) AS co_name_or_cik,
-# MAGIC     CAST(TRIM(substring(raw_line, 19, 4)) AS INT) AS year,
-# MAGIC     CAST(TRIM(substring(raw_line, 23, 1)) AS INT) AS quarter,
-# MAGIC     CAST(TRIM(substring(raw_line, 24, 8)) AS DATE) AS qtr_start_date,
-# MAGIC     CAST(TRIM(substring(raw_line, 34, 8)) AS DATE) AS posting_date,
-# MAGIC     CAST(TRIM(substring(raw_line, 51, 17)) AS DOUBLE) AS revenue,
-# MAGIC     CAST(TRIM(substring(raw_line, 68, 17)) AS DOUBLE) AS earnings,
-# MAGIC     CAST(TRIM(substring(raw_line, 85, 12)) AS DOUBLE) AS eps,
-# MAGIC     CAST(TRIM(substring(raw_line, 102, 12)) AS DOUBLE) AS diluted_eps,
-# MAGIC     CAST(TRIM(substring(raw_line, 119, 12)) AS DOUBLE) AS margin,
-# MAGIC     CAST(TRIM(substring(raw_line, 136, 17)) AS DOUBLE) AS inventory,
-# MAGIC     CAST(TRIM(substring(raw_line, 153, 17)) AS DOUBLE) AS assets,
-# MAGIC     CAST(TRIM(substring(raw_line, 170, 17)) AS DOUBLE) AS liabilities,
-# MAGIC     CAST(TRIM(substring(raw_line, 187, 13)) AS BIGINT) AS sh_out,
-# MAGIC     CAST(TRIM(substring(raw_line, 204, 13)) AS BIGINT) AS diluted_sh_out,
-# MAGIC     _batch_id AS batch_id,
-# MAGIC     current_timestamp() AS load_timestamp
-# MAGIC FROM bronze_finwire
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND substring(raw_line, 16, 3) = 'FIN'  -- Record type = FIN
-# MAGIC   AND length(raw_line) >= 273;
+# silver_financials: Extract FIN records from FINWIRE (fixed-width per TPC-DI FIN layout)
+spark.sql(f"""
+CREATE OR REPLACE TABLE {catalog}.{schema_name}.silver_financials AS
+SELECT 
+    TRIM(substring(raw_line, 187, 60)) AS co_name_or_cik,
+    CAST(TRIM(substring(raw_line, 19, 4)) AS INT) AS year,
+    CAST(TRIM(substring(raw_line, 23, 1)) AS INT) AS quarter,
+    CAST(TRIM(substring(raw_line, 24, 8)) AS DATE) AS qtr_start_date,
+    CAST(TRIM(substring(raw_line, 32, 8)) AS DATE) AS posting_date,
+    CAST(TRIM(substring(raw_line, 40, 17)) AS DOUBLE) AS revenue,
+    CAST(TRIM(substring(raw_line, 57, 17)) AS DOUBLE) AS earnings,
+    CAST(TRIM(substring(raw_line, 74, 12)) AS DOUBLE) AS eps,
+    CAST(TRIM(substring(raw_line, 86, 12)) AS DOUBLE) AS diluted_eps,
+    CAST(TRIM(substring(raw_line, 98, 12)) AS DOUBLE) AS margin,
+    CAST(TRIM(substring(raw_line, 110, 17)) AS DOUBLE) AS inventory,
+    CAST(TRIM(substring(raw_line, 127, 17)) AS DOUBLE) AS assets,
+    CAST(TRIM(substring(raw_line, 144, 17)) AS DOUBLE) AS liabilities,
+    CAST(TRIM(substring(raw_line, 161, 13)) AS BIGINT) AS sh_out,
+    CAST(TRIM(substring(raw_line, 174, 13)) AS BIGINT) AS diluted_sh_out,
+    _batch_id AS batch_id,
+    current_timestamp() AS load_timestamp
+FROM {catalog}.{schema_name}.bronze_finwire
+WHERE _batch_id = {batch_id}
+  AND substring(raw_line, 16, 3) = 'FIN'
+  AND length(raw_line) >= 246
+""")
 
 # COMMAND ----------
 
