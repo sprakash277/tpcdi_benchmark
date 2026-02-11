@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # Transform Bronze to Silver (Batch 1)
 # MAGIC
-# MAGIC Transforms Bronze data to Silver layer
+# MAGIC Orchestrator: runs one notebook per silver table (batch/transform_silver_*.py).
 
 # COMMAND ----------
 
@@ -18,614 +18,56 @@ catalog = dbutils.widgets.get("catalog")
 schema_name = dbutils.widgets.get("schema_name")
 raw_data_path = dbutils.widgets.get("raw_data_path")
 sf = dbutils.widgets.get("sf")
-batch_id = int(dbutils.widgets.get("batch_id"))
-
-# Construct full path with sf appended
-full_raw_data_path = f"{raw_data_path}/sf={sf}"
-
-# Set SQL variables
-spark.sql(f"SET var.catalog = '{catalog}'")
-spark.sql(f"SET var.schema = '{schema_name}'")
-spark.sql(f"SET var.raw_data_path = '{full_raw_data_path}'")
-spark.sql(f"SET var.batch_id = {batch_id}")
-spark.sql(f"SET var.sf = {sf}")
+batch_id = dbutils.widgets.get("batch_id")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- ============================================================================
-# MAGIC -- TPC-DI v2: Silver Layer - Batch 1 Transformations
-# MAGIC -- ============================================================================
-# MAGIC -- Transforms Bronze raw data into Silver cleaned, typed tables
-# MAGIC -- Batch 1: Historical load (overwrite mode)
-# MAGIC -- ============================================================================
-# MAGIC -- Set variables
-# MAGIC -- SET var.batch_id = 1;
-# MAGIC -- ============================================================================
-# MAGIC -- Reference Data (Batch 1: Overwrite)
-# MAGIC -- ============================================================================
-# COMMAND ----------
-
-# Set catalog and create/use schema
 spark.sql(f"USE CATALOG {catalog}")
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{schema_name}")
 spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- silver_date: Parse Date.txt (18 columns pipe-delimited)
+def get_silver_batch_notebooks():
+    return [
+        "batch/transform_silver_date",
+        "batch/transform_silver_time",
+        "batch/transform_silver_status_type",
+        "batch/transform_silver_trade_type",
+        "batch/transform_silver_industry",
+        "batch/transform_silver_tax_rate",
+        "batch/transform_silver_companies",
+        "batch/transform_silver_securities",
+        "batch/transform_silver_financials",
+        "batch/transform_silver_customers",
+        "batch/transform_silver_accounts",
+        "batch/transform_silver_trades",
+        "batch/transform_silver_daily_market",
+        "batch/transform_silver_cash_transaction",
+        "batch/transform_silver_holding_history",
+        "batch/transform_silver_watch_history",
+        "batch/transform_silver_prospect",
+    ]
 
-# COMMAND ----------
+params = {
+    "catalog": catalog,
+    "schema_name": schema_name,
+    "raw_data_path": raw_data_path,
+    "sf": sf,
+    "batch_id": batch_id,
+}
 
-# MAGIC %sql
-# MAGIC CREATE OR REPLACE TABLE silver_date AS
-# MAGIC SELECT 
-# MAGIC     CAST(split(raw_line, '\\|')[0] AS INT) AS sk_date_id,
-# MAGIC     CAST(split(raw_line, '\\|')[1] AS DATE) AS date_value,
-# MAGIC     split(raw_line, '\\|')[2] AS date_desc,
-# MAGIC     CAST(split(raw_line, '\\|')[3] AS INT) AS calendar_year_id,
-# MAGIC     split(raw_line, '\\|')[4] AS calendar_year_desc,
-# MAGIC     CAST(split(raw_line, '\\|')[5] AS INT) AS calendar_qtr_id,
-# MAGIC     split(raw_line, '\\|')[6] AS calendar_qtr_desc,
-# MAGIC     CAST(split(raw_line, '\\|')[7] AS INT) AS calendar_month_id,
-# MAGIC     split(raw_line, '\\|')[8] AS calendar_month_desc,
-# MAGIC     CAST(split(raw_line, '\\|')[9] AS INT) AS calendar_week_id,
-# MAGIC     split(raw_line, '\\|')[10] AS calendar_week_desc,
-# MAGIC     CAST(split(raw_line, '\\|')[11] AS INT) AS day_of_week_num,
-# MAGIC     split(raw_line, '\\|')[12] AS day_of_week_desc,
-# MAGIC     CAST(split(raw_line, '\\|')[13] AS INT) AS fiscal_year_id,
-# MAGIC     split(raw_line, '\\|')[14] AS fiscal_year_desc,
-# MAGIC     CAST(split(raw_line, '\\|')[15] AS INT) AS fiscal_qtr_id,
-# MAGIC     split(raw_line, '\\|')[16] AS fiscal_qtr_desc,
-# MAGIC     CAST(split(raw_line, '\\|')[17] AS BOOLEAN) AS holiday_flag,
-# MAGIC     ${var.batch_id} AS batch_id,
-# MAGIC     current_timestamp() AS load_timestamp
-# MAGIC FROM bronze_date
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND raw_line IS NOT NULL
-# MAGIC   AND raw_line != '';
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- silver_time: Parse Time.txt (10 columns pipe-delimited)
-# MAGIC CREATE OR REPLACE TABLE silver_time AS
-# MAGIC SELECT 
-# MAGIC     CAST(split(raw_line, '\\|')[0] AS INT) AS sk_time_id,
-# MAGIC     split(raw_line, '\\|')[1] AS time_value,  -- STRING (Spark has no TIME type)
-# MAGIC     CAST(split(raw_line, '\\|')[2] AS INT) AS hour_id,
-# MAGIC     split(raw_line, '\\|')[3] AS hour_desc,
-# MAGIC     CAST(split(raw_line, '\\|')[4] AS INT) AS minute_id,
-# MAGIC     split(raw_line, '\\|')[5] AS minute_desc,
-# MAGIC     CAST(split(raw_line, '\\|')[6] AS INT) AS second_id,
-# MAGIC     split(raw_line, '\\|')[7] AS second_desc,
-# MAGIC     CAST(split(raw_line, '\\|')[8] AS BOOLEAN) AS market_hours_flag,
-# MAGIC     CAST(split(raw_line, '\\|')[9] AS BOOLEAN) AS office_hours_flag,
-# MAGIC     ${var.batch_id} AS batch_id,
-# MAGIC     current_timestamp() AS load_timestamp
-# MAGIC FROM bronze_time
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND raw_line IS NOT NULL
-# MAGIC   AND raw_line != '';
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- silver_status_type: Parse StatusType.txt (2 columns)
-# MAGIC CREATE OR REPLACE TABLE silver_status_type AS
-# MAGIC SELECT 
-# MAGIC     split(raw_line, '\\|')[0] AS st_id,
-# MAGIC     split(raw_line, '\\|')[1] AS st_name,
-# MAGIC     ${var.batch_id} AS batch_id,
-# MAGIC     current_timestamp() AS load_timestamp
-# MAGIC FROM bronze_status_type
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND raw_line IS NOT NULL
-# MAGIC   AND raw_line != '';
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- silver_trade_type: Parse TradeType.txt (4 columns)
-# MAGIC CREATE OR REPLACE TABLE silver_trade_type AS
-# MAGIC SELECT 
-# MAGIC     split(raw_line, '\\|')[0] AS tt_id,
-# MAGIC     split(raw_line, '\\|')[1] AS tt_name,
-# MAGIC     CAST(split(raw_line, '\\|')[2] AS BOOLEAN) AS tt_is_sell,
-# MAGIC     CAST(split(raw_line, '\\|')[3] AS BOOLEAN) AS tt_is_mrkt,
-# MAGIC     ${var.batch_id} AS batch_id,
-# MAGIC     current_timestamp() AS load_timestamp
-# MAGIC FROM bronze_trade_type
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND raw_line IS NOT NULL
-# MAGIC   AND raw_line != '';
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- silver_industry: Parse Industry.txt (3 columns)
-# MAGIC CREATE OR REPLACE TABLE silver_industry AS
-# MAGIC SELECT 
-# MAGIC     split(raw_line, '\\|')[0] AS in_id,
-# MAGIC     split(raw_line, '\\|')[1] AS in_name,
-# MAGIC     split(raw_line, '\\|')[2] AS in_sc_id,
-# MAGIC     ${var.batch_id} AS batch_id,
-# MAGIC     current_timestamp() AS load_timestamp
-# MAGIC FROM bronze_industry
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND raw_line IS NOT NULL
-# MAGIC   AND raw_line != '';
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- silver_tax_rate: Parse TaxRate.txt (3 columns)
-# MAGIC CREATE OR REPLACE TABLE silver_tax_rate AS
-# MAGIC SELECT 
-# MAGIC     split(raw_line, '\\|')[0] AS tx_id,
-# MAGIC     split(raw_line, '\\|')[1] AS tx_name,
-# MAGIC     CAST(split(raw_line, '\\|')[2] AS DOUBLE) AS tx_rate,
-# MAGIC     ${var.batch_id} AS batch_id,
-# MAGIC     current_timestamp() AS load_timestamp
-# MAGIC FROM bronze_tax_rate
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND raw_line IS NOT NULL
-# MAGIC   AND raw_line != '';
-
-# COMMAND ----------
-
-# ============================================================================
-# Market Data: Parse FINWIRE (Fixed-Width) - silver_companies (CMP records)
-# ============================================================================
-spark.sql(f"""
-CREATE OR REPLACE TABLE {catalog}.{schema_name}.silver_companies AS
-SELECT 
-    monotonically_increasing_id() AS sk_company_id,
-    TRIM(substring(raw_line, 79, 10)) AS company_id,
-    TRIM(substring(raw_line, 19, 60)) AS company_name,
-    TRIM(substring(raw_line, 93, 2)) AS industry_id,
-    TRIM(substring(raw_line, 95, 4)) AS sp_rating,
-    TRIM(substring(raw_line, 89, 4)) AS status,
-    try_to_date(substring(raw_line, 99, 8), 'yyyyMMdd') AS founding_date,
-    TRIM(substring(raw_line, 348, 46)) AS ceo_name,
-    TRIM(substring(raw_line, 107, 80)) AS address_line1,
-    TRIM(substring(raw_line, 187, 80)) AS address_line2,
-    TRIM(substring(raw_line, 267, 12)) AS postal_code,
-    TRIM(substring(raw_line, 279, 25)) AS city,
-    TRIM(substring(raw_line, 304, 20)) AS state_province,
-    TRIM(substring(raw_line, 324, 24)) AS country,
-    TRIM(substring(raw_line, 394, 150)) AS description,
-    _batch_id AS batch_id,
-    current_timestamp() AS load_timestamp
-FROM {catalog}.{schema_name}.bronze_finwire
-WHERE _batch_id = {batch_id}
-  AND substring(raw_line, 16, 3) = 'CMP'
-  AND length(raw_line) >= 394
-""")
-
-# COMMAND ----------
-
-# silver_securities: Extract SEC records from FINWIRE (fixed-width positions)
-spark.sql(f"""
-CREATE OR REPLACE TABLE {catalog}.{schema_name}.silver_securities AS
-SELECT 
-    TRIM(substring(raw_line, 19, 15)) AS symbol,
-    TRIM(substring(raw_line, 34, 6)) AS issue_type,
-    TRIM(substring(raw_line, 40, 4)) AS status,
-    TRIM(substring(raw_line, 44, 70)) AS name,
-    TRIM(substring(raw_line, 114, 6)) AS ex_id,
-    CAST(TRIM(substring(raw_line, 120, 13)) AS BIGINT) AS sh_out,
-    try_to_date(substring(raw_line, 133, 8), 'yyyyMMdd') AS first_trade_date,
-    TRIM(substring(raw_line, 141, 8)) AS first_trade_exchg,
-    CAST(TRIM(substring(raw_line, 149, 12)) AS DOUBLE) AS dividend,
-    TRIM(substring(raw_line, 161, 60)) AS co_name_or_cik,
-    _batch_id AS batch_id,
-    current_timestamp() AS load_timestamp
-FROM {catalog}.{schema_name}.bronze_finwire
-WHERE _batch_id = {batch_id}
-  AND substring(raw_line, 16, 3) = 'SEC'
-  AND length(raw_line) >= 220
-""")
-
-# COMMAND ----------
-
-# silver_financials: Extract FIN records from FINWIRE (fixed-width per TPC-DI FIN layout)
-spark.sql(f"""
-CREATE OR REPLACE TABLE {catalog}.{schema_name}.silver_financials AS
-SELECT 
-    TRIM(substring(raw_line, 187, 60)) AS co_name_or_cik,
-    CAST(TRIM(substring(raw_line, 19, 4)) AS INT) AS year,
-    CAST(TRIM(substring(raw_line, 23, 1)) AS INT) AS quarter,
-    try_to_date(substring(raw_line, 24, 8), 'yyyyMMdd') AS qtr_start_date,
-    try_to_date(substring(raw_line, 32, 8), 'yyyyMMdd') AS posting_date,
-    CAST(TRIM(substring(raw_line, 40, 17)) AS DOUBLE) AS revenue,
-    CAST(TRIM(substring(raw_line, 57, 17)) AS DOUBLE) AS earnings,
-    CAST(TRIM(substring(raw_line, 74, 12)) AS DOUBLE) AS eps,
-    CAST(TRIM(substring(raw_line, 86, 12)) AS DOUBLE) AS diluted_eps,
-    CAST(TRIM(substring(raw_line, 98, 12)) AS DOUBLE) AS margin,
-    CAST(TRIM(substring(raw_line, 110, 17)) AS DOUBLE) AS inventory,
-    CAST(TRIM(substring(raw_line, 127, 17)) AS DOUBLE) AS assets,
-    CAST(TRIM(substring(raw_line, 144, 17)) AS DOUBLE) AS liabilities,
-    CAST(TRIM(substring(raw_line, 161, 13)) AS BIGINT) AS sh_out,
-    CAST(TRIM(substring(raw_line, 174, 13)) AS BIGINT) AS diluted_sh_out,
-    _batch_id AS batch_id,
-    current_timestamp() AS load_timestamp
-FROM {catalog}.{schema_name}.bronze_finwire
-WHERE _batch_id = {batch_id}
-  AND substring(raw_line, 16, 3) = 'FIN'
-  AND length(raw_line) >= 246
-""")
-
-# COMMAND ----------
-
-# ============================================================================
-# Brokerage Data: silver_customers from bronze_customer_mgmt (same as v1)
-# ============================================================================
-# v1 logic: read bronze_customer_mgmt, extract Customer fields (Pattern 1 direct or Pattern 2 explode), transform to silver schema, overwrite
-from pyspark.sql.functions import (
-    col, lit, when, to_date, to_timestamp, explode, current_timestamp, coalesce, trim, expr
-)
-from pyspark.sql.types import TimestampType
-
-bronze_df = spark.table(f"{catalog}.{schema_name}.bronze_customer_mgmt").filter(col("_batch_id") == batch_id)
-customer_df = None
-
-# Pattern 1: Direct access (row = Action with Customer struct)
 try:
-    customer_df = bronze_df.select(
-        col("_ActionType").alias("action_type"),
-        col("_ActionTS").alias("action_ts"),
-        col("Customer._C_ID").alias("c_id"),
-        col("Customer._C_TAX_ID").alias("c_tax_id"),
-        col("Customer._C_GNDR").alias("c_gndr"),
-        col("Customer._C_TIER").alias("c_tier"),
-        col("Customer._C_DOB").alias("c_dob"),
-        col("Customer.Name.C_L_NAME").alias("c_l_name"),
-        col("Customer.Name.C_F_NAME").alias("c_f_name"),
-        col("Customer.Name.C_M_NAME").alias("c_m_name"),
-        col("Customer.Address.C_ADLINE1").alias("c_adline1"),
-        col("Customer.Address.C_ADLINE2").alias("c_adline2"),
-        col("Customer.Address.C_ZIPCODE").alias("c_zipcode"),
-        col("Customer.Address.C_CITY").alias("c_city"),
-        col("Customer.Address.C_STATE_PROV").alias("c_state_prov"),
-        col("Customer.Address.C_CTRY").alias("c_ctry"),
-        col("Customer.ContactInfo.C_PRIM_EMAIL").alias("c_prim_email"),
-        col("Customer.ContactInfo.C_ALT_EMAIL").alias("c_alt_email"),
-        col("Customer.TaxInfo.C_LCL_TX_ID").alias("c_lcl_tx_id"),
-        col("Customer.TaxInfo.C_NAT_TX_ID").alias("c_nat_tx_id"),
-        col("_batch_id").alias("batch_id"),
-        col("_load_timestamp").alias("load_timestamp"),
-    ).filter(col("c_id").isNotNull())
-    if customer_df.count() == 0:
-        customer_df = None
+    notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+    base_path = "/".join(notebook_path.rstrip("/").split("/")[:-1])
 except Exception:
-    customer_df = None
+    base_path = ""
 
-# Pattern 2: Actions in array (explode)
-if customer_df is None:
-    for cname in bronze_df.columns:
-        if "array" in str(bronze_df.schema[cname].dataType).lower():
-            try:
-                exploded = bronze_df.select(
-                    explode(col(cname)).alias("Action"),
-                    col("_batch_id"),
-                    col("_load_timestamp")
-                )
-                customer_df = exploded.select(
-                    col("Action._ActionType").alias("action_type"),
-                    col("Action._ActionTS").alias("action_ts"),
-                    col("Action.Customer._C_ID").alias("c_id"),
-                    col("Action.Customer._C_TAX_ID").alias("c_tax_id"),
-                    col("Action.Customer._C_GNDR").alias("c_gndr"),
-                    col("Action.Customer._C_TIER").alias("c_tier"),
-                    col("Action.Customer._C_DOB").alias("c_dob"),
-                    col("Action.Customer.Name.C_L_NAME").alias("c_l_name"),
-                    col("Action.Customer.Name.C_F_NAME").alias("c_f_name"),
-                    col("Action.Customer.Name.C_M_NAME").alias("c_m_name"),
-                    col("Action.Customer.Address.C_ADLINE1").alias("c_adline1"),
-                    col("Action.Customer.Address.C_ADLINE2").alias("c_adline2"),
-                    col("Action.Customer.Address.C_ZIPCODE").alias("c_zipcode"),
-                    col("Action.Customer.Address.C_CITY").alias("c_city"),
-                    col("Action.Customer.Address.C_STATE_PROV").alias("c_state_prov"),
-                    col("Action.Customer.Address.C_CTRY").alias("c_ctry"),
-                    col("Action.Customer.ContactInfo.C_PRIM_EMAIL").alias("c_prim_email"),
-                    col("Action.Customer.ContactInfo.C_ALT_EMAIL").alias("c_alt_email"),
-                    col("Action.Customer.TaxInfo.C_LCL_TX_ID").alias("c_lcl_tx_id"),
-                    col("Action.Customer.TaxInfo.C_NAT_TX_ID").alias("c_nat_tx_id"),
-                    col("_batch_id").alias("batch_id"),
-                    col("_load_timestamp").alias("load_timestamp"),
-                ).filter(col("Action.Customer._C_ID").isNotNull())
-                if customer_df.count() > 0:
-                    break
-            except Exception:
-                continue
-
-if customer_df is None or customer_df.count() == 0:
-    raise RuntimeError("Failed to extract customers from bronze_customer_mgmt (Pattern 1 and 2)")
-
-# Transform to silver schema (same as v1 _transform_to_silver_schema)
-silver_customers = customer_df.select(
-    expr("try_cast(c_id AS BIGINT)").alias("sk_customer_id"),
-    expr("try_cast(c_id AS BIGINT)").alias("customer_id"),
-    col("c_tax_id").alias("tax_id"),
-    col("action_type").alias("status"),
-    col("c_l_name").alias("last_name"),
-    col("c_f_name").alias("first_name"),
-    col("c_m_name").alias("middle_name"),
-    when(col("c_gndr").isin("M", "m"), lit("Male"))
-        .when(col("c_gndr").isin("F", "f"), lit("Female"))
-        .otherwise(lit("Unknown")).alias("gender"),
-    expr("try_cast(c_tier AS INT)").alias("tier"),
-    expr("try_cast(c_dob AS DATE)").alias("dob"),
-    col("c_adline1").alias("address_line1"),
-    col("c_adline2").alias("address_line2"),
-    col("c_zipcode").alias("postal_code"),
-    col("c_city").alias("city"),
-    col("c_state_prov").alias("state_prov"),
-    col("c_ctry").alias("country"),
-    col("c_prim_email").alias("email1"),
-    col("c_alt_email").alias("email2"),
-    col("c_lcl_tx_id").alias("local_tax_id"),
-    col("c_nat_tx_id").alias("national_tax_id"),
-    when(col("action_type") == "INACT", lit(False)).otherwise(lit(True)).alias("is_current"),
-    to_timestamp(col("action_ts")).alias("effective_date"),
-    lit(None).cast(TimestampType()).alias("end_date"),
-    col("batch_id"),
-    col("load_timestamp"),
-    coalesce(col("action_type"), lit("I")).alias("record_type"),
-)
-silver_customers.write.format("delta").mode("overwrite").saveAsTable(f"{catalog}.{schema_name}.silver_customers")
-
-# COMMAND ----------
-
-# ============================================================================
-# silver_accounts: Extract from bronze_customer_mgmt (same as v1)
-# ============================================================================
-# v1 logic: read bronze_customer_mgmt, extract Customer.Account + Customer._C_ID, filter ADDACCT/UPDACCT/INACT, transform to silver, overwrite
-from pyspark.sql.functions import col, lit, when, to_timestamp, coalesce, trim
-from pyspark.sql.types import TimestampType
-
-bronze_accounts_df = spark.table(f"{catalog}.{schema_name}.bronze_customer_mgmt").filter(col("_batch_id") == batch_id)
-account_df = None
-
-# Strategy 1: Nested struct paths (Customer.Account.*, Customer._C_ID)
-try:
-    account_df = bronze_accounts_df.filter(
-        col("_ActionType").isin("ADDACCT", "UPDACCT", "INACT")
-        & col("Customer").isNotNull()
-        & col("Customer.Account").isNotNull()
-    ).select(
-        col("_ActionType").alias("action_type"),
-        col("_ActionTS").alias("action_ts"),
-        col("Customer.Account._CA_ID").alias("ca_id"),
-        col("Customer.Account.CA_B_ID").alias("ca_b_id"),
-        col("Customer._C_ID").alias("c_id"),
-        col("Customer.Account.CA_NAME").alias("ca_name"),
-        col("Customer.Account._CA_TAX_ST").alias("ca_tax_st"),
-        col("_batch_id").alias("batch_id"),
-        col("_load_timestamp").alias("load_timestamp"),
-    )
-    if account_df.count() == 0:
-        account_df = None
-except Exception:
-    account_df = None
-
-# Strategy 2: COALESCE for optional structs
-if account_df is None:
-    try:
-        account_df = bronze_accounts_df.filter(
-            col("_ActionType").isin("ADDACCT", "UPDACCT", "INACT")
-            & col("Customer").isNotNull()
-            & col("Customer.Account").isNotNull()
-        ).select(
-            col("_ActionType").alias("action_type"),
-            col("_ActionTS").alias("action_ts"),
-            col("Customer.Account._CA_ID").alias("ca_id"),
-            col("Customer.Account.CA_B_ID").alias("ca_b_id"),
-            col("Customer._C_ID").alias("c_id"),
-            trim(coalesce(col("Customer.Account.CA_NAME"), lit(""))).alias("ca_name"),
-            trim(coalesce(col("Customer.Account._CA_TAX_ST").cast("string"), lit("0"))).alias("ca_tax_st"),
-            col("_batch_id").alias("batch_id"),
-            col("_load_timestamp").alias("load_timestamp"),
-        )
-        if account_df.count() == 0:
-            account_df = None
-    except Exception:
-        account_df = None
-
-if account_df is None or account_df.count() == 0:
-    raise RuntimeError("Failed to extract accounts from bronze_customer_mgmt (Strategy 1 and 2)")
-
-# Transform to silver schema (same as v1 _transform_to_silver_schema)
-silver_accounts = account_df.select(
-    col("ca_id").cast("long").alias("account_id"),
-    coalesce(col("ca_b_id"), lit(0)).cast("long").alias("broker_id"),
-    coalesce(col("c_id"), lit(0)).cast("long").alias("customer_id"),
-    coalesce(col("ca_name"), lit("")).alias("account_name"),
-    coalesce(col("ca_tax_st"), lit(0)).cast("int").alias("tax_status"),
-    when(col("action_type") == "INACT", lit("INACT")).otherwise(lit("ACTV")).alias("status_id"),
-    lit(True).alias("is_current"),
-    to_timestamp(col("action_ts")).alias("effective_date"),
-    lit(None).cast(TimestampType()).alias("end_date"),
-    col("batch_id").cast("int"),
-    col("load_timestamp"),
-    coalesce(col("action_type"), lit("I")).alias("record_type"),
-)
-silver_accounts.write.format("delta").mode("overwrite").saveAsTable(f"{catalog}.{schema_name}.silver_accounts")
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- ============================================================================
-# MAGIC -- Transaction Data (Batch 1)
-# MAGIC -- ============================================================================
-# MAGIC -- silver_trades: Parse Trade.txt (16 columns historical)
-# MAGIC CREATE OR REPLACE TABLE silver_trades AS
-# MAGIC SELECT 
-# MAGIC     CAST(split(raw_line, '\\|')[0] AS BIGINT) AS trade_id,
-# MAGIC     CAST(split(raw_line, '\\|')[1] AS TIMESTAMP) AS trade_dts,
-# MAGIC     split(raw_line, '\\|')[2] AS status_id,
-# MAGIC     split(raw_line, '\\|')[3] AS trade_type_id,
-# MAGIC     CAST(split(raw_line, '\\|')[4] AS BOOLEAN) AS is_cash,
-# MAGIC     split(raw_line, '\\|')[5] AS symbol,
-# MAGIC     CAST(split(raw_line, '\\|')[6] AS INT) AS quantity,
-# MAGIC     CAST(split(raw_line, '\\|')[7] AS DOUBLE) AS bid_price,
-# MAGIC     CAST(split(raw_line, '\\|')[8] AS BIGINT) AS account_id,
-# MAGIC     split(raw_line, '\\|')[9] AS exec_name,
-# MAGIC     CAST(split(raw_line, '\\|')[10] AS DOUBLE) AS trade_price,
-# MAGIC     CAST(split(raw_line, '\\|')[11] AS DOUBLE) AS charge,
-# MAGIC     CAST(split(raw_line, '\\|')[12] AS DOUBLE) AS commission,
-# MAGIC     CAST(split(raw_line, '\\|')[13] AS DOUBLE) AS tax,
-# MAGIC     -- SCD Type 2: All Batch 1 records are current
-# MAGIC     TRUE AS is_current,
-# MAGIC     CAST(split(raw_line, '\\|')[1] AS TIMESTAMP) AS effective_date,  -- Use trade_dts
-# MAGIC     NULL AS end_date,
-# MAGIC     ${var.batch_id} AS batch_id,
-# MAGIC     current_timestamp() AS load_timestamp,
-# MAGIC     NULL AS record_type  -- Historical has no record_type
-# MAGIC FROM bronze_trade
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND raw_line IS NOT NULL
-# MAGIC   AND raw_line != ''
-# MAGIC   AND size(split(raw_line, '\\|')) = 16;  -- Historical = 16 columns
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- silver_daily_market: Parse DailyMarket.txt (6 columns historical)
-# MAGIC CREATE OR REPLACE TABLE silver_daily_market AS
-# MAGIC SELECT 
-# MAGIC     CONCAT(CAST(split(raw_line, '\\|')[0] AS DATE), '|', split(raw_line, '\\|')[1]) AS dm_key,
-# MAGIC     CAST(split(raw_line, '\\|')[0] AS DATE) AS dm_date,
-# MAGIC     split(raw_line, '\\|')[1] AS dm_s_symb,
-# MAGIC     CAST(split(raw_line, '\\|')[2] AS DOUBLE) AS dm_close,
-# MAGIC     CAST(split(raw_line, '\\|')[3] AS DOUBLE) AS dm_high,
-# MAGIC     CAST(split(raw_line, '\\|')[4] AS DOUBLE) AS dm_low,
-# MAGIC     CAST(split(raw_line, '\\|')[5] AS BIGINT) AS dm_vol,
-# MAGIC     ${var.batch_id} AS batch_id,
-# MAGIC     current_timestamp() AS load_timestamp
-# MAGIC FROM bronze_daily_market
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND raw_line IS NOT NULL
-# MAGIC   AND raw_line != ''
-# MAGIC   AND size(split(raw_line, '\\|')) = 6;  -- Historical = 6 columns
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- silver_cash_transaction: Parse CashTransaction.txt (4 columns historical)
-# MAGIC CREATE OR REPLACE TABLE silver_cash_transaction AS
-# MAGIC SELECT 
-# MAGIC     CONCAT(CAST(split(raw_line, '\\|')[0] AS BIGINT), '|', CAST(split(raw_line, '\\|')[1] AS TIMESTAMP)) AS ct_key,
-# MAGIC     CAST(split(raw_line, '\\|')[0] AS BIGINT) AS ct_ca_id,
-# MAGIC     CAST(split(raw_line, '\\|')[1] AS TIMESTAMP) AS ct_dts,
-# MAGIC     CAST(split(raw_line, '\\|')[2] AS DOUBLE) AS ct_amt,
-# MAGIC     split(raw_line, '\\|')[3] AS ct_name,
-# MAGIC     TRUE AS is_current,
-# MAGIC     CAST(split(raw_line, '\\|')[1] AS TIMESTAMP) AS effective_date,
-# MAGIC     NULL AS end_date,
-# MAGIC     ${var.batch_id} AS batch_id,
-# MAGIC     current_timestamp() AS load_timestamp,
-# MAGIC     NULL AS record_type
-# MAGIC FROM bronze_cash_transaction
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND raw_line IS NOT NULL
-# MAGIC   AND raw_line != ''
-# MAGIC   AND size(split(raw_line, '\\|')) = 4;  -- Historical = 4 columns
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- silver_holding_history: Parse HoldingHistory.txt (4 columns historical)
-# MAGIC CREATE OR REPLACE TABLE silver_holding_history AS
-# MAGIC SELECT 
-# MAGIC     CAST(split(raw_line, '\\|')[0] AS BIGINT) AS hh_h_t_id,
-# MAGIC     CAST(split(raw_line, '\\|')[1] AS BIGINT) AS hh_t_id,
-# MAGIC     CAST(split(raw_line, '\\|')[2] AS INT) AS hh_before_qty,
-# MAGIC     CAST(split(raw_line, '\\|')[3] AS INT) AS hh_after_qty,
-# MAGIC     TRUE AS is_current,
-# MAGIC     current_timestamp() AS effective_date,
-# MAGIC     NULL AS end_date,
-# MAGIC     ${var.batch_id} AS batch_id,
-# MAGIC     current_timestamp() AS load_timestamp,
-# MAGIC     NULL AS record_type
-# MAGIC FROM bronze_holding_history
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND raw_line IS NOT NULL
-# MAGIC   AND raw_line != ''
-# MAGIC   AND size(split(raw_line, '\\|')) = 4;  -- Historical = 4 columns
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- silver_watch_history: Parse WatchHistory.txt (4 columns historical)
-# MAGIC CREATE OR REPLACE TABLE silver_watch_history AS
-# MAGIC SELECT 
-# MAGIC     CONCAT(CAST(split(raw_line, '\\|')[0] AS BIGINT), '|', split(raw_line, '\\|')[1]) AS wh_key,
-# MAGIC     CAST(split(raw_line, '\\|')[0] AS BIGINT) AS w_c_id,
-# MAGIC     split(raw_line, '\\|')[1] AS w_s_symb,
-# MAGIC     CAST(split(raw_line, '\\|')[2] AS TIMESTAMP) AS w_dts,
-# MAGIC     split(raw_line, '\\|')[3] AS w_action,
-# MAGIC     TRUE AS is_current,
-# MAGIC     CAST(split(raw_line, '\\|')[2] AS TIMESTAMP) AS effective_date,
-# MAGIC     NULL AS end_date,
-# MAGIC     ${var.batch_id} AS batch_id,
-# MAGIC     current_timestamp() AS load_timestamp,
-# MAGIC     NULL AS record_type
-# MAGIC FROM bronze_watch_history
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND raw_line IS NOT NULL
-# MAGIC   AND raw_line != ''
-# MAGIC   AND size(split(raw_line, '\\|')) = 4;  -- Historical = 4 columns
-
-# COMMAND ----------
-
-# ============================================================================
-# Other Sources (Batch 1): silver_prospect from Prospect.csv (ref: _c0.._c21 + MarketingNameplate)
-# ============================================================================
-spark.sql(f"""
-CREATE OR REPLACE TABLE {catalog}.{schema_name}.silver_prospect AS
-SELECT
-  split(raw_line, ',')[0] AS agency_id,
-  split(raw_line, ',')[1] AS last_name,
-  split(raw_line, ',')[2] AS first_name,
-  split(raw_line, ',')[3] AS middle_initial,
-  split(raw_line, ',')[4] AS gender,
-  split(raw_line, ',')[5] AS address_line1,
-  split(raw_line, ',')[6] AS address_line2,
-  split(raw_line, ',')[7] AS postal_code,
-  split(raw_line, ',')[8] AS city,
-  split(raw_line, ',')[9] AS state,
-  split(raw_line, ',')[10] AS country,
-  split(raw_line, ',')[11] AS phone,
-  try_cast(split(raw_line, ',')[12] AS INT) AS income,
-  try_cast(split(raw_line, ',')[13] AS INT) AS number_cars,
-  try_cast(split(raw_line, ',')[14] AS INT) AS number_children,
-  split(raw_line, ',')[15] AS marital_status,
-  try_cast(split(raw_line, ',')[16] AS INT) AS age,
-  try_cast(split(raw_line, ',')[17] AS INT) AS credit_rating,
-  split(raw_line, ',')[18] AS own_or_rent_flag,
-  split(raw_line, ',')[19] AS employer,
-  try_cast(split(raw_line, ',')[20] AS BOOLEAN) AS is_customer,
-  try_cast(split(raw_line, ',')[21] AS BIGINT) AS net_worth,
-  array_join(
-    array_compact(
-      array(
-        CASE WHEN try_cast(split(raw_line, ',')[21] AS BIGINT) > 1000000 OR try_cast(split(raw_line, ',')[12] AS INT) > 200000 THEN 'HighValue' ELSE NULL END,
-        CASE WHEN try_cast(split(raw_line, ',')[16] AS INT) < 25 THEN 'YoungAdult' ELSE NULL END,
-        CASE WHEN try_cast(split(raw_line, ',')[17] AS INT) > 700 THEN 'HighCredit' ELSE NULL END
-      )
-    ),
-    ','
-  ) AS marketing_nameplate,
-  _batch_id AS batch_id,
-  current_timestamp() AS load_timestamp
-FROM {catalog}.{schema_name}.bronze_prospect
-WHERE _batch_id = {batch_id}
-  AND raw_line IS NOT NULL
-  AND raw_line != ''
-""")
+for rel_path in get_silver_batch_notebooks():
+    run_path = f"{base_path}/{rel_path}" if base_path else rel_path
+    print(f"Running {run_path} ...")
+    dbutils.notebook.run(run_path, timeout_seconds=600, arguments=params)
+    print(f"Done: {run_path}")
 
 # COMMAND ----------
 
@@ -634,5 +76,4 @@ WHERE _batch_id = {batch_id}
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC SELECT 'Load completed' AS status;
+spark.sql("SELECT 'Load completed' AS status").show()

@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # Load Bronze Incremental Data
 # MAGIC
-# MAGIC Loads incremental data into Bronze tables
+# MAGIC Orchestrator: creates bronze tables if needed, then runs one notebook per incremental bronze table (incremental/load_bronze_*.py).
 
 # COMMAND ----------
 
@@ -10,8 +10,8 @@ dbutils.widgets.text("catalog", "tpcdi_catalog", "Unity Catalog")
 dbutils.widgets.text("schema_name", "tpcdi_schema_sf10", "Schema Name")
 dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw Data Path")
 dbutils.widgets.text("sf", "10", "Scale Factor")
-dbutils.widgets.text("batch_id", "1", "Batch ID")
-dbutils.widgets.text("xml_format", "com.databricks.spark.xml", "XML Format (xml, com.databricks.spark.xml, or org.apache.spark.sql.execution.datasources.xml)")
+dbutils.widgets.text("batch_id", "2", "Batch ID")
+dbutils.widgets.text("xml_format", "com.databricks.spark.xml", "XML Format")
 
 # COMMAND ----------
 
@@ -19,56 +19,40 @@ catalog = dbutils.widgets.get("catalog")
 schema_name = dbutils.widgets.get("schema_name")
 raw_data_path = dbutils.widgets.get("raw_data_path")
 sf = dbutils.widgets.get("sf")
-batch_id = int(dbutils.widgets.get("batch_id"))
+batch_id = dbutils.widgets.get("batch_id")
 xml_format = dbutils.widgets.get("xml_format") or "com.databricks.spark.xml"
-
-# Construct full path with sf appended
 full_raw_data_path = f"{raw_data_path}/sf={sf}"
 
-# Set SQL variables
-spark.sql(f"SET var.catalog = '{catalog}'")
-spark.sql(f"SET var.schema = '{schema_name}'")
-spark.sql(f"SET var.raw_data_path = '{full_raw_data_path}'")
-spark.sql(f"SET var.batch_id = {batch_id}")
-spark.sql(f"SET var.sf = {sf}")
+# COMMAND ----------
+
+spark.sql(f"USE CATALOG {catalog}")
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{schema_name}")
+spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Create Bronze Tables
+# MAGIC ## Create Bronze Tables (if not exist)
 # MAGIC
-# MAGIC Create all bronze tables before loading data.
 
 # COMMAND ----------
 
-# Get the current notebook path to determine the base path for table creation notebooks
 import os
-current_notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-base_path = os.path.dirname(current_notebook_path)
-tables_path = f"{base_path}/tables"
+try:
+    current_notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+    base_path = os.path.dirname(current_notebook_path)
+except Exception:
+    base_path = ""
+tables_path = f"{base_path}/tables" if base_path else "tables"
 
-# List of all bronze tables to create (in order)
 bronze_tables = [
-    "bronze_date",
-    "bronze_time", 
-    "bronze_status_type",
-    "bronze_trade_type",
-    "bronze_industry",
-    "bronze_tax_rate",
-    "bronze_hr",
-    "bronze_customer_mgmt",
-    "bronze_customer",
-    "bronze_account",
-    "bronze_trade",
-    "bronze_daily_market",
-    "bronze_prospect",
-    "bronze_cash_transaction",
-    "bronze_holding_history",
-    "bronze_watch_history",
-    "bronze_finwire"
+    "bronze_date", "bronze_time", "bronze_status_type", "bronze_trade_type",
+    "bronze_industry", "bronze_tax_rate", "bronze_hr", "bronze_customer_mgmt",
+    "bronze_customer", "bronze_account", "bronze_trade", "bronze_daily_market",
+    "bronze_prospect", "bronze_cash_transaction", "bronze_holding_history",
+    "bronze_watch_history", "bronze_finwire",
 ]
 
-# Create all bronze tables
 for table_name in bronze_tables:
     create_notebook = f"{tables_path}/create_{table_name}"
     print(f"Creating table: {table_name} via {create_notebook}")
@@ -78,166 +62,49 @@ for table_name in bronze_tables:
             "schema_name": schema_name
         })
     except Exception as e:
-        # If table already exists, that's okay (CREATE TABLE IF NOT EXISTS handles this)
         if "already exists" not in str(e).lower() and "table" not in str(e).lower():
             print(f"Warning: Error creating {table_name}: {e}")
             raise
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- ============================================================================
-# MAGIC -- TPC-DI v2: Bronze Layer - Incremental Load (Batch 2+)
-# MAGIC -- ============================================================================
-# MAGIC -- Loads raw files from Batch{N}/ directory into Bronze tables
-# MAGIC -- Uses APPEND mode to add incremental data
-# MAGIC -- ============================================================================
-# MAGIC -- Set variables (adjust paths and batch_id as needed)
-# MAGIC -- SET var.raw_data_path = '/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume/sf=10';
-# MAGIC -- SET var.batch_id = 2;  -- Change for Batch 3, 4, etc.
-# MAGIC -- ============================================================================
-# MAGIC -- Brokerage Data (Batch 2+: Pipe-delimited)
-# MAGIC -- ============================================================================
-# COMMAND ----------
-
-# Set catalog and create/use schema
-spark.sql(f"USE CATALOG {catalog}")
-spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{schema_name}")
-spark.sql(f"USE {catalog}.{schema_name}")
+# MAGIC %md
+# MAGIC ## Run incremental load per table
 
 # COMMAND ----------
 
-# COMMAND ----------
+def get_bronze_incremental_notebooks():
+    return [
+        "incremental/load_bronze_customer",
+        "incremental/load_bronze_account",
+        "incremental/load_bronze_trade",
+        "incremental/load_bronze_daily_market",
+        "incremental/load_bronze_cash_transaction",
+        "incremental/load_bronze_holding_history",
+        "incremental/load_bronze_watch_history",
+        "incremental/load_bronze_prospect",
+    ]
 
-# Load Customer.txt (incremental)
-spark.sql(f"""
-INSERT INTO bronze_customer (raw_line, _batch_id, _load_timestamp, _source_file)
-SELECT 
-    value AS raw_line,
-    {batch_id} AS _batch_id,
-    current_timestamp() AS _load_timestamp,
-    'Customer.txt' AS _source_file
-FROM read_files('{full_raw_data_path}/Batch{batch_id}/Customer.txt', format => 'text', lineSep => '\n')
-WHERE value IS NOT NULL AND value != ''
-""")
+params = {
+    "catalog": catalog,
+    "schema_name": schema_name,
+    "raw_data_path": raw_data_path,
+    "sf": sf,
+    "batch_id": batch_id,
+    "xml_format": xml_format,
+}
 
-# COMMAND ----------
+try:
+    notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+    base_path = "/".join(notebook_path.rstrip("/").split("/")[:-1])
+except Exception:
+    base_path = ""
 
-# COMMAND ----------
-
-spark.sql(f"""
--- Load Account.txt (incremental)
-INSERT INTO bronze_account (raw_line, _batch_id, _load_timestamp, _source_file)
-SELECT 
-    value AS raw_line,
-    ${var.batch_id} AS _batch_id,
-    current_timestamp() AS _load_timestamp,
-    'Account.txt' AS _source_file
-FROM read_files('{full_raw_data_path}/Batch${var.batch_id}/Account.txt', format => 'text', lineSep => '\n')
-WHERE value IS NOT NULL AND value != '';
-""")
-
-# COMMAND ----------
-
-# COMMAND ----------
-
-# ============================================================================
-spark.sql(f"""
--- Transaction Data (Batch 2+: All batches)
--- ============================================================================
--- Load Trade.txt (incremental)
-INSERT INTO bronze_trade (raw_line, _batch_id, _load_timestamp, _source_file)
-SELECT 
-    value AS raw_line,
-    {batch_id} AS _batch_id,
-    current_timestamp() AS _load_timestamp,
-    'Trade.txt' AS _source_file
-FROM read_files('{full_raw_data_path}/Batch{batch_id}/Trade.txt', format => 'text', lineSep => '\n')
-WHERE value IS NOT NULL AND value != '';
-""")
-
-# COMMAND ----------
-
-# COMMAND ----------
-
-spark.sql(f"""
--- Load DailyMarket.txt (incremental)
-INSERT INTO bronze_daily_market (raw_line, _batch_id, _load_timestamp, _source_file)
-SELECT 
-    value AS raw_line,
-    ${var.batch_id} AS _batch_id,
-    current_timestamp() AS _load_timestamp,
-    'DailyMarket.txt' AS _source_file
-FROM read_files('{full_raw_data_path}/Batch${var.batch_id}/DailyMarket.txt', format => 'text', lineSep => '\n')
-WHERE value IS NOT NULL AND value != '';
-""")
-
-# COMMAND ----------
-
-# COMMAND ----------
-
-spark.sql(f"""
--- Load CashTransaction.txt (incremental)
-INSERT INTO bronze_cash_transaction (raw_line, _batch_id, _load_timestamp, _source_file)
-SELECT 
-    value AS raw_line,
-    ${var.batch_id} AS _batch_id,
-    current_timestamp() AS _load_timestamp,
-    'CashTransaction.txt' AS _source_file
-FROM read_files('{full_raw_data_path}/Batch${var.batch_id}/CashTransaction.txt', format => 'text', lineSep => '\n')
-WHERE value IS NOT NULL AND value != '';
-""")
-
-# COMMAND ----------
-
-# COMMAND ----------
-
-spark.sql(f"""
--- Load HoldingHistory.txt (incremental)
-INSERT INTO bronze_holding_history (raw_line, _batch_id, _load_timestamp, _source_file)
-SELECT 
-    value AS raw_line,
-    ${var.batch_id} AS _batch_id,
-    current_timestamp() AS _load_timestamp,
-    'HoldingHistory.txt' AS _source_file
-FROM read_files('{full_raw_data_path}/Batch${var.batch_id}/HoldingHistory.txt', format => 'text', lineSep => '\n')
-WHERE value IS NOT NULL AND value != '';
-""")
-
-# COMMAND ----------
-
-# COMMAND ----------
-
-spark.sql(f"""
--- Load WatchHistory.txt (incremental)
-INSERT INTO bronze_watch_history (raw_line, _batch_id, _load_timestamp, _source_file)
-SELECT 
-    value AS raw_line,
-    ${var.batch_id} AS _batch_id,
-    current_timestamp() AS _load_timestamp,
-    'WatchHistory.txt' AS _source_file
-FROM read_files('{full_raw_data_path}/Batch${var.batch_id}/WatchHistory.txt', format => 'text', lineSep => '\n')
-WHERE value IS NOT NULL AND value != '';
-""")
-
-# COMMAND ----------
-
-# COMMAND ----------
-
-# ============================================================================
-spark.sql(f"""
--- Other Sources (Batch 2+: Prospect only)
--- ============================================================================
--- Load Prospect.csv (incremental)
-INSERT INTO bronze_prospect (raw_line, _batch_id, _load_timestamp, _source_file)
-SELECT 
-    value AS raw_line,
-    {batch_id} AS _batch_id,
-    current_timestamp() AS _load_timestamp,
-    'Prospect.csv' AS _source_file
-FROM read_files('{full_raw_data_path}/Batch{batch_id}/Prospect.csv', format => 'text', lineSep => '\n')
-WHERE value IS NOT NULL AND value != '';
-""")
+for rel_path in get_bronze_incremental_notebooks():
+    run_path = f"{base_path}/{rel_path}" if base_path else rel_path
+    print(f"Running {run_path} ...")
+    dbutils.notebook.run(run_path, timeout_seconds=600, arguments=params)
+    print(f"Done: {run_path}")
 
 # COMMAND ----------
 
@@ -246,5 +113,4 @@ WHERE value IS NOT NULL AND value != '';
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC SELECT 'Load completed' AS status;
+spark.sql("SELECT 'Load completed' AS status").show()
