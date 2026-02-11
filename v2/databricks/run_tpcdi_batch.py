@@ -38,15 +38,31 @@ else:
     if not base_dir and "__file__" in dir():
         base_dir = os.path.dirname(os.path.abspath(__file__))
 
+def _workspace_file_path(path):
+    """Convert path to workspace file URI so dbutils.fs and Spark can read it."""
+    if path.startswith("/Users/") and not path.startswith("/Workspace/"):
+        return "file:/Workspace" + path
+    if path.startswith("/Repos/") and not path.startswith("file:"):
+        return "file:" + path
+    return path
+
 def read_sql_file(rel_path):
     path = os.path.join(base_dir, rel_path) if base_dir else rel_path
+    # Use workspace file URI when path is under /Users/ or /Repos/ (notebook context)
+    read_path = _workspace_file_path(path)
     try:
-        return dbutils.fs.head(path)
+        return dbutils.fs.head(read_path)
     except Exception:
         try:
-            return "".join([r[0] for r in spark.read.text(path).collect()])
-        except Exception as e:
-            raise FileNotFoundError(f"Cannot read SQL file: {path}") from e
+            return "".join([r[0] for r in spark.read.text(read_path).collect()])
+        except Exception:
+            try:
+                # Fallback: local path when running with WSFS (e.g. /Workspace/Users/...)
+                local_path = path if path.startswith("/Workspace/") else ("/Workspace" + path if path.startswith("/Users/") else path)
+                with open(local_path, "r") as f:
+                    return f.read()
+            except Exception as e:
+                raise FileNotFoundError(f"Cannot read SQL file: {path} (tried {read_path})") from e
 
 def run_sql(sql_content, use_pipe_placeholder=False):
     s = sql_content.replace("__CATALOG__", catalog).replace("__SCHEMA__", schema_name)
