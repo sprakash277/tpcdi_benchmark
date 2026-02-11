@@ -259,45 +259,123 @@ WHERE _batch_id = {batch_id}
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- ============================================================================
-# MAGIC -- Brokerage Data: Parse CustomerMgmt.xml (Batch 1)
-# MAGIC -- ============================================================================
-# MAGIC -- silver_customers: Extract from CustomerMgmt.xml
-# MAGIC -- Note: This assumes XML is parsed using spark-xml or native XML reader
-# MAGIC -- Adjust column paths based on your XML parsing method
-# MAGIC CREATE OR REPLACE TABLE silver_customers AS
-# MAGIC SELECT 
-# MAGIC     monotonically_increasing_id() AS sk_customer_id,
-# MAGIC     CAST(Customer._C_ID AS BIGINT) AS customer_id,
-# MAGIC     Customer._C_TAX_ID AS tax_id,
-# MAGIC     Customer._C_ST_ID AS status,
-# MAGIC     Customer._C_L_NAME AS last_name,
-# MAGIC     Customer._C_F_NAME AS first_name,
-# MAGIC     Customer._C_M_NAME AS middle_name,
-# MAGIC     Customer._C_GNDR AS gender,
-# MAGIC     CAST(Customer._C_TIER AS INT) AS tier,
-# MAGIC     CAST(Customer._C_DOB AS DATE) AS dob,
-# MAGIC     Customer._C_ADLINE1 AS address_line1,
-# MAGIC     Customer._C_ADLINE2 AS address_line2,
-# MAGIC     Customer._C_ZIPCODE AS postal_code,
-# MAGIC     Customer._C_CITY AS city,
-# MAGIC     Customer._C_STATE_PROV AS state_prov,
-# MAGIC     Customer._C_CTRY AS country,
-# MAGIC     Customer._C_CTRY_1 AS email1,
-# MAGIC     Customer._C_CTRY_2 AS email2,
-# MAGIC     Customer._C_LOCAL_TAX_ID AS local_tax_id,
-# MAGIC     Customer._C_NAT_TX_ID AS national_tax_id,
-# MAGIC     -- SCD Type 2: All Batch 1 records are current
-# MAGIC     TRUE AS is_current,
-# MAGIC     CAST(Customer._C_CTRY_TS AS TIMESTAMP) AS effective_date,  -- Use action timestamp
-# MAGIC     NULL AS end_date,
-# MAGIC     ${var.batch_id} AS batch_id,
-# MAGIC     current_timestamp() AS load_timestamp,
-# MAGIC     Customer._C_ACTION AS record_type  -- NEW, UPDCUST, INACT, etc.
-# MAGIC FROM bronze_customer_mgmt
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC   AND Customer IS NOT NULL;
+# ============================================================================
+# Brokerage Data: silver_customers from bronze_customer_mgmt (same as v1)
+# ============================================================================
+# v1 logic: read bronze_customer_mgmt, extract Customer fields (Pattern 1 direct or Pattern 2 explode), transform to silver schema, overwrite
+from pyspark.sql.functions import (
+    col, lit, when, to_date, to_timestamp, explode, current_timestamp, coalesce, trim, expr
+)
+from pyspark.sql.types import TimestampType
+
+bronze_df = spark.table(f"{catalog}.{schema_name}.bronze_customer_mgmt").filter(col("_batch_id") == batch_id)
+customer_df = None
+
+# Pattern 1: Direct access (row = Action with Customer struct)
+try:
+    customer_df = bronze_df.select(
+        col("_ActionType").alias("action_type"),
+        col("_ActionTS").alias("action_ts"),
+        col("Customer._C_ID").alias("c_id"),
+        col("Customer._C_TAX_ID").alias("c_tax_id"),
+        col("Customer._C_GNDR").alias("c_gndr"),
+        col("Customer._C_TIER").alias("c_tier"),
+        col("Customer._C_DOB").alias("c_dob"),
+        col("Customer.Name.C_L_NAME").alias("c_l_name"),
+        col("Customer.Name.C_F_NAME").alias("c_f_name"),
+        col("Customer.Name.C_M_NAME").alias("c_m_name"),
+        col("Customer.Address.C_ADLINE1").alias("c_adline1"),
+        col("Customer.Address.C_ADLINE2").alias("c_adline2"),
+        col("Customer.Address.C_ZIPCODE").alias("c_zipcode"),
+        col("Customer.Address.C_CITY").alias("c_city"),
+        col("Customer.Address.C_STATE_PROV").alias("c_state_prov"),
+        col("Customer.Address.C_CTRY").alias("c_ctry"),
+        col("Customer.ContactInfo.C_PRIM_EMAIL").alias("c_prim_email"),
+        col("Customer.ContactInfo.C_ALT_EMAIL").alias("c_alt_email"),
+        col("Customer.TaxInfo.C_LCL_TX_ID").alias("c_lcl_tx_id"),
+        col("Customer.TaxInfo.C_NAT_TX_ID").alias("c_nat_tx_id"),
+        col("_batch_id").alias("batch_id"),
+        col("_load_timestamp").alias("load_timestamp"),
+    ).filter(col("c_id").isNotNull())
+    if customer_df.count() == 0:
+        customer_df = None
+except Exception:
+    customer_df = None
+
+# Pattern 2: Actions in array (explode)
+if customer_df is None:
+    for cname in bronze_df.columns:
+        if "array" in str(bronze_df.schema[cname].dataType).lower():
+            try:
+                exploded = bronze_df.select(
+                    explode(col(cname)).alias("Action"),
+                    col("_batch_id"),
+                    col("_load_timestamp")
+                )
+                customer_df = exploded.select(
+                    col("Action._ActionType").alias("action_type"),
+                    col("Action._ActionTS").alias("action_ts"),
+                    col("Action.Customer._C_ID").alias("c_id"),
+                    col("Action.Customer._C_TAX_ID").alias("c_tax_id"),
+                    col("Action.Customer._C_GNDR").alias("c_gndr"),
+                    col("Action.Customer._C_TIER").alias("c_tier"),
+                    col("Action.Customer._C_DOB").alias("c_dob"),
+                    col("Action.Customer.Name.C_L_NAME").alias("c_l_name"),
+                    col("Action.Customer.Name.C_F_NAME").alias("c_f_name"),
+                    col("Action.Customer.Name.C_M_NAME").alias("c_m_name"),
+                    col("Action.Customer.Address.C_ADLINE1").alias("c_adline1"),
+                    col("Action.Customer.Address.C_ADLINE2").alias("c_adline2"),
+                    col("Action.Customer.Address.C_ZIPCODE").alias("c_zipcode"),
+                    col("Action.Customer.Address.C_CITY").alias("c_city"),
+                    col("Action.Customer.Address.C_STATE_PROV").alias("c_state_prov"),
+                    col("Action.Customer.Address.C_CTRY").alias("c_ctry"),
+                    col("Action.Customer.ContactInfo.C_PRIM_EMAIL").alias("c_prim_email"),
+                    col("Action.Customer.ContactInfo.C_ALT_EMAIL").alias("c_alt_email"),
+                    col("Action.Customer.TaxInfo.C_LCL_TX_ID").alias("c_lcl_tx_id"),
+                    col("Action.Customer.TaxInfo.C_NAT_TX_ID").alias("c_nat_tx_id"),
+                    col("_batch_id").alias("batch_id"),
+                    col("_load_timestamp").alias("load_timestamp"),
+                ).filter(col("Action.Customer._C_ID").isNotNull())
+                if customer_df.count() > 0:
+                    break
+            except Exception:
+                continue
+
+if customer_df is None or customer_df.count() == 0:
+    raise RuntimeError("Failed to extract customers from bronze_customer_mgmt (Pattern 1 and 2)")
+
+# Transform to silver schema (same as v1 _transform_to_silver_schema)
+silver_customers = customer_df.select(
+    expr("try_cast(c_id AS BIGINT)").alias("sk_customer_id"),
+    expr("try_cast(c_id AS BIGINT)").alias("customer_id"),
+    col("c_tax_id").alias("tax_id"),
+    col("action_type").alias("status"),
+    col("c_l_name").alias("last_name"),
+    col("c_f_name").alias("first_name"),
+    col("c_m_name").alias("middle_name"),
+    when(col("c_gndr").isin("M", "m"), lit("Male"))
+        .when(col("c_gndr").isin("F", "f"), lit("Female"))
+        .otherwise(lit("Unknown")).alias("gender"),
+    expr("try_cast(c_tier AS INT)").alias("tier"),
+    expr("try_cast(c_dob AS DATE)").alias("dob"),
+    col("c_adline1").alias("address_line1"),
+    col("c_adline2").alias("address_line2"),
+    col("c_zipcode").alias("postal_code"),
+    col("c_city").alias("city"),
+    col("c_state_prov").alias("state_prov"),
+    col("c_ctry").alias("country"),
+    col("c_prim_email").alias("email1"),
+    col("c_alt_email").alias("email2"),
+    col("c_lcl_tx_id").alias("local_tax_id"),
+    col("c_nat_tx_id").alias("national_tax_id"),
+    when(col("action_type") == "INACT", lit(False)).otherwise(lit(True)).alias("is_current"),
+    to_timestamp(col("action_ts")).alias("effective_date"),
+    lit(None).cast(TimestampType()).alias("end_date"),
+    col("batch_id"),
+    col("load_timestamp"),
+    coalesce(col("action_type"), lit("I")).alias("record_type"),
+)
+silver_customers.write.format("delta").mode("overwrite").saveAsTable(f"{catalog}.{schema_name}.silver_customers")
 
 # COMMAND ----------
 
