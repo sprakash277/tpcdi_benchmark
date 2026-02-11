@@ -33,20 +33,12 @@ class GoldFactTrade(GoldLoaderBase):
         """
         logger.info(f"Loading gold.FactTrade from {silver_trade_table}")
         
-        # Get trades from Silver (fact tables don't have is_current, use all records)
-        try:
-            silver_trades = self._select_current_version(silver_trade_table)
-        except Exception:
-            # If no is_current column, use all records
-            silver_trades = self.spark.table(silver_trade_table)
+        # Get all trades from Silver (no SCD filtering)
+        silver_trades = self.spark.table(silver_trade_table)
         
-        # Read dimension tables (SCD2: use current version only for $SK$ lookups)
+        # Read dimension tables (no SCD filtering - use all records)
         dim_customer = self.spark.table(dim_customer_table)
-        if "is_current" in dim_customer.columns:
-            dim_customer = dim_customer.filter(col("is_current") == True)
         dim_account = self.spark.table(dim_account_table)
-        if "is_current" in dim_account.columns:
-            dim_account = dim_account.filter(col("is_current") == True)
         dim_security = self.spark.table(dim_security_table)
         dim_date = self.spark.table(dim_date_table)
         dim_trade_type = self.spark.table(dim_trade_type_table)
@@ -110,8 +102,8 @@ class GoldFactMarketHistory(GoldLoaderBase):
         """
         logger.info(f"Loading gold.FactMarketHistory from {silver_daily_market_table}")
         
-        # Get daily market data from Silver (use current versions when SCD2 applied)
-        silver_dm = self._select_current_version(silver_daily_market_table)
+        # Get all daily market data from Silver (no SCD filtering)
+        silver_dm = self.spark.table(silver_daily_market_table)
         
         # Read dimension tables
         dim_date = self.spark.table(dim_date_table)
@@ -165,8 +157,6 @@ class GoldFactCashBalances(GoldLoaderBase):
             
             dim_date = self.spark.table(dim_date_table)
             dim_account = self.spark.table(dim_account_table)
-            if "is_current" in dim_account.columns:
-                dim_account = dim_account.filter(col("is_current") == True)
             
             # Aggregate cash by account and date (spec: FactCashBalances Cash = sum of CT_AMT per account/date)
             fact_df = silver_ct \
@@ -214,12 +204,11 @@ class GoldFactHoldings(GoldLoaderBase):
         logger.info(f"Loading gold.FactHoldings from {silver_holding_history_table}")
         
         try:
-            silver_hh = self._select_current_version(silver_holding_history_table)
+            # Get all holding history from Silver (no SCD filtering)
+            silver_hh = self.spark.table(silver_holding_history_table)
             
             dim_date = self.spark.table(dim_date_table)
             dim_account = self.spark.table(dim_account_table)
-            if "is_current" in dim_account.columns:
-                dim_account = dim_account.filter(col("is_current") == True)
             dim_security = self.spark.table(dim_security_table)
             
             # Get current holdings (qualify columns to avoid ambiguity)

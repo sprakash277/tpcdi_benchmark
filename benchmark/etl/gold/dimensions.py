@@ -1,7 +1,7 @@
 """
 Gold layer dimension table loaders.
 
-Dimensions are current versions from Silver tables, ready for star schema joins.
+Dimensions from Silver tables, ready for star schema joins.
 """
 
 import logging
@@ -18,11 +18,11 @@ logger = logging.getLogger(__name__)
 
 
 class GoldDimCustomer(GoldLoaderBase):
-    """Gold dimension table: DimCustomer (current versions only)."""
+    """Gold dimension table: DimCustomer."""
 
     def load(self, silver_table: str, target_table: str, load_type=None) -> DataFrame:
         """
-        Create/update DimCustomer from silver_customers (current versions only).
+        Create/update DimCustomer from silver_customers.
         - Batch load: Overwrite entire table
         - Incremental load: MERGE upsert (update existing, insert new)
         """
@@ -71,11 +71,11 @@ class GoldDimCustomer(GoldLoaderBase):
 
 
 class GoldDimAccount(GoldLoaderBase):
-    """Gold dimension table: DimAccount (current versions only)."""
+    """Gold dimension table: DimAccount."""
 
     def load(self, silver_table: str, target_table: str, load_type=None) -> DataFrame:
         """
-        Create/update DimAccount from silver_accounts (current versions only).
+        Create/update DimAccount from silver_accounts.
         - Batch load: Overwrite entire table
         - Incremental load: MERGE upsert (update existing, insert new)
         """
