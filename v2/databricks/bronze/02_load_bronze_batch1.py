@@ -293,24 +293,24 @@ print(f"Successfully loaded {df_bronze.count()} rows into bronze_customer_mgmt")
 
 # COMMAND ----------
 
-# Load FINWIRE files - same as v1: single path with FINWIRE* glob, text format, rename value -> raw_line, add metadata
+# Load FINWIRE files - same as v1: FINWIRE* (exclude *.csv), text format, rename value -> raw_line, add metadata
 from pyspark.sql.functions import lit, current_timestamp, col, length
 
-file_pattern = f"{full_raw_data_path}/Batch1/FINWIRE*"
-df_finwire = None
+batch1_path = f"{full_raw_data_path}/Batch1"
 try:
-    df_finwire = spark.read.format("text").load(file_pattern)
+    batch1_files = dbutils.fs.ls(batch1_path)
 except Exception as e:
-    if "Path does not exist" in str(e) or "Cannot find" in str(e) or "42K03" in str(e):
-        # Fallback for GCS etc. where glob in path is not resolved: list files then load
-        batch1_path = f"{full_raw_data_path}/Batch1"
-        batch1_files = dbutils.fs.ls(batch1_path)
-        finwire_files = [f.path for f in batch1_files if "FINWIRE" in f.name.upper() and (f.name.lower().endswith(".txt") or "." not in f.name)]
-        if not finwire_files:
-            raise FileNotFoundError(f"No FINWIRE files found under {batch1_path}. Error: {e}") from e
-        df_finwire = spark.read.format("text").load(finwire_files)
-    else:
-        raise
+    raise FileNotFoundError(f"Batch1 path not found or not accessible: {batch1_path}. Error: {e}") from e
+# FINWIRE*.txt or FINWIRE* with no extension; ignore *.csv
+finwire_files = [
+    f.path for f in batch1_files
+    if "FINWIRE" in f.name.upper()
+    and not f.name.lower().endswith(".csv")
+    and (f.name.lower().endswith(".txt") or "." not in f.name)
+]
+if not finwire_files:
+    raise FileNotFoundError(f"No FINWIRE files (excluding *.csv) found under {batch1_path}. Listed: {[f.name for f in batch1_files][:30]}")
+df_finwire = spark.read.format("text").load(finwire_files)
 
 df_finwire_bronze = df_finwire.withColumnRenamed("value", "raw_line") \
     .withColumn("_batch_id", lit(batch_id)) \
