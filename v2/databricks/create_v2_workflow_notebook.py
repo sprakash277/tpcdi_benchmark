@@ -322,127 +322,16 @@ def create_workflow_definition():
         "timeout_seconds": 300,
     })
     
-    # Bronze table creation tasks
-    bronze_tables = get_table_files("bronze", base_path)
-    print(f"DEBUG: get_table_files returned {len(bronze_tables)} bronze tables")
-    if len(bronze_tables) == 0:
-        print(f"ERROR: No bronze table files found! Check that notebook files exist in {base_path}/bronze/tables/")
-        print(f"       Expected files matching: create_*.py or create_* (no extension)")
-    bronze_create_tasks = []
-    
-    for table_name, notebook_file in bronze_tables:
-        # notebook_file already has the full workspace path, so use it directly
-        # Remove .py extension if present for Databricks notebook path
-        notebook_file_str = str(notebook_file)
-        if notebook_file_str.endswith('.py'):
-            notebook_path = notebook_file_str[:-3]  # Remove .py extension
-        else:
-            notebook_path = notebook_file_str  # Already no extension
-        
-        task_key = f"bronze_create_{table_name}"
-        
-        tasks.append({
-            "task_key": task_key,
-            "description": f"Create Bronze table: {table_name}",
-            "job_cluster_key": "default_cluster",
-            "depends_on": [{"task_key": "00_setup"}],
-            "notebook_task": {
-                "notebook_path": notebook_path,
-                "base_parameters": {
-                    "catalog": catalog,
-                    "schema_name": schema_name_with_sf,
-                },
-                "source": "WORKSPACE"
-            },
-            "timeout_seconds": 300,
-        })
-        bronze_create_tasks.append(task_key)
-    
-    # Silver table creation tasks
-    silver_tables = get_table_files("silver", base_path)
-    print(f"DEBUG: get_table_files returned {len(silver_tables)} silver tables")
-    if len(silver_tables) == 0:
-        print(f"ERROR: No silver table files found! Check that notebook files exist in {base_path}/silver/tables/")
-        print(f"       Expected files matching: create_*.py or create_* (no extension)")
-    silver_create_tasks = []
-    
-    for table_name, notebook_file in silver_tables:
-        # notebook_file already has the full workspace path, so use it directly
-        # Remove .py extension if present for Databricks notebook path
-        notebook_file_str = str(notebook_file)
-        if notebook_file_str.endswith('.py'):
-            notebook_path = notebook_file_str[:-3]  # Remove .py extension
-        else:
-            notebook_path = notebook_file_str  # Already no extension
-        
-        task_key = f"silver_create_{table_name}"
-        
-        tasks.append({
-            "task_key": task_key,
-            "description": f"Create Silver table: {table_name}",
-            "job_cluster_key": "default_cluster",
-            "depends_on": [{"task_key": "00_setup"}],
-            "notebook_task": {
-                "notebook_path": notebook_path,
-                "base_parameters": {
-                    "catalog": catalog,
-                    "schema_name": schema_name_with_sf,
-                },
-                "source": "WORKSPACE"
-            },
-            "timeout_seconds": 300,
-        })
-        silver_create_tasks.append(task_key)
-    
-    # Gold table creation tasks
-    gold_tables = get_table_files("gold", base_path)
-    print(f"DEBUG: get_table_files returned {len(gold_tables)} gold tables")
-    if len(gold_tables) == 0:
-        print(f"ERROR: No gold table files found! Check that notebook files exist in {base_path}/gold/tables/")
-        print(f"       Expected files matching: create_*.py or create_* (no extension)")
-    gold_create_tasks = []
-    
-    for table_name, notebook_file in gold_tables:
-        # notebook_file already has the full workspace path, so use it directly
-        # Remove .py extension if present for Databricks notebook path
-        notebook_file_str = str(notebook_file)
-        if notebook_file_str.endswith('.py'):
-            notebook_path = notebook_file_str[:-3]  # Remove .py extension
-        else:
-            notebook_path = notebook_file_str  # Already no extension
-        
-        task_key = f"gold_create_{table_name}"
-        
-        tasks.append({
-            "task_key": task_key,
-            "description": f"Create Gold table: {table_name}",
-            "job_cluster_key": "default_cluster",
-            "depends_on": [{"task_key": "00_setup"}],
-            "notebook_task": {
-                "notebook_path": notebook_path,
-                "base_parameters": {
-                    "catalog": catalog,
-                    "schema_name": schema_name_with_sf,
-                },
-                "source": "WORKSPACE"
-            },
-            "timeout_seconds": 300,
-        })
-        gold_create_tasks.append(task_key)
-    
     # Load/Transform tasks based on workflow type
+    # Note: Table creation is now handled inside each load/transform notebook
+    # This keeps the workflow simple with only 3-5 tasks instead of 100+
     if workflow_type == "batch":
-        # Bronze load batch 1
-        # Dependencies: 00_setup + all bronze table creation tasks
-        bronze_load_deps = [{"task_key": "00_setup"}]
-        bronze_load_deps.extend([{"task_key": t} for t in bronze_create_tasks])
-        print(f"DEBUG: bronze_load_batch1 depends on: {bronze_load_deps}")
-        
+        # Bronze load batch 1 (creates tables internally)
         tasks.append({
             "task_key": "bronze_load_batch1",
-            "description": "Load Bronze Batch 1 data",
+            "description": "Load Bronze Batch 1 data (creates tables if needed)",
             "job_cluster_key": "default_cluster",
-            "depends_on": bronze_load_deps,
+            "depends_on": [{"task_key": "00_setup"}],
             "notebook_task": {
                 "notebook_path": f"{workspace_path_normalized}/bronze/02_load_bronze_batch1",
                 "base_parameters": {
@@ -456,38 +345,12 @@ def create_workflow_definition():
             "timeout_seconds": 3600,
         })
         
-        # Bronze individual table metrics tasks
-        for table_name in [t[0] for t in bronze_tables]:
-            tasks.append({
-                "task_key": f"bronze_metrics_{table_name}",
-                "description": f"Collect metrics for bronze table: {table_name}",
-                "job_cluster_key": "default_cluster",
-                "depends_on": [{"task_key": "bronze_load_batch1"}],
-                "notebook_task": {
-                    "notebook_path": f"{workspace_path_normalized}/metrics/collect_table_metrics",
-                    "base_parameters": {
-                        "catalog": catalog,
-                        "schema_name": schema_name_with_sf,
-                        "table_name": table_name,
-                        "layer": "bronze",
-                        "sf": sf,
-                        "batch_id": "1",
-                        "metrics_output": metrics_output,
-                    },
-                    "source": "WORKSPACE"
-                },
-                "timeout_seconds": 300,
-            })
-        
-        # Silver transform batch 1
-        silver_transform_deps = [{"task_key": "bronze_load_batch1"}]
-        if silver_create_tasks:
-            silver_transform_deps.extend([{"task_key": t} for t in silver_create_tasks])
+        # Silver transform batch 1 (creates tables internally)
         tasks.append({
             "task_key": "silver_transform_batch1",
-            "description": "Transform Bronze → Silver (Batch 1)",
+            "description": "Transform Bronze → Silver (Batch 1, creates tables if needed)",
             "job_cluster_key": "default_cluster",
-            "depends_on": silver_transform_deps,
+            "depends_on": [{"task_key": "bronze_load_batch1"}],
             "notebook_task": {
                 "notebook_path": f"{workspace_path_normalized}/silver/02_transform_silver_batch1",
                 "base_parameters": {
@@ -500,38 +363,12 @@ def create_workflow_definition():
             "timeout_seconds": 3600,
         })
         
-        # Silver individual table metrics tasks
-        for table_name in [t[0] for t in silver_tables]:
-            tasks.append({
-                "task_key": f"silver_metrics_{table_name}",
-                "description": f"Collect metrics for silver table: {table_name}",
-                "job_cluster_key": "default_cluster",
-                "depends_on": [{"task_key": "silver_transform_batch1"}],
-                "notebook_task": {
-                    "notebook_path": f"{workspace_path_normalized}/metrics/collect_table_metrics",
-                    "base_parameters": {
-                        "catalog": catalog,
-                        "schema_name": schema_name_with_sf,
-                        "table_name": table_name,
-                        "layer": "silver",
-                        "sf": sf,
-                        "batch_id": "1",
-                        "metrics_output": metrics_output,
-                    },
-                    "source": "WORKSPACE"
-                },
-                "timeout_seconds": 300,
-            })
-        
-        # Gold load batch 1
-        gold_load_deps = [{"task_key": "silver_transform_batch1"}]
-        if gold_create_tasks:
-            gold_load_deps.extend([{"task_key": t} for t in gold_create_tasks])
+        # Gold load batch 1 (creates tables internally)
         tasks.append({
             "task_key": "gold_load_batch1",
-            "description": "Load Silver → Gold (Batch 1)",
+            "description": "Load Silver → Gold (Batch 1, creates tables if needed)",
             "job_cluster_key": "default_cluster",
-            "depends_on": gold_load_deps,
+            "depends_on": [{"task_key": "silver_transform_batch1"}],
             "notebook_task": {
                 "notebook_path": f"{workspace_path_normalized}/gold/02_load_gold_batch1",
                 "base_parameters": {
@@ -543,36 +380,13 @@ def create_workflow_definition():
             },
             "timeout_seconds": 3600,
         })
-        
-        # Gold individual table metrics tasks
-        for table_name in [t[0] for t in gold_tables]:
-            tasks.append({
-                "task_key": f"gold_metrics_{table_name}",
-                "description": f"Collect metrics for gold table: {table_name}",
-                "job_cluster_key": "default_cluster",
-                "depends_on": [{"task_key": "gold_load_batch1"}],
-                "notebook_task": {
-                    "notebook_path": f"{workspace_path_normalized}/metrics/collect_table_metrics",
-                    "base_parameters": {
-                        "catalog": catalog,
-                        "schema_name": schema_name_with_sf,
-                        "table_name": table_name,
-                        "layer": "gold",
-                        "sf": sf,
-                        "batch_id": "1",
-                        "metrics_output": metrics_output,
-                    },
-                    "source": "WORKSPACE"
-                },
-                "timeout_seconds": 300,
-            })
     else:
-        # Incremental workflow
+        # Incremental workflow (creates tables internally)
         tasks.append({
             "task_key": "bronze_load_incremental",
-            "description": "Load Bronze incremental data",
+            "description": "Load Bronze incremental data (creates tables if needed)",
             "job_cluster_key": "default_cluster",
-            "depends_on": [{"task_key": t} for t in bronze_create_tasks],
+            "depends_on": [{"task_key": "00_setup"}],
             "notebook_task": {
                 "notebook_path": f"{workspace_path_normalized}/bronze/03_load_bronze_incremental",
                 "base_parameters": {
@@ -586,37 +400,11 @@ def create_workflow_definition():
             "timeout_seconds": 3600,
         })
         
-        # Bronze individual table metrics tasks (incremental)
-        for table_name in [t[0] for t in bronze_tables]:
-            tasks.append({
-                "task_key": f"bronze_metrics_{table_name}_inc",
-                "description": f"Collect metrics for bronze table: {table_name}",
-                "job_cluster_key": "default_cluster",
-                "depends_on": [{"task_key": "bronze_load_incremental"}],
-                "notebook_task": {
-                    "notebook_path": f"{workspace_path_normalized}/metrics/collect_table_metrics",
-                    "base_parameters": {
-                        "catalog": catalog,
-                        "schema_name": schema_name_with_sf,
-                        "table_name": table_name,
-                        "layer": "bronze",
-                        "sf": sf,
-                        "batch_id": str(batch_id),
-                        "metrics_output": metrics_output,
-                    },
-                    "source": "WORKSPACE"
-                },
-                "timeout_seconds": 300,
-            })
-        
         tasks.append({
             "task_key": "silver_transform_incremental",
-            "description": "Transform Bronze → Silver (Incremental)",
+            "description": "Transform Bronze → Silver (Incremental, creates tables if needed)",
             "job_cluster_key": "default_cluster",
-            "depends_on": [
-                {"task_key": "bronze_load_incremental"},
-                *[{"task_key": t} for t in silver_create_tasks]
-            ],
+            "depends_on": [{"task_key": "bronze_load_incremental"}],
             "notebook_task": {
                 "notebook_path": f"{workspace_path_normalized}/silver/03_transform_silver_incremental",
                 "base_parameters": {
@@ -629,37 +417,11 @@ def create_workflow_definition():
             "timeout_seconds": 3600,
         })
         
-        # Silver individual table metrics tasks (incremental)
-        for table_name in [t[0] for t in silver_tables]:
-            tasks.append({
-                "task_key": f"silver_metrics_{table_name}_inc",
-                "description": f"Collect metrics for silver table: {table_name}",
-                "job_cluster_key": "default_cluster",
-                "depends_on": [{"task_key": "silver_transform_incremental"}],
-                "notebook_task": {
-                    "notebook_path": f"{workspace_path_normalized}/metrics/collect_table_metrics",
-                    "base_parameters": {
-                        "catalog": catalog,
-                        "schema_name": schema_name_with_sf,
-                        "table_name": table_name,
-                        "layer": "silver",
-                        "sf": sf,
-                        "batch_id": str(batch_id),
-                        "metrics_output": metrics_output,
-                    },
-                    "source": "WORKSPACE"
-                },
-                "timeout_seconds": 300,
-            })
-        
         tasks.append({
             "task_key": "gold_load_incremental",
-            "description": "Load Silver → Gold (Incremental)",
+            "description": "Load Silver → Gold (Incremental, creates tables if needed)",
             "job_cluster_key": "default_cluster",
-            "depends_on": [
-                {"task_key": "silver_transform_incremental"},
-                *[{"task_key": t} for t in gold_create_tasks]
-            ],
+            "depends_on": [{"task_key": "silver_transform_incremental"}],
             "notebook_task": {
                 "notebook_path": f"{workspace_path_normalized}/gold/03_load_gold_incremental",
                 "base_parameters": {
@@ -671,29 +433,6 @@ def create_workflow_definition():
             },
             "timeout_seconds": 3600,
         })
-        
-        # Gold individual table metrics tasks (incremental)
-        for table_name in [t[0] for t in gold_tables]:
-            tasks.append({
-                "task_key": f"gold_metrics_{table_name}_inc",
-                "description": f"Collect metrics for gold table: {table_name}",
-                "job_cluster_key": "default_cluster",
-                "depends_on": [{"task_key": "gold_load_incremental"}],
-                "notebook_task": {
-                    "notebook_path": f"{workspace_path_normalized}/metrics/collect_table_metrics",
-                    "base_parameters": {
-                        "catalog": catalog,
-                        "schema_name": schema_name_with_sf,
-                        "table_name": table_name,
-                        "layer": "gold",
-                        "sf": sf,
-                        "batch_id": str(batch_id),
-                        "metrics_output": metrics_output,
-                    },
-                    "source": "WORKSPACE"
-                },
-                "timeout_seconds": 300,
-            })
     
     # Cluster configuration
     cluster_config = {
@@ -790,43 +529,14 @@ print(f"    - Gold Tables Found: {gold_count}")
 
 # Count actual tasks by type
 task_keys = [t.get('task_key', '') for t in workflow['tasks']]
-bronze_create_count = len([k for k in task_keys if k.startswith('bronze_create_')])
-silver_create_count = len([k for k in task_keys if k.startswith('silver_create_')])
-gold_create_count = len([k for k in task_keys if k.startswith('gold_create_')])
-bronze_metrics_count = len([k for k in task_keys if k.startswith('bronze_metrics_')])
-silver_metrics_count = len([k for k in task_keys if k.startswith('silver_metrics_')])
-gold_metrics_count = len([k for k in task_keys if k.startswith('gold_metrics_')])
 
 print(f"\n  Tasks Added to Workflow:")
 print(f"    - Setup tasks: {len([k for k in task_keys if 'setup' in k])}")
-print(f"    - Bronze create tasks: {bronze_create_count}")
 print(f"    - Bronze load tasks: {len([k for k in task_keys if 'bronze_load' in k])}")
-print(f"    - Bronze metrics tasks: {bronze_metrics_count}")
-print(f"    - Silver create tasks: {silver_create_count}")
 print(f"    - Silver transform tasks: {len([k for k in task_keys if 'silver_transform' in k])}")
-print(f"    - Silver metrics tasks: {silver_metrics_count}")
-print(f"    - Gold create tasks: {gold_create_count}")
 print(f"    - Gold load tasks: {len([k for k in task_keys if 'gold_load' in k])}")
-print(f"    - Gold metrics tasks: {gold_metrics_count}")
-
-if bronze_create_count == 0 or silver_create_count == 0 or gold_create_count == 0:
-    print(f"\n  ⚠️  WARNING: Missing table creation tasks!")
-    print(f"     Expected: {bronze_count} bronze, {silver_count} silver, {gold_count} gold")
-    print(f"     Found: {bronze_create_count} bronze, {silver_create_count} silver, {gold_create_count} gold")
-    print(f"     Check that notebook files exist in:")
-    print(f"       - {workspace_path}/bronze/tables/create_*.py (or create_* without extension)")
-    print(f"       - {workspace_path}/silver/tables/create_*.py (or create_* without extension)")
-    print(f"       - {workspace_path}/gold/tables/create_*.py (or create_* without extension)")
-
-# Count task types
-create_tasks = [t for t in workflow['tasks'] if 'create' in t['task_key']]
-metrics_tasks = [t for t in workflow['tasks'] if 'metrics' in t['task_key']]
-load_tasks = [t for t in workflow['tasks'] if 'load' in t['task_key'] or 'transform' in t['task_key']]
-print(f"\nTask Breakdown:")
-print(f"  Create Table Tasks: {len(create_tasks)}")
-print(f"  Metrics Tasks: {len(metrics_tasks)}")
-print(f"  Load/Transform Tasks: {len(load_tasks)}")
-print(f"  Setup Tasks: {len([t for t in workflow['tasks'] if t['task_key'] == '00_setup'])}")
+print(f"\n  Note: Table creation is now handled inside each load/transform notebook")
+print(f"        This keeps the workflow simple with only {len(workflow['tasks'])} tasks instead of 100+")
 
 # COMMAND ----------
 

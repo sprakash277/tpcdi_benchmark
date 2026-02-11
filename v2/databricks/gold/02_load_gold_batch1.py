@@ -26,6 +26,59 @@ spark.sql(f"SET var.batch_id = {batch_id}")
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## Create Gold Tables
+# MAGIC
+# MAGIC Create all gold tables before loading data.
+
+# COMMAND ----------
+
+# Get the current notebook path to determine the base path for table creation notebooks
+import os
+current_notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+base_path = os.path.dirname(current_notebook_path)
+tables_path = f"{base_path}/tables"
+
+# List of all gold tables to create (in order)
+gold_tables = [
+    "gold_dim_date",
+    "gold_dim_time",
+    "gold_dim_trade_type",
+    "gold_dim_status_type",
+    "gold_dim_industry",
+    "gold_dim_company",
+    "gold_dim_security",
+    "gold_dim_customer",
+    "gold_dim_account",
+    "gold_dim_broker",
+    "gold_dim_trade",
+    "gold_dim_messages",
+    "gold_fact_trade",
+    "gold_fact_market_history",
+    "gold_fact_cash_balances",
+    "gold_fact_holdings",
+    "gold_fact_watches",
+    "gold_financials",
+    "gold_prospect"
+]
+
+# Create all gold tables
+for table_name in gold_tables:
+    create_notebook = f"{tables_path}/create_{table_name}"
+    print(f"Creating table: {table_name} via {create_notebook}")
+    try:
+        dbutils.notebook.run(create_notebook, timeout_seconds=300, arguments={
+            "catalog": catalog,
+            "schema_name": schema_name
+        })
+    except Exception as e:
+        # If table already exists, that's okay (CREATE TABLE IF NOT EXISTS handles this)
+        if "already exists" not in str(e).lower() and "table" not in str(e).lower():
+            print(f"Warning: Error creating {table_name}: {e}")
+            raise
+
+# COMMAND ----------
+
 # MAGIC %sql
 # MAGIC -- ============================================================================
 # MAGIC -- TPC-DI v2: Gold Layer - Batch 1 Load (Historical)

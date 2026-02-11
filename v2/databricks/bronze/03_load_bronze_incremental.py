@@ -26,6 +26,57 @@ spark.sql(f"SET var.batch_id = {batch_id}")
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## Create Bronze Tables
+# MAGIC
+# MAGIC Create all bronze tables before loading data.
+
+# COMMAND ----------
+
+# Get the current notebook path to determine the base path for table creation notebooks
+import os
+current_notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+base_path = os.path.dirname(current_notebook_path)
+tables_path = f"{base_path}/tables"
+
+# List of all bronze tables to create (in order)
+bronze_tables = [
+    "bronze_date",
+    "bronze_time", 
+    "bronze_status_type",
+    "bronze_trade_type",
+    "bronze_industry",
+    "bronze_tax_rate",
+    "bronze_hr",
+    "bronze_customer_mgmt",
+    "bronze_customer",
+    "bronze_account",
+    "bronze_trade",
+    "bronze_daily_market",
+    "bronze_prospect",
+    "bronze_cash_transaction",
+    "bronze_holding_history",
+    "bronze_watch_history",
+    "bronze_finwire"
+]
+
+# Create all bronze tables
+for table_name in bronze_tables:
+    create_notebook = f"{tables_path}/create_{table_name}"
+    print(f"Creating table: {table_name} via {create_notebook}")
+    try:
+        dbutils.notebook.run(create_notebook, timeout_seconds=300, arguments={
+            "catalog": catalog,
+            "schema_name": schema_name
+        })
+    except Exception as e:
+        # If table already exists, that's okay (CREATE TABLE IF NOT EXISTS handles this)
+        if "already exists" not in str(e).lower() and "table" not in str(e).lower():
+            print(f"Warning: Error creating {table_name}: {e}")
+            raise
+
+# COMMAND ----------
+
 # MAGIC %sql
 # MAGIC -- ============================================================================
 # MAGIC -- TPC-DI v2: Bronze Layer - Incremental Load (Batch 2+)
