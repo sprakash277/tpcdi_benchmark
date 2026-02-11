@@ -450,15 +450,17 @@ WHERE value IS NOT NULL AND value != '';
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC SELECT 
-# MAGIC     'bronze_date' AS table_name,
-# MAGIC     COUNT(*) AS row_count
-# MAGIC FROM ${var.catalog}.${var.schema}.bronze_date
-# MAGIC WHERE _batch_id = ${var.batch_id}
-# MAGIC UNION ALL
-# MAGIC SELECT 'bronze_trade', COUNT(*) FROM ${var.catalog}.${var.schema}.bronze_trade WHERE _batch_id = ${var.batch_id}
-# MAGIC UNION ALL
-# MAGIC SELECT 'bronze_daily_market', COUNT(*) FROM ${var.catalog}.${var.schema}.bronze_daily_market WHERE _batch_id = ${var.batch_id}
-# MAGIC UNION ALL
-# MAGIC SELECT 'bronze_finwire', COUNT(*) FROM ${var.catalog}.${var.schema}.bronze_finwire WHERE _batch_id = ${var.batch_id};
+# Build full table names in Python to avoid SQL variable substitution adding quotes (parse error)
+spark.sql(f"""
+SELECT 
+    'bronze_date' AS table_name,
+    COUNT(*) AS row_count
+FROM {catalog}.{schema_name}.bronze_date
+WHERE _batch_id = {batch_id}
+UNION ALL
+SELECT 'bronze_trade', COUNT(*) FROM {catalog}.{schema_name}.bronze_trade WHERE _batch_id = {batch_id}
+UNION ALL
+SELECT 'bronze_daily_market', COUNT(*) FROM {catalog}.{schema_name}.bronze_daily_market WHERE _batch_id = {batch_id}
+UNION ALL
+SELECT 'bronze_finwire', COUNT(*) FROM {catalog}.{schema_name}.bronze_finwire WHERE _batch_id = {batch_id}
+""").show()
