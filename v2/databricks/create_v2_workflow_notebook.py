@@ -66,6 +66,7 @@ dbutils.widgets.text("schema_name", "tpcdi_schema", "Schema Name (used for all l
 dbutils.widgets.text("sf", "10", "Scale Factor (SF)")
 dbutils.widgets.text("raw_data_path", "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume", "Raw Data Path (base path, sf will be appended)")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
+dbutils.widgets.text("metrics_output", "dbfs:/mnt/tpcdi/metrics", "Metrics Output Path")
 # Note: Notebook tasks use clusters, not SQL warehouses (warehouse_id removed)
 
 # Cluster configuration
@@ -320,6 +321,29 @@ def create_workflow_definition():
             "timeout_seconds": 3600,
         })
         
+        # Bronze individual table metrics tasks
+        for table_name in [t[0] for t in bronze_tables]:
+            tasks.append({
+                "task_key": f"bronze_metrics_{table_name}",
+                "description": f"Collect metrics for bronze table: {table_name}",
+                "job_cluster_key": "default_cluster",
+                "depends_on": [{"task_key": "bronze_load_batch1"}],
+                "notebook_task": {
+                    "notebook_path": f"{workspace_path}/metrics/collect_table_metrics",
+                    "base_parameters": {
+                        "catalog": catalog,
+                        "schema_name": schema_name_with_sf,
+                        "table_name": table_name,
+                        "layer": "bronze",
+                        "sf": sf,
+                        "batch_id": "1",
+                        "metrics_output": metrics_output,
+                    },
+                    "source": "WORKSPACE"
+                },
+                "timeout_seconds": 300,
+            })
+        
         # Silver transform batch 1
         tasks.append({
             "task_key": "silver_transform_batch1",
@@ -341,6 +365,29 @@ def create_workflow_definition():
             "timeout_seconds": 3600,
         })
         
+        # Silver individual table metrics tasks
+        for table_name in [t[0] for t in silver_tables]:
+            tasks.append({
+                "task_key": f"silver_metrics_{table_name}",
+                "description": f"Collect metrics for silver table: {table_name}",
+                "job_cluster_key": "default_cluster",
+                "depends_on": [{"task_key": "silver_transform_batch1"}],
+                "notebook_task": {
+                    "notebook_path": f"{workspace_path}/metrics/collect_table_metrics",
+                    "base_parameters": {
+                        "catalog": catalog,
+                        "schema_name": schema_name_with_sf,
+                        "table_name": table_name,
+                        "layer": "silver",
+                        "sf": sf,
+                        "batch_id": "1",
+                        "metrics_output": metrics_output,
+                    },
+                    "source": "WORKSPACE"
+                },
+                "timeout_seconds": 300,
+            })
+        
         # Gold load batch 1
         tasks.append({
             "task_key": "gold_load_batch1",
@@ -361,6 +408,29 @@ def create_workflow_definition():
             },
             "timeout_seconds": 3600,
         })
+        
+        # Gold individual table metrics tasks
+        for table_name in [t[0] for t in gold_tables]:
+            tasks.append({
+                "task_key": f"gold_metrics_{table_name}",
+                "description": f"Collect metrics for gold table: {table_name}",
+                "job_cluster_key": "default_cluster",
+                "depends_on": [{"task_key": "gold_load_batch1"}],
+                "notebook_task": {
+                    "notebook_path": f"{workspace_path}/metrics/collect_table_metrics",
+                    "base_parameters": {
+                        "catalog": catalog,
+                        "schema_name": schema_name_with_sf,
+                        "table_name": table_name,
+                        "layer": "gold",
+                        "sf": sf,
+                        "batch_id": "1",
+                        "metrics_output": metrics_output,
+                    },
+                    "source": "WORKSPACE"
+                },
+                "timeout_seconds": 300,
+            })
     else:
         # Incremental workflow
         tasks.append({
@@ -380,6 +450,29 @@ def create_workflow_definition():
             },
             "timeout_seconds": 3600,
         })
+        
+        # Bronze individual table metrics tasks (incremental)
+        for table_name in [t[0] for t in bronze_tables]:
+            tasks.append({
+                "task_key": f"bronze_metrics_{table_name}_inc",
+                "description": f"Collect metrics for bronze table: {table_name}",
+                "job_cluster_key": "default_cluster",
+                "depends_on": [{"task_key": "bronze_load_incremental"}],
+                "notebook_task": {
+                    "notebook_path": f"{workspace_path}/metrics/collect_table_metrics",
+                    "base_parameters": {
+                        "catalog": catalog,
+                        "schema_name": schema_name_with_sf,
+                        "table_name": table_name,
+                        "layer": "bronze",
+                        "sf": sf,
+                        "batch_id": str(batch_id),
+                        "metrics_output": metrics_output,
+                    },
+                    "source": "WORKSPACE"
+                },
+                "timeout_seconds": 300,
+            })
         
         tasks.append({
             "task_key": "silver_transform_incremental",
@@ -401,6 +494,29 @@ def create_workflow_definition():
             "timeout_seconds": 3600,
         })
         
+        # Silver individual table metrics tasks (incremental)
+        for table_name in [t[0] for t in silver_tables]:
+            tasks.append({
+                "task_key": f"silver_metrics_{table_name}_inc",
+                "description": f"Collect metrics for silver table: {table_name}",
+                "job_cluster_key": "default_cluster",
+                "depends_on": [{"task_key": "silver_transform_incremental"}],
+                "notebook_task": {
+                    "notebook_path": f"{workspace_path}/metrics/collect_table_metrics",
+                    "base_parameters": {
+                        "catalog": catalog,
+                        "schema_name": schema_name_with_sf,
+                        "table_name": table_name,
+                        "layer": "silver",
+                        "sf": sf,
+                        "batch_id": str(batch_id),
+                        "metrics_output": metrics_output,
+                    },
+                    "source": "WORKSPACE"
+                },
+                "timeout_seconds": 300,
+            })
+        
         tasks.append({
             "task_key": "gold_load_incremental",
             "description": "Load Silver → Gold (Incremental)",
@@ -420,6 +536,29 @@ def create_workflow_definition():
             },
             "timeout_seconds": 3600,
         })
+        
+        # Gold individual table metrics tasks (incremental)
+        for table_name in [t[0] for t in gold_tables]:
+            tasks.append({
+                "task_key": f"gold_metrics_{table_name}_inc",
+                "description": f"Collect metrics for gold table: {table_name}",
+                "job_cluster_key": "default_cluster",
+                "depends_on": [{"task_key": "gold_load_incremental"}],
+                "notebook_task": {
+                    "notebook_path": f"{workspace_path}/metrics/collect_table_metrics",
+                    "base_parameters": {
+                        "catalog": catalog,
+                        "schema_name": schema_name_with_sf,
+                        "table_name": table_name,
+                        "layer": "gold",
+                        "sf": sf,
+                        "batch_id": str(batch_id),
+                        "metrics_output": metrics_output,
+                    },
+                    "source": "WORKSPACE"
+                },
+                "timeout_seconds": 300,
+            })
     
     # Cluster configuration
     cluster_config = {
@@ -478,6 +617,11 @@ def create_workflow_definition():
                 "name": "raw_data_path",
                 "default": raw_data_path_base,
                 "description": "Base path to TPC-DI raw data (sf will be appended as /sf={sf})"
+            },
+            {
+                "name": "metrics_output",
+                "default": metrics_output,
+                "description": "Path to save metrics JSON files"
             },
         ],
         "tags": {
