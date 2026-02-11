@@ -63,7 +63,8 @@ dbutils.widgets.text("workspace_path", "", "Workspace Path to SQL Files (e.g., /
 dbutils.widgets.dropdown("workflow_type", "batch", ["batch", "incremental"], "Workflow Type")
 dbutils.widgets.text("catalog", "tpcdi_catalog", "Unity Catalog Name")
 dbutils.widgets.text("schema_name", "tpcdi_schema", "Schema Name (used for all layers)")
-dbutils.widgets.text("raw_data_path", "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume/sf=10", "Raw Data Path")
+dbutils.widgets.text("sf", "10", "Scale Factor (SF)")
+dbutils.widgets.text("raw_data_path", "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume", "Raw Data Path (base path, sf will be appended)")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
 # Note: Notebook tasks use clusters, not SQL warehouses (warehouse_id removed)
 
@@ -125,8 +126,13 @@ workspace_path = dbutils.widgets.get("workspace_path")
 workflow_type = dbutils.widgets.get("workflow_type")
 catalog = dbutils.widgets.get("catalog")
 schema_name = dbutils.widgets.get("schema_name")
-raw_data_path = dbutils.widgets.get("raw_data_path")
+sf = dbutils.widgets.get("sf")
+raw_data_path_base = dbutils.widgets.get("raw_data_path")
 batch_id_str = dbutils.widgets.get("batch_id")
+
+# Append sf to schema name and raw data path
+schema_name_with_sf = f"{schema_name}_sf{sf}"
+raw_data_path = f"{raw_data_path_base}/sf={sf}"
 
 spark_version = dbutils.widgets.get("spark_version")
 cloud = dbutils.widgets.get("cloud")
@@ -199,7 +205,7 @@ def create_workflow_definition():
             "notebook_path": setup_notebook_path,
             "base_parameters": {
                 "catalog": catalog,
-                "schema_name": schema_name,
+                "schema_name": schema_name_with_sf,
             },
             "source": "WORKSPACE"
         },
@@ -227,7 +233,7 @@ def create_workflow_definition():
                 "notebook_path": notebook_path,
                 "base_parameters": {
                     "catalog": catalog,
-                    "schema_name": schema_name,
+                    "schema_name": schema_name_with_sf,
                 },
                 "source": "WORKSPACE"
             },
@@ -256,7 +262,7 @@ def create_workflow_definition():
                 "notebook_path": notebook_path,
                 "base_parameters": {
                     "catalog": catalog,
-                    "schema_name": schema_name,
+                    "schema_name": schema_name_with_sf,
                 },
                 "source": "WORKSPACE"
             },
@@ -285,7 +291,7 @@ def create_workflow_definition():
                 "notebook_path": notebook_path,
                 "base_parameters": {
                     "catalog": catalog,
-                    "schema_name": schema_name,
+                    "schema_name": schema_name_with_sf,
                 },
                 "source": "WORKSPACE"
             },
@@ -305,7 +311,7 @@ def create_workflow_definition():
                 "notebook_path": f"{workspace_path}/bronze/02_load_bronze_batch1",
                 "base_parameters": {
                     "catalog": catalog,
-                    "schema_name": schema_name,
+                    "schema_name": schema_name_with_sf,
                     "raw_data_path": raw_data_path,
                     "batch_id": "1",
                 },
@@ -327,7 +333,7 @@ def create_workflow_definition():
                 "notebook_path": f"{workspace_path}/silver/02_transform_silver_batch1",
                 "base_parameters": {
                     "catalog": catalog,
-                    "schema_name": schema_name,
+                    "schema_name": schema_name_with_sf,
                     "batch_id": "1",
                 },
                 "source": "WORKSPACE"
@@ -348,7 +354,7 @@ def create_workflow_definition():
                 "notebook_path": f"{workspace_path}/gold/02_load_gold_batch1",
                 "base_parameters": {
                     "catalog": catalog,
-                    "schema_name": schema_name,
+                    "schema_name": schema_name_with_sf,
                     "batch_id": "1",
                 },
                 "source": "WORKSPACE"
@@ -366,7 +372,7 @@ def create_workflow_definition():
                 "notebook_path": f"{workspace_path}/bronze/03_load_bronze_incremental",
                 "base_parameters": {
                     "catalog": catalog,
-                    "schema_name": schema_name,
+                    "schema_name": schema_name_with_sf,
                     "raw_data_path": raw_data_path,
                     "batch_id": str(batch_id),
                 },
@@ -387,7 +393,7 @@ def create_workflow_definition():
                 "notebook_path": f"{workspace_path}/silver/03_transform_silver_incremental",
                 "base_parameters": {
                     "catalog": catalog,
-                    "schema_name": schema_name,
+                    "schema_name": schema_name_with_sf,
                     "batch_id": str(batch_id),
                 },
                 "source": "WORKSPACE"
@@ -407,7 +413,7 @@ def create_workflow_definition():
                 "notebook_path": f"{workspace_path}/gold/03_load_gold_incremental",
                 "base_parameters": {
                     "catalog": catalog,
-                    "schema_name": schema_name,
+                    "schema_name": schema_name_with_sf,
                     "batch_id": str(batch_id),
                 },
                 "source": "WORKSPACE"
@@ -464,9 +470,14 @@ def create_workflow_definition():
                 "description": "Schema name (used for all layers: bronze, silver, gold)"
             },
             {
+                "name": "sf",
+                "default": sf,
+                "description": "Scale Factor (SF) - will be appended to schema name and raw data path"
+            },
+            {
                 "name": "raw_data_path",
-                "default": raw_data_path,
-                "description": "Path to TPC-DI raw data"
+                "default": raw_data_path_base,
+                "description": "Base path to TPC-DI raw data (sf will be appended as /sf={sf})"
             },
         ],
         "tags": {

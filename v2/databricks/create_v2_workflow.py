@@ -71,7 +71,8 @@ def create_workflow_definition(
     workflow_type: str = "batch",  # "batch" or "incremental"
     default_catalog: str = "tpcdi_catalog",
     default_schema_name: str = "tpcdi_schema",
-    default_raw_data_path: str = "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume/sf=10",
+    default_sf: int = 10,
+    default_raw_data_path: str = "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume",
     default_batch_id: int = 1,
     cluster_config: Dict[str, Any] = None,
 ) -> Dict[str, Any]:
@@ -100,15 +101,13 @@ def create_workflow_definition(
     base_path = Path(workspace_path)
     tasks = []
     
+    # Append sf to schema name and raw data path
+    schema_name_with_sf = f"{default_schema_name}_sf{default_sf}"
+    raw_data_path_with_sf = f"{default_raw_data_path}/sf={default_sf}"
+    
     # ============================================================================
     # Setup Task: Create Catalog and Schemas
     # ============================================================================
-    setup_sql = f"""
-CREATE CATALOG IF NOT EXISTS {default_catalog};
-USE CATALOG {default_catalog};
-CREATE SCHEMA IF NOT EXISTS {default_schema_name};
-"""
-    
     tasks.append({
         "task_key": "00_setup",
         "description": "Create catalog and schemas",
@@ -117,7 +116,7 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
             "notebook_path": f"{base_path}/00_setup",
             "base_parameters": {
                 "catalog": default_catalog,
-                "schema_name": default_schema_name,
+                "schema_name": schema_name_with_sf,
             },
             "source": "WORKSPACE"
         },
@@ -147,7 +146,7 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
                 "notebook_path": notebook_path,
                 "base_parameters": {
                     "catalog": default_catalog,
-                    "schema_name": default_schema_name,
+                    "schema_name": schema_name_with_sf,
                 },
                 "source": "WORKSPACE"
             },
@@ -164,13 +163,14 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
         "job_cluster_key": "default_cluster",
         "depends_on": [{"task_key": t} for t in bronze_create_tasks],
         "notebook_task": {
-                "notebook_path": notebook_path,
-                "base_parameters": [
-                {"key": "var.catalog", "value": default_catalog},
-                {"key": "var.schema", "value": default_schema_name},
-                {"key": "var.raw_data_path", "value": default_raw_data_path},
-                {"key": "var.batch_id", "value": "1"},
-            ]
+            "notebook_path": f"{base_path}/bronze/02_load_bronze_batch1",
+            "base_parameters": {
+                "catalog": default_catalog,
+                "schema_name": schema_name_with_sf,
+                "raw_data_path": raw_data_path_with_sf,
+                "batch_id": "1",
+            },
+            "source": "WORKSPACE"
         },
         "timeout_seconds": 3600,
     }
@@ -181,12 +181,14 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
         "job_cluster_key": "default_cluster",
         "depends_on": [{"task_key": t} for t in bronze_create_tasks],
         "notebook_task": {
-            "parameters": [
-                {"key": "var.catalog", "value": default_catalog},
-                {"key": "var.schema", "value": default_schema_name},
-                {"key": "var.raw_data_path", "value": default_raw_data_path},
-                {"key": "var.batch_id", "value": str(default_batch_id)},
-            ]
+            "notebook_path": f"{base_path}/bronze/03_load_bronze_incremental",
+            "base_parameters": {
+                "catalog": default_catalog,
+                "schema_name": schema_name_with_sf,
+                "raw_data_path": raw_data_path_with_sf,
+                "batch_id": str(default_batch_id),
+            },
+            "source": "WORKSPACE"
         },
         "timeout_seconds": 3600,
     }
@@ -208,10 +210,12 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
             "job_cluster_key": "default_cluster",
             "depends_on": [{"task_key": "00_setup"}],
             "notebook_task": {
-                "parameters": [
-                    {"key": "var.catalog", "value": default_catalog},
-                    {"key": "var.schema", "value": default_schema_name},
-                ]
+                "notebook_path": notebook_path,
+                "base_parameters": {
+                    "catalog": default_catalog,
+                    "schema_name": schema_name_with_sf,
+                },
+                "source": "WORKSPACE"
             },
             "timeout_seconds": 300,
         })
@@ -229,12 +233,13 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
             *[{"task_key": t} for t in silver_create_tasks]
         ],
         "notebook_task": {
-            "parameters": [
-                {"key": "var.catalog", "value": default_catalog},
-                {"key": "var.schema", "value": default_schema_name},
-                {"key": "var.schema", "value": default_schema_name},
-                {"key": "var.batch_id", "value": "1"},
-            ]
+            "notebook_path": f"{base_path}/silver/02_transform_silver_batch1",
+            "base_parameters": {
+                "catalog": default_catalog,
+                "schema_name": schema_name_with_sf,
+                "batch_id": "1",
+            },
+            "source": "WORKSPACE"
         },
         "timeout_seconds": 3600,
     }
@@ -248,12 +253,13 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
             *[{"task_key": t} for t in silver_create_tasks]
         ],
         "notebook_task": {
-            "parameters": [
-                {"key": "var.catalog", "value": default_catalog},
-                {"key": "var.schema", "value": default_schema_name},
-                {"key": "var.schema", "value": default_schema_name},
-                {"key": "var.batch_id", "value": str(default_batch_id)},
-            ]
+            "notebook_path": f"{base_path}/silver/03_transform_silver_incremental",
+            "base_parameters": {
+                "catalog": default_catalog,
+                "schema_name": schema_name_with_sf,
+                "batch_id": str(default_batch_id),
+            },
+            "source": "WORKSPACE"
         },
         "timeout_seconds": 3600,
     }
@@ -269,16 +275,21 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
         sql_file_path = f"{base_path}/{relative_path}"
         
         task_key = f"gold_create_{table_name}"
+        # Convert SQL file path to notebook path
+        notebook_path = sql_file_path.replace("/tables/create_", "/notebooks/create_").replace(".sql", "")
+        
         tasks.append({
             "task_key": task_key,
-            "description": f"Create Gold table: {table_name}"
+            "description": f"Create Gold table: {table_name}",
             "job_cluster_key": "default_cluster",
             "depends_on": [{"task_key": "00_setup"}],
             "notebook_task": {
-                "parameters": [
-                    {"key": "var.catalog", "value": default_catalog},
-                    {"key": "var.schema", "value": default_schema_name},
-                ]
+                "notebook_path": notebook_path,
+                "base_parameters": {
+                    "catalog": default_catalog,
+                    "schema_name": schema_name_with_sf,
+                },
+                "source": "WORKSPACE"
             },
             "timeout_seconds": 300,
         })
@@ -296,12 +307,13 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
             *[{"task_key": t} for t in gold_create_tasks]
         ],
         "notebook_task": {
-            "parameters": [
-                {"key": "var.catalog", "value": default_catalog},
-                {"key": "var.schema", "value": default_schema_name},
-                {"key": "var.schema", "value": default_schema_name},
-                {"key": "var.batch_id", "value": "1"},
-            ]
+            "notebook_path": f"{base_path}/gold/02_load_gold_batch1",
+            "base_parameters": {
+                "catalog": default_catalog,
+                "schema_name": schema_name_with_sf,
+                "batch_id": "1",
+            },
+            "source": "WORKSPACE"
         },
         "timeout_seconds": 3600,
     }
@@ -315,12 +327,13 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
             *[{"task_key": t} for t in gold_create_tasks]
         ],
         "notebook_task": {
-            "parameters": [
-                {"key": "var.catalog", "value": default_catalog},
-                {"key": "var.schema", "value": default_schema_name},
-                {"key": "var.schema", "value": default_schema_name},
-                {"key": "var.batch_id", "value": str(default_batch_id)},
-            ]
+            "notebook_path": f"{base_path}/gold/03_load_gold_incremental",
+            "base_parameters": {
+                "catalog": default_catalog,
+                "schema_name": schema_name_with_sf,
+                "batch_id": str(default_batch_id),
+            },
+            "source": "WORKSPACE"
         },
         "timeout_seconds": 3600,
     }
@@ -386,9 +399,14 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
                 "description": "Schema name (used for all layers: bronze, silver, gold)"
             },
             {
+                "name": "sf",
+                "default": str(default_sf),
+                "description": "Scale Factor (SF) - will be appended to schema name and raw data path"
+            },
+            {
                 "name": "raw_data_path",
                 "default": default_raw_data_path,
-                "description": "Path to TPC-DI raw data"
+                "description": "Base path to TPC-DI raw data (sf will be appended as /sf={sf})"
             },
         ],
         "run_as": {
@@ -440,9 +458,15 @@ def main():
         help="Schema name (used for all layers: bronze, silver, gold) (default: tpcdi_schema)"
     )
     parser.add_argument(
+        "--sf",
+        type=int,
+        default=10,
+        help="Scale Factor (SF) - will be appended to schema name and raw data path (default: 10)"
+    )
+    parser.add_argument(
         "--raw-data-path",
-        default="/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume/sf=10",
-        help="Path to TPC-DI raw data"
+        default="/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume",
+        help="Base path to TPC-DI raw data (sf will be appended as /sf={sf}) (default: /Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume)"
     )
     parser.add_argument(
         "--batch-id",
@@ -458,6 +482,7 @@ def main():
         workflow_type=args.workflow_type,
         default_catalog=args.catalog,
         default_schema_name=args.schema_name,
+        default_sf=args.sf,
         default_raw_data_path=args.raw_data_path,
         default_batch_id=args.batch_id,
     )
