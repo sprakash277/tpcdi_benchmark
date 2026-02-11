@@ -93,7 +93,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 # MAGIC CREATE OR REPLACE TABLE silver_time AS
 # MAGIC SELECT 
 # MAGIC     CAST(split(raw_line, '\\|')[0] AS INT) AS sk_time_id,
-# MAGIC     CAST(split(raw_line, '\\|')[1] AS TIME) AS time_value,
+# MAGIC     split(raw_line, '\\|')[1] AS time_value,  -- STRING (Spark has no TIME type)
 # MAGIC     CAST(split(raw_line, '\\|')[2] AS INT) AS hour_id,
 # MAGIC     split(raw_line, '\\|')[3] AS hour_desc,
 # MAGIC     CAST(split(raw_line, '\\|')[4] AS INT) AS minute_id,

@@ -153,7 +153,7 @@ TBLPROPERTIES (
 CREATE TABLE IF NOT EXISTS gold_dim_time (
     sk_time_id INT NOT NULL,
     time_id INT NOT NULL,  -- Same as sk_time_id
-    time_value TIME NOT NULL,
+    time_value STRING NOT NULL,
     hour_id INT,
     hour_desc STRING,
     minute_id INT,

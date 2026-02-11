@@ -32,7 +32,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 # MAGIC CREATE TABLE IF NOT EXISTS gold_dim_time (
 # MAGIC     sk_time_id INT NOT NULL,
 # MAGIC     time_id INT NOT NULL,  -- Same as sk_time_id
-# MAGIC     time_value TIME NOT NULL,
+# MAGIC     time_value STRING NOT NULL,  -- Time of day (Spark has no TIME type)
 # MAGIC     hour_id INT,
 # MAGIC     hour_desc STRING,
 # MAGIC     minute_id INT,

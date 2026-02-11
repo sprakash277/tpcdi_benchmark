@@ -314,7 +314,7 @@ TBLPROPERTIES (
 -- silver_time: Time dimension (parsed from bronze_time)
 CREATE TABLE IF NOT EXISTS silver_time (
     sk_time_id INT NOT NULL,
-    time_value TIME NOT NULL,
+    time_value STRING NOT NULL,
     hour_id INT,
     hour_desc STRING,
     minute_id INT,

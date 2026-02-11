@@ -48,7 +48,7 @@ WHERE _batch_id = ${var.batch_id}
 INSERT OVERWRITE silver_time
 SELECT 
     CAST(split(raw_line, '\\|')[0] AS INT) AS sk_time_id,
-    CAST(split(raw_line, '\\|')[1] AS TIME) AS time_value,
+    split(raw_line, '\\|')[1] AS time_value,
     CAST(split(raw_line, '\\|')[2] AS INT) AS hour_id,
     split(raw_line, '\\|')[3] AS hour_desc,
     CAST(split(raw_line, '\\|')[4] AS INT) AS minute_id,
