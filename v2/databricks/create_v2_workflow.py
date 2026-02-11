@@ -113,7 +113,6 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
         "task_key": "00_setup",
         "description": "Create catalog and schemas",
         "job_cluster_key": "default_cluster",
-        "job_cluster_key": "default_cluster",
         "notebook_task": {
             "notebook_path": f"{base_path}/00_setup",
             "base_parameters": {
@@ -142,7 +141,6 @@ CREATE SCHEMA IF NOT EXISTS {default_schema_name};
         tasks.append({
             "task_key": task_key,
             "description": f"Create Bronze table: {table_name}",
-            "job_cluster_key": "default_cluster",
             "job_cluster_key": "default_cluster",
             "depends_on": [{"task_key": "00_setup"}],
             "notebook_task": {
