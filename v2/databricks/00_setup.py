@@ -22,7 +22,6 @@ catalog = dbutils.widgets.get("catalog")
 schema_name = dbutils.widgets.get("schema_name")
 
 print(f"Verifying catalog: {catalog}")
-print(f"Creating schema: {schema_name}")
 
 # COMMAND ----------
 
@@ -45,15 +44,6 @@ print(f"✓ Catalog '{catalog}' exists")
 # Use catalog
 spark.sql(f"USE CATALOG {catalog}")
 print(f"✓ Using catalog '{catalog}'")
-
-# MAGIC %md
-# MAGIC ## Create Schema
-
-# COMMAND ----------
-
-# Create schema
-spark.sql(f"CREATE SCHEMA IF NOT EXISTS {schema_name}")
-print(f"✓ Schema '{schema_name}' created or already exists")
 
 # COMMAND ----------
 
