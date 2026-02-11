@@ -5,8 +5,8 @@ Dimensions are current versions from Silver tables, ready for star schema joins.
 """
 
 import logging
-from pyspark.sql import DataFrame, Window
-from pyspark.sql.functions import col, lit, current_timestamp, row_number
+from pyspark.sql import DataFrame
+from pyspark.sql.functions import col, lit, current_timestamp
 
 # Placeholder IDs for late-arriving dimension (TPC-DI: trade arrives before account/customer)
 PLACEHOLDER_CUSTOMER_ID = -1
@@ -30,15 +30,12 @@ class GoldDimCustomer(GoldLoaderBase):
         is_incremental = load_type == LoadType.INCREMENTAL
         
         logger.info("Loading gold.DimCustomer from %s (%s)", silver_table, "MERGE upsert" if is_incremental else "overwrite")
-        current_df = self._select_current_version(silver_table)
+        # Get all records from Silver (no SCD filtering)
+        current_df = self.spark.table(silver_table)
         # Exclude placeholder key so we don't duplicate it when we add the placeholder row
         current_df = current_df.filter(col("customer_id") != lit(PLACEHOLDER_CUSTOMER_ID))
-        # Dedupe by customer_id (keep latest if multiple current versions)
-        if "effective_date" in current_df.columns:
-            w = Window.partitionBy("customer_id").orderBy(col("effective_date").desc_nulls_last())
-            current_df = current_df.withColumn("_rn", row_number().over(w)).filter(col("_rn") == 1).drop("_rn")
-        else:
-            current_df = current_df.dropDuplicates(["customer_id"])
+        # Dedupe by customer_id (keep one record per customer_id)
+        current_df = current_df.dropDuplicates(["customer_id"])
         # Gold: dimension cols only (no SCD2 columns)
         want = [
             "sk_customer_id", "customer_id", "tax_id", "status", "last_name", "first_name",
@@ -86,15 +83,12 @@ class GoldDimAccount(GoldLoaderBase):
         is_incremental = load_type == LoadType.INCREMENTAL
         
         logger.info("Loading gold.DimAccount from %s (%s)", silver_table, "MERGE upsert" if is_incremental else "overwrite")
-        current_df = self._select_current_version(silver_table)
+        # Get all records from Silver (no SCD filtering)
+        current_df = self.spark.table(silver_table)
         # Exclude placeholder key so we don't duplicate it when we add the placeholder row
         current_df = current_df.filter(col("account_id") != lit(PLACEHOLDER_ACCOUNT_ID))
-        # Dedupe by account_id (keep latest if multiple current versions)
-        if "effective_date" in current_df.columns:
-            w = Window.partitionBy("account_id").orderBy(col("effective_date").desc_nulls_last())
-            current_df = current_df.withColumn("_rn", row_number().over(w)).filter(col("_rn") == 1).drop("_rn")
-        else:
-            current_df = current_df.dropDuplicates(["account_id"])
+        # Dedupe by account_id (keep one record per account_id)
+        current_df = current_df.dropDuplicates(["account_id"])
         base_cols = ["account_id", "broker_id", "customer_id", "account_name", "tax_status", "status_id"]
         # Gold: dimension cols only (no SCD2 columns)
         select_cols = [c for c in base_cols if c in current_df.columns]
