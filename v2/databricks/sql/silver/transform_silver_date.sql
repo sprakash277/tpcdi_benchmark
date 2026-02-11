@@ -1,7 +1,7 @@
 CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_date AS
 SELECT 
     CAST(split(raw_line, '__PIPE__')[0] AS INT) AS sk_date_id,
-    CAST(split(raw_line, '__PIPE__')[1] AS DATE) AS date_value,
+    try_cast(split(raw_line, '__PIPE__')[1] AS DATE) AS date_value,
     split(raw_line, '__PIPE__')[2] AS date_desc,
     CAST(split(raw_line, '__PIPE__')[3] AS INT) AS calendar_year_id,
     split(raw_line, '__PIPE__')[4] AS calendar_year_desc,
@@ -17,7 +17,7 @@ SELECT
     split(raw_line, '__PIPE__')[14] AS fiscal_year_desc,
     CAST(split(raw_line, '__PIPE__')[15] AS INT) AS fiscal_qtr_id,
     split(raw_line, '__PIPE__')[16] AS fiscal_qtr_desc,
-    CAST(split(raw_line, '__PIPE__')[17] AS BOOLEAN) AS holiday_flag,
+    try_cast(split(raw_line, '__PIPE__')[17] AS BOOLEAN) AS holiday_flag,
     __BATCH_ID__ AS batch_id,
     current_timestamp() AS load_timestamp
 FROM __CATALOG__.__SCHEMA__.bronze_date
