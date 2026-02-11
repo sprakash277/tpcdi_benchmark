@@ -180,14 +180,17 @@ if not workspace_path:
 def get_table_files(layer: str, base_path: Path) -> list:
     """Get all table creation files for a layer."""
     tables_dir = base_path / layer / "tables"
-    if not tables_dir.exists():
-        return []
     
     table_files = []
     # Look for .py notebook files (converted from .sql)
-    for py_file in sorted(tables_dir.glob("create_*.py")):
-        table_name = py_file.stem.replace("create_", "")
-        table_files.append((table_name, py_file))
+    # Use glob directly - don't rely on exists() as it may not work for Databricks workspace paths
+    try:
+        py_files = list(tables_dir.glob("create_*.py"))
+        for py_file in sorted(py_files):
+            table_name = py_file.stem.replace("create_", "")
+            table_files.append((table_name, py_file))
+    except Exception as e:
+        print(f"WARNING: Error reading tables directory {tables_dir}: {e}")
     
     return table_files
 
@@ -217,6 +220,7 @@ def create_workflow_definition():
     
     # Bronze table creation tasks
     bronze_tables = get_table_files("bronze", base_path)
+    print(f"DEBUG: Found {len(bronze_tables)} bronze tables")
     bronze_create_tasks = []
     
     for table_name, py_file in bronze_tables:
@@ -305,11 +309,12 @@ def create_workflow_definition():
     # Load/Transform tasks based on workflow type
     if workflow_type == "batch":
         # Bronze load batch 1
+        bronze_load_deps = [{"task_key": t} for t in bronze_create_tasks] if bronze_create_tasks else [{"task_key": "00_setup"}]
         tasks.append({
             "task_key": "bronze_load_batch1",
             "description": "Load Bronze Batch 1 data",
             "job_cluster_key": "default_cluster",
-            "depends_on": [{"task_key": t} for t in bronze_create_tasks],
+            "depends_on": bronze_load_deps,
             "notebook_task": {
                 "notebook_path": f"{workspace_path}/bronze/02_load_bronze_batch1",
                 "base_parameters": {
@@ -347,14 +352,14 @@ def create_workflow_definition():
             })
         
         # Silver transform batch 1
+        silver_transform_deps = [{"task_key": "bronze_load_batch1"}]
+        if silver_create_tasks:
+            silver_transform_deps.extend([{"task_key": t} for t in silver_create_tasks])
         tasks.append({
             "task_key": "silver_transform_batch1",
             "description": "Transform Bronze → Silver (Batch 1)",
             "job_cluster_key": "default_cluster",
-            "depends_on": [
-                {"task_key": "bronze_load_batch1"},
-                *[{"task_key": t} for t in silver_create_tasks]
-            ],
+            "depends_on": silver_transform_deps,
             "notebook_task": {
                 "notebook_path": f"{workspace_path}/silver/02_transform_silver_batch1",
                 "base_parameters": {
@@ -391,14 +396,14 @@ def create_workflow_definition():
             })
         
         # Gold load batch 1
+        gold_load_deps = [{"task_key": "silver_transform_batch1"}]
+        if gold_create_tasks:
+            gold_load_deps.extend([{"task_key": t} for t in gold_create_tasks])
         tasks.append({
             "task_key": "gold_load_batch1",
             "description": "Load Silver → Gold (Batch 1)",
             "job_cluster_key": "default_cluster",
-            "depends_on": [
-                {"task_key": "silver_transform_batch1"},
-                *[{"task_key": t} for t in gold_create_tasks]
-            ],
+            "depends_on": gold_load_deps,
             "notebook_task": {
                 "notebook_path": f"{workspace_path}/gold/02_load_gold_batch1",
                 "base_parameters": {
@@ -644,9 +649,22 @@ print(f"Workflow Definition Generated:")
 print(f"  Job Name: {job_name}")
 print(f"  Workflow Type: {workflow_type}")
 print(f"  Total Tasks: {len(workflow['tasks'])}")
-print(f"  Bronze Tables: {len(get_table_files('bronze', Path(workspace_path)))}")
-print(f"  Silver Tables: {len(get_table_files('silver', Path(workspace_path)))}")
-print(f"  Gold Tables: {len(get_table_files('gold', Path(workspace_path)))}")
+bronze_count = len(get_table_files('bronze', Path(workspace_path)))
+silver_count = len(get_table_files('silver', Path(workspace_path)))
+gold_count = len(get_table_files('gold', Path(workspace_path)))
+print(f"  Bronze Tables: {bronze_count}")
+print(f"  Silver Tables: {silver_count}")
+print(f"  Gold Tables: {gold_count}")
+
+# Count task types
+create_tasks = [t for t in workflow['tasks'] if 'create' in t['task_key']]
+metrics_tasks = [t for t in workflow['tasks'] if 'metrics' in t['task_key']]
+load_tasks = [t for t in workflow['tasks'] if 'load' in t['task_key'] or 'transform' in t['task_key']]
+print(f"\nTask Breakdown:")
+print(f"  Create Table Tasks: {len(create_tasks)}")
+print(f"  Metrics Tasks: {len(metrics_tasks)}")
+print(f"  Load/Transform Tasks: {len(load_tasks)}")
+print(f"  Setup Tasks: {len([t for t in workflow['tasks'] if t['task_key'] == '00_setup'])}")
 
 # COMMAND ----------
 
