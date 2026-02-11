@@ -21,23 +21,35 @@ dbutils.widgets.text("schema_name", "tpcdi_schema", "Schema Name")
 catalog = dbutils.widgets.get("catalog")
 schema_name = dbutils.widgets.get("schema_name")
 
-print(f"Creating catalog: {catalog}")
+print(f"Verifying catalog: {catalog}")
 print(f"Creating schema: {schema_name}")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Create Catalog and Schema
+# MAGIC ## Verify Catalog Exists
 
 # COMMAND ----------
 
-# Create catalog
-spark.sql(f"CREATE CATALOG IF NOT EXISTS {catalog}")
-print(f"✓ Catalog '{catalog}' created or already exists")
+# Check if catalog exists
+catalogs = spark.sql("SHOW CATALOGS").collect()
+catalog_exists = any(row.catalog == catalog for row in catalogs)
+
+if not catalog_exists:
+    error_msg = f"ERROR: Catalog '{catalog}' does not exist. Please create it before running this workflow."
+    print(f"❌ {error_msg}")
+    raise ValueError(error_msg)
+
+print(f"✓ Catalog '{catalog}' exists")
 
 # Use catalog
 spark.sql(f"USE CATALOG {catalog}")
 print(f"✓ Using catalog '{catalog}'")
+
+# MAGIC %md
+# MAGIC ## Create Schema
+
+# COMMAND ----------
 
 # Create schema
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {schema_name}")
