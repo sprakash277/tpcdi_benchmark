@@ -1,24 +1,17 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Create TPC-DI v2 Workflow
+# MAGIC # Create TPC-DI v2 Workflow (run_tpcdi_batch)
 # MAGIC
-# MAGIC This notebook creates a Databricks workflow for v2.
-# MAGIC
-# MAGIC **Workflow types:**
-# MAGIC - **run_tpcdi_batch** – Single notebook `run_tpcdi_batch` (Bronze → Silver → Gold via SQL files). Recommended.
-# MAGIC - **batch** – Multi-task: setup → bronze batch1 → silver batch1 → gold batch1.
-# MAGIC - **incremental** – Multi-task: setup → bronze incremental → silver incremental → gold incremental.
+# MAGIC Creates a Databricks job with one task: **run_tpcdi_batch** (Bronze → Silver → Gold via SQL files).
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## Configuration
-# MAGIC
-# MAGIC Configure workflow parameters below.
 
 # COMMAND ----------
 
-# Instance type options per cloud (only these are valid for each cloud)
+# Instance type options per cloud
 CLOUD_NODE_OPTIONS = {
     "AWS": [
         "i3.xlarge", "i3.2xlarge", "i3.4xlarge",
@@ -39,71 +32,58 @@ CLOUD_NODE_OPTIONS = {
     ],
 }
 DEFAULT_NODE_TYPES = {
-    "AWS": ("m5d.4xlarge", "m5d.4xlarge"),  # GCP equivalent: n2d-standard-16 (16 vCPUs, 64 GB RAM)
+    "AWS": ("m5d.4xlarge", "m5d.4xlarge"),
     "GCP": ("n2d-standard-16", "n2d-standard-16"),
-    "Azure": ("Standard_E16s_v3", "Standard_E16s_v3"),  # GCP equivalent: n2d-standard-16 (16 vCPUs, 128 GB RAM)
+    "Azure": ("Standard_E16s_v3", "Standard_E16s_v3"),
 }
 
-def get_worker_count_for_scale_factor(scale_factor: int) -> int:
-    """Get recommended number of worker nodes based on scale factor."""
-    if scale_factor == 10:
+def get_worker_count_for_sf(sf: int) -> int:
+    if sf == 10:
         return 2
-    elif scale_factor == 100:
+    elif sf == 100:
         return 3
-    elif scale_factor == 1000:
+    elif sf == 1000:
         return 5
-    else:
-        # Default: scale_factor / 5, minimum 2, maximum 10
-        return max(2, min(10, scale_factor // 5))
+    return max(2, min(10, sf // 5))
 
-# Widgets for workflow configuration
+# Pipeline parameters (passed to run_tpcdi_batch)
 dbutils.widgets.text("job_name", "TPC-DI-v2-Batch", "Job Name")
-dbutils.widgets.text("workspace_path", "", "Workspace Path (e.g., /Workspace/Repos/org/repo/v2/databricks)")
-dbutils.widgets.dropdown("workflow_type", "run_tpcdi_batch", ["run_tpcdi_batch", "batch", "incremental"], "Workflow Type (run_tpcdi_batch = single notebook)")
-dbutils.widgets.text("catalog", "sumit_prakash_benchmark", "Unity Catalog Name")
-dbutils.widgets.text("schema_name", "tpcdi_schema", "Schema Name (used for all layers)")
-dbutils.widgets.text("sf", "10", "Scale Factor (SF)")
-dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw Data Path (base path, sf will be appended)")
+dbutils.widgets.text("workspace_path", "", "Workspace Path (e.g. /Workspace/Repos/org/repo/v2/databricks)")
+dbutils.widgets.text("catalog", "main", "Unity Catalog")
+dbutils.widgets.text("schema_name", "tpcdi_schema", "Schema Name (sf appended as schema_sf10)")
+dbutils.widgets.text("sf", "10", "Scale Factor")
+dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw Data Path (base; sf appended)")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
-dbutils.widgets.text("metrics_output", "gs://sumit_prakash_gcs/tpcdi/metrics", "Metrics Output Path")
 dbutils.widgets.text("xml_format", "com.databricks.spark.xml", "XML Format")
-dbutils.widgets.text("sql_base_path", "", "SQL base path (optional; for run_tpcdi_batch only)")
+dbutils.widgets.text("sql_base_path", "", "SQL base path (optional)")
 
-# Cluster configuration
+# Cluster
 dbutils.widgets.dropdown(
     "spark_version",
     "14.3.x-scala2.12",
     [
-        "13.3.x-scala2.12",
-        "13.3.x-photon-scala2.12",
-        "14.3.x-scala2.12",
-        "14.3.x-photon-scala2.12",
-        "15.4.x-scala2.12",
-        "15.4.x-photon-scala2.12",
-        "16.4.x-scala2.13",
-        "16.4.x-photon-scala2.13",
-        "17.3.x-scala2.13",
-        "17.3.x-photon-scala2.13",
+        "13.3.x-scala2.12", "13.3.x-photon-scala2.12",
+        "14.3.x-scala2.12", "14.3.x-photon-scala2.12",
+        "15.4.x-scala2.12", "15.4.x-photon-scala2.12",
+        "16.4.x-scala2.13", "16.4.x-photon-scala2.13",
+        "17.3.x-scala2.13", "17.3.x-photon-scala2.13",
     ],
-    "Cluster Spark Version (DBR)"
+    "Spark Version (DBR)"
 )
-dbutils.widgets.dropdown("cloud", "AWS", ["AWS", "GCP", "Azure"], "Cloud (pick first; then re-run next cell for instance types)")
-dbutils.widgets.text("scale_factor", "10", "Scale Factor (SF=10→2 workers, SF=100→3 workers, SF=1000→5 workers)")
-dbutils.widgets.text("num_workers", "2", "Number of Workers (auto-set based on scale_factor if left blank)")
+dbutils.widgets.dropdown("cloud", "AWS", ["AWS", "GCP", "Azure"], "Cloud")
+dbutils.widgets.text("num_workers", "", "Number of Workers (blank = from SF)")
 
 # COMMAND ----------
 
-# Re-run this cell after changing Cloud to update Worker/Driver dropdowns to that cloud's instance types only
+# Update node type dropdowns by cloud
 cloud = dbutils.widgets.get("cloud")
 options = CLOUD_NODE_OPTIONS.get(cloud, CLOUD_NODE_OPTIONS["AWS"])
 default_worker = DEFAULT_NODE_TYPES.get(cloud, ("m5d.4xlarge", "m5d.4xlarge"))[0]
 default_driver = DEFAULT_NODE_TYPES.get(cloud, ("m5d.4xlarge", "m5d.4xlarge"))[1]
-# Ensure defaults are in the options list
 if default_worker not in options:
     default_worker = options[0]
 if default_driver not in options:
     default_driver = options[0]
-
 try:
     dbutils.widgets.remove("node_type_id")
 except Exception:
@@ -112,65 +92,45 @@ try:
     dbutils.widgets.remove("driver_node_type_id")
 except Exception:
     pass
-dbutils.widgets.dropdown("node_type_id", default_worker, options, "Worker Node Type (" + cloud + ")")
-dbutils.widgets.dropdown("driver_node_type_id", default_driver, options, "Driver Node Type (" + cloud + ")")
-print(f"Instance type options updated for cloud: {cloud} ({len(options)} types)")
+dbutils.widgets.dropdown("node_type_id", default_worker, options, "Worker Node Type")
+dbutils.widgets.dropdown("driver_node_type_id", default_driver, options, "Driver Node Type")
+print(f"Cloud: {cloud}; instance types: {len(options)}")
 
 # COMMAND ----------
 
 import json
 from pathlib import Path
 
-# Get widget values
 job_name = dbutils.widgets.get("job_name")
-workspace_path = dbutils.widgets.get("workspace_path")
-workflow_type = dbutils.widgets.get("workflow_type")
+workspace_path = dbutils.widgets.get("workspace_path").strip()
 catalog = dbutils.widgets.get("catalog")
 schema_name = dbutils.widgets.get("schema_name")
 sf = dbutils.widgets.get("sf")
 raw_data_path_base = dbutils.widgets.get("raw_data_path")
-batch_id_str = dbutils.widgets.get("batch_id")
-metrics_output = dbutils.widgets.get("metrics_output")
+batch_id_str = dbutils.widgets.get("batch_id") or "1"
 xml_format = dbutils.widgets.get("xml_format") or "com.databricks.spark.xml"
 sql_base_path = dbutils.widgets.get("sql_base_path") or ""
 
-# Append sf to schema name and raw data path
 schema_name_with_sf = f"{schema_name}_sf{sf}"
-raw_data_path = f"{raw_data_path_base}/sf={sf}"
 
 spark_version = dbutils.widgets.get("spark_version")
 cloud = dbutils.widgets.get("cloud")
 node_type_id = dbutils.widgets.get("node_type_id")
 driver_node_type_id = dbutils.widgets.get("driver_node_type_id")
-scale_factor_str = dbutils.widgets.get("scale_factor")
-num_workers_str = dbutils.widgets.get("num_workers")
+num_workers_str = dbutils.widgets.get("num_workers").strip()
+sf_int = int(sf) if sf else 10
+num_workers = int(num_workers_str) if num_workers_str else get_worker_count_for_sf(sf_int)
+if not num_workers_str:
+    print(f"num_workers={num_workers} (from sf={sf_int})")
 
-# Parse batch_id
-batch_id = int(batch_id_str) if batch_id_str else 1
-
-# Parse scale_factor and auto-calculate num_workers if not provided
-scale_factor = int(scale_factor_str) if scale_factor_str else 10
-if num_workers_str and num_workers_str.strip():
-    num_workers = int(num_workers_str)
-else:
-    # Auto-calculate based on scale factor
-    num_workers = get_worker_count_for_scale_factor(scale_factor)
-    print(f"Auto-setting num_workers={num_workers} based on scale_factor={scale_factor}")
-
-# Use schema_name for all layers
-bronze_schema = schema_name
-silver_schema = schema_name
-gold_schema = schema_name
-
-# Auto-detect workspace path if not provided
 if not workspace_path:
     try:
         notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
         workspace_path = str(Path(notebook_path).parent)
-        print(f"Auto-detected workspace_path: {workspace_path}")
+        print(f"workspace_path: {workspace_path}")
     except Exception:
         workspace_path = "/Workspace/Repos"
-        print(f"Could not auto-detect workspace_path, using default: {workspace_path}")
+        print(f"workspace_path (default): {workspace_path}")
 
 # COMMAND ----------
 
@@ -179,437 +139,71 @@ if not workspace_path:
 
 # COMMAND ----------
 
-def get_table_files(layer: str, base_path: Path) -> list:
-    """Get all table creation files for a layer."""
-    # Convert Path to string for Databricks workspace paths
-    base_path_str = str(base_path)
-    
-    # Ensure workspace path has /Workspace prefix if it starts with /Users/
-    if base_path_str.startswith("/Users/"):
-        workspace_base_path = base_path_str.replace("/Users/", "/Workspace/Users/", 1)
-    elif base_path_str.startswith("/Workspace/"):
-        workspace_base_path = base_path_str
-    else:
-        workspace_base_path = base_path_str
-    
-    tables_dir_path = f"{workspace_base_path}/{layer}/tables"
-    print(f"DEBUG: Looking for tables in {tables_dir_path}")
-    print(f"DEBUG: base_path = {base_path_str}, workspace_base_path = {workspace_base_path}, layer = {layer}")
-    
-    table_files = []
-    
-    # Try multiple approaches to find files
-    # Approach 1: Use Python's os.listdir() if running in a repo (files are on local filesystem)
-    try:
-        import os
-        if os.path.exists(tables_dir_path):
-            files = os.listdir(tables_dir_path)
-            print(f"DEBUG: Found {len(files)} files using os.listdir()")
-            
-            # Filter for create_* files
-            create_files = [f for f in files if f.startswith("create_")]
-            print(f"DEBUG: Found {len(create_files)} files starting with 'create_'")
-            
-            for file_name in sorted(create_files):
-                file_path = os.path.join(tables_dir_path, file_name)
-                
-                # Skip .sql files (they're not used anymore)
-                if file_name.endswith('.sql'):
-                    print(f"DEBUG: Skipping .sql file: {file_name}")
-                    continue
-                
-                # Skip directories
-                if os.path.isdir(file_path):
-                    print(f"DEBUG: Skipping directory: {file_name}")
-                    continue
-                
-                # Extract table name - remove 'create_' prefix and any extension
-                if file_name.endswith('.py'):
-                    table_name = file_name.replace("create_", "").replace(".py", "")
-                else:
-                    # File without extension
-                    table_name = file_name.replace("create_", "")
-                
-                # Use the workspace path format (with /Workspace prefix) for the notebook path
-                # But keep original base_path_str for relative path calculation
-                file_workspace_path = f"{workspace_base_path}/{layer}/tables/{file_name}"
-                table_files.append((table_name, Path(file_workspace_path)))
-                print(f"DEBUG: Added table: {table_name} from {file_name} (workspace path: {file_workspace_path})")
-                
-    except Exception as e:
-        print(f"DEBUG: os.listdir() failed: {e}")
-        
-        # Approach 2: Try dbutils.fs.ls() with workspace path format
-        try:
-            files = dbutils.fs.ls(tables_dir_path)
-            print(f"DEBUG: Found {len(files)} files using dbutils.fs.ls()")
-            
-            create_files = [f for f in files if f.name.startswith("create_")]
-            print(f"DEBUG: Found {len(create_files)} files starting with 'create_'")
-            
-            for file_info in sorted(create_files, key=lambda x: x.name):
-                file_name = file_info.name
-                
-                # Skip .sql files and directories
-                if file_name.endswith('.sql') or file_info.isDir():
-                    continue
-                
-                if file_name.endswith('.py'):
-                    table_name = file_name.replace("create_", "").replace(".py", "")
-                else:
-                    table_name = file_name.replace("create_", "")
-                
-                # Use workspace path format
-                file_workspace_path = f"{workspace_base_path}/{layer}/tables/{file_name}"
-                table_files.append((table_name, Path(file_workspace_path)))
-                print(f"DEBUG: Added table: {table_name} from {file_name} (workspace path: {file_workspace_path})")
-                
-        except Exception as dbutils_error:
-            print(f"DEBUG: dbutils.fs.ls() also failed: {dbutils_error}")
-            
-            # Approach 3: Try Path.glob() as last resort
-            try:
-                tables_dir = Path(tables_dir_path)
-                if tables_dir.exists():
-                    py_files = list(tables_dir.glob("create_*.py"))
-                    print(f"DEBUG: Found {len(py_files)} .py files using Path.glob()")
-                    for py_file in sorted(py_files):
-                        table_name = py_file.stem.replace("create_", "")
-                        table_files.append((table_name, py_file))
-                        print(f"DEBUG: Added table: {table_name} from {py_file}")
-            except Exception as path_error:
-                print(f"ERROR: All methods failed to read {tables_dir_path}")
-                print(f"       os.listdir(): {e}")
-                print(f"       dbutils.fs.ls(): {dbutils_error}")
-                print(f"       Path.glob(): {path_error}")
-                import traceback
-                traceback.print_exc()
-    
-    if len(table_files) == 0:
-        print(f"WARNING: No table files found in {tables_dir_path}")
-        print(f"         Expected files matching pattern: create_*.py or create_* (no extension)")
-        print(f"         Make sure the files exist in the Databricks workspace/repo at this location")
-    
-    return table_files
-
 def create_workflow_definition():
-    """Create workflow definition based on widget values."""
-    
-    # Ensure workspace_path has /Workspace prefix for Databricks workspace paths
     if workspace_path.startswith("/Users/"):
         workspace_path_normalized = workspace_path.replace("/Users/", "/Workspace/Users/", 1)
     elif workspace_path.startswith("/Workspace/"):
         workspace_path_normalized = workspace_path
     else:
         workspace_path_normalized = workspace_path
-    
-    base_path = Path(workspace_path_normalized)
-    tasks = []
 
-    # Single-notebook workflow: run_tpcdi_batch (Bronze → Silver → Gold via SQL files)
-    if workflow_type == "run_tpcdi_batch":
-        run_notebook_path = f"{workspace_path_normalized}/run_tpcdi_batch"
-        task = {
-            "task_key": "run_tpcdi_batch",
-            "description": "Run TPC-DI v2 batch pipeline (Bronze → Silver → Gold)",
-            "job_cluster_key": "default_cluster",
-            "libraries": [{"maven": {"coordinates": "com.databricks:spark-xml_2.13:0.18.0"}}],
-            "notebook_task": {
-                "notebook_path": run_notebook_path,
-                "base_parameters": {
-                    "catalog": catalog,
-                    "schema_name": schema_name_with_sf,
-                    "raw_data_path": raw_data_path_base,
-                    "sf": sf,
-                    "batch_id": batch_id_str or "1",
-                    "xml_format": xml_format,
-                    "sql_base_path": sql_base_path,
-                },
-                "source": "WORKSPACE",
-            },
-            "timeout_seconds": 0,
-            "max_retries": 0,
-        }
-        cluster_config = {
-            "spark_version": spark_version,
-            "node_type_id": node_type_id,
-            "num_workers": num_workers,
-            "driver_node_type_id": driver_node_type_id,
-        }
-        if "photon" in spark_version.lower():
-            cluster_config["runtime_engine"] = "PHOTON"
-        return {
-            "name": job_name,
-            "email_notifications": {},
-            "webhook_notifications": {},
-            "timeout_seconds": 0,
-            "max_concurrent_runs": 1,
-            "tasks": [task],
-            "job_clusters": [{"job_cluster_key": "default_cluster", "new_cluster": cluster_config}],
-            "format": "MULTI_TASK",
-            "parameters": [
-                {"name": "catalog", "default": catalog},
-                {"name": "schema_name", "default": schema_name_with_sf},
-                {"name": "raw_data_path", "default": raw_data_path_base},
-                {"name": "sf", "default": sf},
-                {"name": "batch_id", "default": batch_id_str or "1"},
-                {"name": "xml_format", "default": xml_format},
-                {"name": "sql_base_path", "default": sql_base_path},
-            ],
-            "tags": {"project": "tpcdi", "version": "v2", "type": "run_tpcdi_batch"},
-        }
-
-    # Setup task - using notebook
-    setup_notebook_path = f"{workspace_path_normalized}/00_setup"
-    
-    tasks.append({
-        "task_key": "00_setup",
-        "description": "Create catalog and schemas",
+    run_notebook_path = f"{workspace_path_normalized}/run_tpcdi_batch"
+    task = {
+        "task_key": "run_tpcdi_batch",
+        "description": "Run TPC-DI v2 batch pipeline (Bronze → Silver → Gold)",
         "job_cluster_key": "default_cluster",
+        "libraries": [{"maven": {"coordinates": "com.databricks:spark-xml_2.13:0.18.0"}}],
         "notebook_task": {
-            "notebook_path": setup_notebook_path,
+            "notebook_path": run_notebook_path,
             "base_parameters": {
                 "catalog": catalog,
                 "schema_name": schema_name_with_sf,
+                "raw_data_path": raw_data_path_base,
+                "sf": sf,
+                "batch_id": batch_id_str,
+                "xml_format": xml_format,
+                "sql_base_path": sql_base_path,
             },
-            "source": "WORKSPACE"
+            "source": "WORKSPACE",
         },
-        "timeout_seconds": 300,
-    })
-    
-    # Load/Transform tasks based on workflow type
-    # Note: Table creation is now handled inside each load/transform notebook
-    # This keeps the workflow simple with only 3-5 tasks instead of 100+
-    if workflow_type == "batch":
-        # Bronze load batch 1 (creates tables internally)
-        tasks.append({
-            "task_key": "bronze_load_batch1",
-            "description": "Load Bronze Batch 1 data (creates tables if needed)",
-            "job_cluster_key": "default_cluster",
-            "depends_on": [{"task_key": "00_setup"}],
-            "notebook_task": {
-                "notebook_path": f"{workspace_path_normalized}/bronze/02_load_bronze_batch1",
-                "base_parameters": {
-                    "catalog": catalog,
-                    "schema_name": schema_name_with_sf,
-                    "raw_data_path": raw_data_path_base,
-                    "sf": sf,
-                    "batch_id": "1",
-                    "xml_format": xml_format,
-                },
-                "source": "WORKSPACE"
-            },
-            "timeout_seconds": 3600,
-        })
-        
-        # Silver transform batch 1 (creates tables internally)
-        tasks.append({
-            "task_key": "silver_transform_batch1",
-            "description": "Transform Bronze → Silver (Batch 1, creates tables if needed)",
-            "job_cluster_key": "default_cluster",
-            "depends_on": [{"task_key": "bronze_load_batch1"}],
-            "notebook_task": {
-                "notebook_path": f"{workspace_path_normalized}/silver/02_transform_silver_batch1",
-                "base_parameters": {
-                    "catalog": catalog,
-                    "schema_name": schema_name_with_sf,
-                    "raw_data_path": raw_data_path_base,
-                    "sf": sf,
-                    "batch_id": "1",
-                },
-                "source": "WORKSPACE"
-            },
-            "timeout_seconds": 3600,
-        })
-        
-        # Gold load batch 1 (creates tables internally)
-        tasks.append({
-            "task_key": "gold_load_batch1",
-            "description": "Load Silver → Gold (Batch 1, creates tables if needed)",
-            "job_cluster_key": "default_cluster",
-            "depends_on": [{"task_key": "silver_transform_batch1"}],
-            "notebook_task": {
-                "notebook_path": f"{workspace_path_normalized}/gold/02_load_gold_batch1",
-                "base_parameters": {
-                    "catalog": catalog,
-                    "schema_name": schema_name_with_sf,
-                    "raw_data_path": raw_data_path_base,
-                    "sf": sf,
-                    "batch_id": "1",
-                },
-                "source": "WORKSPACE"
-            },
-            "timeout_seconds": 3600,
-        })
-    else:
-        # Incremental workflow (creates tables internally)
-        tasks.append({
-            "task_key": "bronze_load_incremental",
-            "description": "Load Bronze incremental data (creates tables if needed)",
-            "job_cluster_key": "default_cluster",
-            "depends_on": [{"task_key": "00_setup"}],
-            "notebook_task": {
-                "notebook_path": f"{workspace_path_normalized}/bronze/03_load_bronze_incremental",
-                "base_parameters": {
-                    "catalog": catalog,
-                    "schema_name": schema_name_with_sf,
-                    "raw_data_path": raw_data_path_base,
-                    "sf": sf,
-                    "batch_id": str(batch_id),
-                    "xml_format": xml_format,
-                },
-                "source": "WORKSPACE"
-            },
-            "timeout_seconds": 3600,
-        })
-        
-        tasks.append({
-            "task_key": "silver_transform_incremental",
-            "description": "Transform Bronze → Silver (Incremental, creates tables if needed)",
-            "job_cluster_key": "default_cluster",
-            "depends_on": [{"task_key": "bronze_load_incremental"}],
-            "notebook_task": {
-                "notebook_path": f"{workspace_path_normalized}/silver/03_transform_silver_incremental",
-                "base_parameters": {
-                    "catalog": catalog,
-                    "schema_name": schema_name_with_sf,
-                    "batch_id": str(batch_id),
-                },
-                "source": "WORKSPACE"
-            },
-            "timeout_seconds": 3600,
-        })
-        
-        tasks.append({
-            "task_key": "gold_load_incremental",
-            "description": "Load Silver → Gold (Incremental, creates tables if needed)",
-            "job_cluster_key": "default_cluster",
-            "depends_on": [{"task_key": "silver_transform_incremental"}],
-            "notebook_task": {
-                "notebook_path": f"{workspace_path_normalized}/gold/03_load_gold_incremental",
-                "base_parameters": {
-                    "catalog": catalog,
-                    "schema_name": schema_name_with_sf,
-                    "raw_data_path": raw_data_path_base,
-                    "sf": sf,
-                    "batch_id": str(batch_id),
-                },
-                "source": "WORKSPACE"
-            },
-            "timeout_seconds": 3600,
-        })
-    
-    # Cluster configuration
+        "timeout_seconds": 0,
+        "max_retries": 0,
+    }
     cluster_config = {
         "spark_version": spark_version,
         "node_type_id": node_type_id,
         "num_workers": num_workers,
         "driver_node_type_id": driver_node_type_id,
     }
-    
-    # Add runtime engine if Photon
     if "photon" in spark_version.lower():
         cluster_config["runtime_engine"] = "PHOTON"
-    
-    # Workflow definition
-    workflow = {
+
+    return {
         "name": job_name,
         "email_notifications": {},
         "webhook_notifications": {},
         "timeout_seconds": 0,
         "max_concurrent_runs": 1,
-        "tasks": tasks,
-        "job_clusters": [
-            {
-                "job_cluster_key": "default_cluster",
-                "new_cluster": cluster_config
-            }
-        ],
+        "tasks": [task],
+        "job_clusters": [{"job_cluster_key": "default_cluster", "new_cluster": cluster_config}],
         "format": "MULTI_TASK",
         "parameters": [
-            {
-                "name": "load_type",
-                "default": workflow_type,
-                "description": "Load type: batch or incremental"
-            },
-            {
-                "name": "batch_id",
-                "default": str(batch_id),
-                "description": "Batch ID"
-            },
-            {
-                "name": "catalog",
-                "default": catalog,
-                "description": "Unity Catalog name"
-            },
-            {
-                "name": "schema_name",
-                "default": schema_name,
-                "description": "Schema name (used for all layers: bronze, silver, gold)"
-            },
-            {
-                "name": "sf",
-                "default": sf,
-                "description": "Scale Factor (SF) - will be appended to schema name and raw data path"
-            },
-            {
-                "name": "raw_data_path",
-                "default": raw_data_path_base,
-                "description": "Base path to TPC-DI raw data (sf will be appended as /sf={sf})"
-            },
-            {
-                "name": "metrics_output",
-                "default": metrics_output,
-                "description": "Path to save metrics JSON files"
-            },
-            {
-                "name": "xml_format",
-                "default": xml_format,
-                "description": "XML format for CustomerMgmt.xml (xml or org.apache.spark.sql.execution.datasources.xml)"
-            },
+            {"name": "catalog", "default": catalog},
+            {"name": "schema_name", "default": schema_name_with_sf},
+            {"name": "raw_data_path", "default": raw_data_path_base},
+            {"name": "sf", "default": sf},
+            {"name": "batch_id", "default": batch_id_str},
+            {"name": "xml_format", "default": xml_format},
+            {"name": "sql_base_path", "default": sql_base_path},
         ],
-        "tags": {
-            "project": "tpcdi",
-            "version": "v2",
-            "type": "sql-only"
-        },
+        "tags": {"project": "tpcdi", "version": "v2", "type": "run_tpcdi_batch"},
     }
-    
-    return workflow
 
-# COMMAND ----------
-
-# Generate workflow
 workflow = create_workflow_definition()
 
-print(f"\n{'='*80}")
-print(f"Workflow Definition Generated:")
-print(f"{'='*80}")
-print(f"  Job Name: {job_name}")
-print(f"  Workflow Type: {workflow_type}")
-print(f"  Workspace Path: {workspace_path}")
-print(f"  Total Tasks: {len(workflow['tasks'])}")
-task_keys = [t.get('task_key', '') for t in workflow['tasks']]
-if workflow_type == "run_tpcdi_batch":
-    print(f"\n  Single task: run_tpcdi_batch (Bronze → Silver → Gold via SQL files)")
-else:
-    print(f"\n  Task Breakdown:")
-    try:
-        bronze_count = len(get_table_files('bronze', Path(workspace_path)))
-        silver_count = len(get_table_files('silver', Path(workspace_path)))
-        gold_count = len(get_table_files('gold', Path(workspace_path)))
-        print(f"    - Bronze Tables Found: {bronze_count}")
-        print(f"    - Silver Tables Found: {silver_count}")
-        print(f"    - Gold Tables Found: {gold_count}")
-    except Exception:
-        pass
-    print(f"\n  Tasks Added to Workflow:")
-    print(f"    - Setup tasks: {len([k for k in task_keys if 'setup' in k])}")
-    print(f"    - Bronze load tasks: {len([k for k in task_keys if 'bronze_load' in k])}")
-    print(f"    - Silver transform tasks: {len([k for k in task_keys if 'silver_transform' in k])}")
-    print(f"    - Gold load tasks: {len([k for k in task_keys if 'gold_load' in k])}")
-    print(f"\n  Note: Table creation is now handled inside each load/transform notebook")
-print(f"        Total tasks: {len(workflow['tasks'])}")
+print(f"Job: {job_name}")
+print(f"Notebook: {workspace_path}/run_tpcdi_batch")
+print(f"Tasks: 1 (run_tpcdi_batch)")
 
 # COMMAND ----------
 
@@ -622,37 +216,38 @@ import requests
 
 databricks_host = spark.conf.get("spark.databricks.workspaceUrl", "")
 if not databricks_host:
-    databricks_host = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
-
-if not databricks_host:
-    print("ERROR: Could not determine Databricks workspace URL")
-    print("Please set spark.databricks.workspaceUrl or run this notebook in Databricks")
-else:
-    # Get token from context
-    token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
-    
-    url = f"https://{databricks_host}/api/2.1/jobs/create"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    
     try:
-        response = requests.post(url, headers=headers, json=workflow)
-        response.raise_for_status()
-        
-        job_id = response.json()["job_id"]
-        print(f"\n✅ Workflow created successfully!")
-        print(f"   Job ID: {job_id}")
-        print(f"   Job Name: {job_name}")
-        print(f"\n   View job: https://{databricks_host}/#job/{job_id}")
-        print(f"\n   To run the workflow:")
-        print(f"   databricks jobs run-now --job-id {job_id}")
-    except requests.exceptions.RequestException as e:
-        print(f"\n❌ Error creating workflow: {e}")
-        if hasattr(e, 'response') and e.response is not None:
-            print(f"   Response: {e.response.text}")
-        print(f"\n   Workflow JSON saved below - you can create it manually via UI or CLI")
+        databricks_host = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
+    except Exception:
+        pass
+if not databricks_host:
+    print("ERROR: Could not get workspace URL. Set spark.databricks.workspaceUrl or run in Databricks.")
+else:
+    if not databricks_host.startswith("http"):
+        databricks_host = "https://" + databricks_host
+    token = None
+    try:
+        token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
+    except Exception:
+        pass
+    if not token:
+        print("ERROR: Could not get API token. Run this notebook in a Databricks context that provides it.")
+    else:
+        url = f"{databricks_host.rstrip('/')}/api/2.1/jobs/create"
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        try:
+            response = requests.post(url, headers=headers, json=workflow)
+            response.raise_for_status()
+            job_id = response.json()["job_id"]
+            print(f"Workflow created.")
+            print(f"  Job ID: {job_id}")
+            print(f"  Job Name: {job_name}")
+            print(f"  View: {databricks_host.rstrip('/')}/#job/{job_id}")
+            print(f"  Run: databricks jobs run-now --job-id {job_id}")
+        except requests.exceptions.RequestException as e:
+            print(f"Error creating workflow: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                print(e.response.text)
 
 # COMMAND ----------
 
@@ -661,5 +256,4 @@ else:
 
 # COMMAND ----------
 
-# Display workflow JSON for manual creation if needed
 print(json.dumps(workflow, indent=2))
