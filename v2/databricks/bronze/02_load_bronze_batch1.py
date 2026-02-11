@@ -293,17 +293,20 @@ print(f"Successfully loaded {df_bronze.count()} rows into bronze_customer_mgmt")
 
 # COMMAND ----------
 
-spark.sql(f"""
--- Load FINWIRE files (multiple files: FINWIRE1967Q1.txt, FINWIRE1967Q2.txt, etc.)
-CREATE OR REPLACE TABLE bronze_finwire AS
-SELECT 
-    value AS raw_line,
-    1 AS _batch_id,
-    current_timestamp() AS _load_timestamp,
-    input_file_name() AS _source_file
-FROM read_files('{full_raw_data_path}/Batch1/FINWIRE*.txt', format => 'text', lineSep => '\n')
-WHERE value IS NOT NULL AND length(value) >= 18;  -- Ensure minimum length for record type
-""")
+# Load FINWIRE files (multiple files: FINWIRE1967Q1.txt, FINWIRE1967Q2.txt, etc.)
+# Use PySpark DataFrame API for glob patterns to avoid schema inference issues
+from pyspark.sql.functions import lit, current_timestamp, input_file_name, col
+
+df_finwire = spark.read.format("text").option("lineSep", "\n").load(f"{full_raw_data_path}/Batch1/FINWIRE*.txt")
+df_finwire_bronze = df_finwire.select(
+    col("value").alias("raw_line"),
+    lit(1).alias("_batch_id"),
+    current_timestamp().alias("_load_timestamp"),
+    input_file_name().alias("_source_file")
+).filter(col("value").isNotNull()).filter(col("value") != "").filter(col("value").length() >= 18)
+
+df_finwire_bronze.write.format("delta").mode("overwrite").saveAsTable(f"{catalog}.{schema_name}.bronze_finwire")
+print(f"Successfully loaded {df_finwire_bronze.count()} rows into bronze_finwire")
 
 # COMMAND ----------
 
