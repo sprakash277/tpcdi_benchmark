@@ -179,39 +179,75 @@ if not workspace_path:
 
 def get_table_files(layer: str, base_path: Path) -> list:
     """Get all table creation files for a layer."""
-    tables_dir = base_path / layer / "tables"
-    print(f"DEBUG: Looking for tables in {tables_dir}")
-    print(f"DEBUG: base_path = {base_path}, layer = {layer}")
+    # Convert Path to string for Databricks workspace paths
+    base_path_str = str(base_path)
+    tables_dir_path = f"{base_path_str}/{layer}/tables"
+    print(f"DEBUG: Looking for tables in {tables_dir_path}")
+    print(f"DEBUG: base_path = {base_path_str}, layer = {layer}")
     
     table_files = []
-    # Look for notebook files - try .py first (local filesystem), then files without extension (Databricks workspace)
-    # Use glob directly - don't rely on exists() as it may not work for Databricks workspace paths
+    
+    # Use Databricks dbutils to list files (works with workspace paths)
     try:
-        # First try .py files (for local filesystem or repos)
-        py_files = list(tables_dir.glob("create_*.py"))
-        print(f"DEBUG: Found {len(py_files)} .py files in {tables_dir}")
+        # List all files in the tables directory
+        # dbutils.fs.ls() returns a list of FileInfo objects
+        files = dbutils.fs.ls(tables_dir_path)
+        print(f"DEBUG: Found {len(files)} total files in {tables_dir_path}")
         
-        # Also try files without extension (Databricks workspace notebooks)
-        no_ext_files = [f for f in tables_dir.glob("create_*") if f.is_file() and not f.suffix]
-        print(f"DEBUG: Found {len(no_ext_files)} files without extension in {tables_dir}")
+        # Filter for create_* files (both .py and files without extension)
+        create_files = [f for f in files if f.name.startswith("create_")]
+        print(f"DEBUG: Found {len(create_files)} files starting with 'create_'")
         
-        # Combine both, avoiding duplicates
-        all_files = set(py_files) | set(no_ext_files)
-        
-        for file_path in sorted(all_files):
+        for file_info in sorted(create_files, key=lambda x: x.name):
+            file_name = file_info.name
+            file_path = file_info.path
+            
+            # Skip .sql files (they're not used anymore)
+            if file_name.endswith('.sql'):
+                print(f"DEBUG: Skipping .sql file: {file_name}")
+                continue
+            
+            # Skip directories
+            if file_info.isDir():
+                print(f"DEBUG: Skipping directory: {file_name}")
+                continue
+            
             # Extract table name - remove 'create_' prefix and any extension
-            table_name = file_path.stem.replace("create_", "")
-            table_files.append((table_name, file_path))
-            print(f"DEBUG: Added table: {table_name} from {file_path}")
+            if file_name.endswith('.py'):
+                table_name = file_name.replace("create_", "").replace(".py", "")
+            else:
+                # File without extension
+                table_name = file_name.replace("create_", "")
+            
+            # Use the workspace path format (remove file:// prefix if present, keep dbfs:/ if present)
+            workspace_path = file_path.replace("file://", "")
+            # For workspace paths, we want the path as-is (e.g., /Users/...)
+            # Create a Path object for compatibility with existing code
+            table_files.append((table_name, Path(workspace_path)))
+            print(f"DEBUG: Added table: {table_name} from {file_name} (path: {workspace_path})")
             
     except Exception as e:
-        print(f"ERROR: Error reading tables directory {tables_dir}: {e}")
+        print(f"ERROR: Error reading tables directory {tables_dir_path}: {e}")
         import traceback
         traceback.print_exc()
+        
+        # Fallback: try Path.glob() in case we're running locally (not in Databricks)
+        try:
+            tables_dir = base_path / layer / "tables"
+            if tables_dir.exists():
+                py_files = list(tables_dir.glob("create_*.py"))
+                print(f"DEBUG: Fallback - Found {len(py_files)} .py files using Path.glob()")
+                for py_file in sorted(py_files):
+                    table_name = py_file.stem.replace("create_", "")
+                    table_files.append((table_name, py_file))
+                    print(f"DEBUG: Added table (fallback): {table_name} from {py_file}")
+        except Exception as fallback_error:
+            print(f"ERROR: Fallback also failed: {fallback_error}")
     
     if len(table_files) == 0:
-        print(f"WARNING: No table files found in {tables_dir}")
+        print(f"WARNING: No table files found in {tables_dir_path}")
         print(f"         Expected files matching pattern: create_*.py or create_* (no extension)")
+        print(f"         Make sure the files exist in the Databricks workspace at this location")
     
     return table_files
 
