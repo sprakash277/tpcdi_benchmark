@@ -232,8 +232,8 @@ CREATE SCHEMA IF NOT EXISTS {schema_name};
                 },
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
-                    {"name": "var.catalog", "value": catalog},
-                    {"name": "var.schema", "value": schema_name},
+                    {"key": "var.catalog", "value": catalog},
+                    {"key": "var.schema", "value": schema_name},
                 ]
             },
             "timeout_seconds": 300,
@@ -260,8 +260,8 @@ CREATE SCHEMA IF NOT EXISTS {schema_name};
                 },
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
-                    {"name": "var.catalog", "value": catalog},
-                    {"name": "var.schema", "value": schema_name},
+                    {"key": "var.catalog", "value": catalog},
+                    {"key": "var.schema", "value": schema_name},
                 ]
             },
             "timeout_seconds": 300,
@@ -288,8 +288,8 @@ CREATE SCHEMA IF NOT EXISTS {schema_name};
                 },
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
-                    {"name": "var.catalog", "value": catalog},
-                    {"name": "var.schema", "value": schema_name},
+                    {"key": "var.catalog", "value": catalog},
+                    {"key": "var.schema", "value": schema_name},
                 ]
             },
             "timeout_seconds": 300,
@@ -310,10 +310,10 @@ CREATE SCHEMA IF NOT EXISTS {schema_name};
                 },
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
-                    {"name": "var.catalog", "value": catalog},
-                    {"name": "var.schema", "value": schema_name},
-                    {"name": "var.raw_data_path", "value": raw_data_path},
-                    {"name": "var.batch_id", "value": "1"},
+                    {"key": "var.catalog", "value": catalog},
+                    {"key": "var.schema", "value": schema_name},
+                    {"key": "var.raw_data_path", "value": raw_data_path},
+                    {"key": "var.batch_id", "value": "1"},
                 ]
             },
             "timeout_seconds": 3600,
@@ -334,9 +334,9 @@ CREATE SCHEMA IF NOT EXISTS {schema_name};
                 },
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
-                    {"name": "var.catalog", "value": catalog},
-                    {"name": "var.schema", "value": schema_name},
-                    {"name": "var.batch_id", "value": "1"},
+                    {"key": "var.catalog", "value": catalog},
+                    {"key": "var.schema", "value": schema_name},
+                    {"key": "var.batch_id", "value": "1"},
                 ]
             },
             "timeout_seconds": 3600,
@@ -357,9 +357,9 @@ CREATE SCHEMA IF NOT EXISTS {schema_name};
                 },
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
-                    {"name": "var.catalog", "value": catalog},
-                    {"name": "var.schema", "value": schema_name},
-                    {"name": "var.batch_id", "value": "1"},
+                    {"key": "var.catalog", "value": catalog},
+                    {"key": "var.schema", "value": schema_name},
+                    {"key": "var.batch_id", "value": "1"},
                 ]
             },
             "timeout_seconds": 3600,
@@ -377,10 +377,10 @@ CREATE SCHEMA IF NOT EXISTS {schema_name};
                 },
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
-                    {"name": "var.catalog", "value": catalog},
-                    {"name": "var.schema", "value": schema_name},
-                    {"name": "var.raw_data_path", "value": raw_data_path},
-                    {"name": "var.batch_id", "value": str(batch_id)},
+                    {"key": "var.catalog", "value": catalog},
+                    {"key": "var.schema", "value": schema_name},
+                    {"key": "var.raw_data_path", "value": raw_data_path},
+                    {"key": "var.batch_id", "value": str(batch_id)},
                 ]
             },
             "timeout_seconds": 3600,
@@ -400,9 +400,9 @@ CREATE SCHEMA IF NOT EXISTS {schema_name};
                 },
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
-                    {"name": "var.catalog", "value": catalog},
-                    {"name": "var.schema", "value": schema_name},
-                    {"name": "var.batch_id", "value": str(batch_id)},
+                    {"key": "var.catalog", "value": catalog},
+                    {"key": "var.schema", "value": schema_name},
+                    {"key": "var.batch_id", "value": str(batch_id)},
                 ]
             },
             "timeout_seconds": 3600,
@@ -422,9 +422,9 @@ CREATE SCHEMA IF NOT EXISTS {schema_name};
                 },
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
-                    {"name": "var.catalog", "value": catalog},
-                    {"name": "var.schema", "value": schema_name},
-                    {"name": "var.batch_id", "value": str(batch_id)},
+                    {"key": "var.catalog", "value": catalog},
+                    {"key": "var.schema", "value": schema_name},
+                    {"key": "var.batch_id", "value": str(batch_id)},
                 ]
             },
             "timeout_seconds": 3600,

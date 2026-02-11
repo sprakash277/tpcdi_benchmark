@@ -72,9 +72,7 @@ def create_workflow_definition(
     workspace_path: str,
     workflow_type: str = "batch",  # "batch" or "incremental"
     default_catalog: str = "tpcdi_catalog",
-    default_bronze_schema: str = "bronze_schema",
-    default_silver_schema: str = "silver_schema",
-    default_gold_schema: str = "gold_schema",
+    default_schema_name: str = "tpcdi_schema",
     default_raw_data_path: str = "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume/sf=10",
     default_batch_id: int = 1,
     cluster_config: Dict[str, Any] = None,
@@ -87,9 +85,7 @@ def create_workflow_definition(
         job_name: Name of the workflow job
         workspace_path: Path to SQL files in workspace (e.g., "/Workspace/Repos/org/repo/v2/databricks")
         default_catalog: Unity Catalog name
-        default_bronze_schema: Bronze schema name
-        default_silver_schema: Silver schema name
-        default_gold_schema: Gold schema name
+        default_schema_name: Schema name (used for all layers: bronze, silver, gold)
         default_raw_data_path: Path to TPC-DI raw data
         default_batch_id: Default batch ID
         cluster_config: Cluster configuration
@@ -113,9 +109,7 @@ def create_workflow_definition(
     setup_sql = f"""
 CREATE CATALOG IF NOT EXISTS {default_catalog};
 USE CATALOG {default_catalog};
-CREATE SCHEMA IF NOT EXISTS {default_bronze_schema};
-CREATE SCHEMA IF NOT EXISTS {default_silver_schema};
-CREATE SCHEMA IF NOT EXISTS {default_gold_schema};
+CREATE SCHEMA IF NOT EXISTS {default_schema_name};
 """
     
     tasks.append({
@@ -153,8 +147,8 @@ CREATE SCHEMA IF NOT EXISTS {default_gold_schema};
                 },
                 "warehouse_id": warehouse_id,
                 "parameters": [
-                    {"name": "var.catalog", "value": default_catalog},
-                    {"name": "var.bronze_schema", "value": default_bronze_schema},
+                    {"key": "var.catalog", "value": default_catalog},
+                    {"key": "var.schema", "value": default_schema_name},
                 ]
             },
             "timeout_seconds": 300,
@@ -175,10 +169,10 @@ CREATE SCHEMA IF NOT EXISTS {default_gold_schema};
             },
             "warehouse_id": warehouse_id,
             "parameters": [
-                {"name": "var.catalog", "value": default_catalog},
-                {"name": "var.bronze_schema", "value": default_bronze_schema},
-                {"name": "var.raw_data_path", "value": default_raw_data_path},
-                {"name": "var.batch_id", "value": "1"},
+                {"key": "var.catalog", "value": default_catalog},
+                {"key": "var.schema", "value": default_schema_name},
+                {"key": "var.raw_data_path", "value": default_raw_data_path},
+                {"key": "var.batch_id", "value": "1"},
             ]
         },
         "timeout_seconds": 3600,
@@ -195,10 +189,10 @@ CREATE SCHEMA IF NOT EXISTS {default_gold_schema};
             },
             "warehouse_id": warehouse_id,
             "parameters": [
-                {"name": "var.catalog", "value": default_catalog},
-                {"name": "var.bronze_schema", "value": default_bronze_schema},
-                {"name": "var.raw_data_path", "value": default_raw_data_path},
-                {"name": "var.batch_id", "value": str(default_batch_id)},
+                {"key": "var.catalog", "value": default_catalog},
+                {"key": "var.schema", "value": default_schema_name},
+                {"key": "var.raw_data_path", "value": default_raw_data_path},
+                {"key": "var.batch_id", "value": str(default_batch_id)},
             ]
         },
         "timeout_seconds": 3600,
@@ -226,8 +220,8 @@ CREATE SCHEMA IF NOT EXISTS {default_gold_schema};
                 },
                 "warehouse_id": warehouse_id,
                 "parameters": [
-                    {"name": "var.catalog", "value": default_catalog},
-                    {"name": "var.silver_schema", "value": default_silver_schema},
+                    {"key": "var.catalog", "value": default_catalog},
+                    {"key": "var.schema", "value": default_schema_name},
                 ]
             },
             "timeout_seconds": 300,
@@ -251,10 +245,10 @@ CREATE SCHEMA IF NOT EXISTS {default_gold_schema};
             },
             "warehouse_id": warehouse_id,
             "parameters": [
-                {"name": "var.catalog", "value": default_catalog},
-                {"name": "var.bronze_schema", "value": default_bronze_schema},
-                {"name": "var.silver_schema", "value": default_silver_schema},
-                {"name": "var.batch_id", "value": "1"},
+                {"key": "var.catalog", "value": default_catalog},
+                {"key": "var.schema", "value": default_schema_name},
+                {"key": "var.schema", "value": default_schema_name},
+                {"key": "var.batch_id", "value": "1"},
             ]
         },
         "timeout_seconds": 3600,
@@ -274,10 +268,10 @@ CREATE SCHEMA IF NOT EXISTS {default_gold_schema};
             },
             "warehouse_id": warehouse_id,
             "parameters": [
-                {"name": "var.catalog", "value": default_catalog},
-                {"name": "var.bronze_schema", "value": default_bronze_schema},
-                {"name": "var.silver_schema", "value": default_silver_schema},
-                {"name": "var.batch_id", "value": str(default_batch_id)},
+                {"key": "var.catalog", "value": default_catalog},
+                {"key": "var.schema", "value": default_schema_name},
+                {"key": "var.schema", "value": default_schema_name},
+                {"key": "var.batch_id", "value": str(default_batch_id)},
             ]
         },
         "timeout_seconds": 3600,
@@ -305,8 +299,8 @@ CREATE SCHEMA IF NOT EXISTS {default_gold_schema};
                 },
                 "warehouse_id": warehouse_id,
                 "parameters": [
-                    {"name": "var.catalog", "value": default_catalog},
-                    {"name": "var.gold_schema", "value": default_gold_schema},
+                    {"key": "var.catalog", "value": default_catalog},
+                    {"key": "var.schema", "value": default_schema_name},
                 ]
             },
             "timeout_seconds": 300,
@@ -330,10 +324,10 @@ CREATE SCHEMA IF NOT EXISTS {default_gold_schema};
             },
             "warehouse_id": warehouse_id,
             "parameters": [
-                {"name": "var.catalog", "value": default_catalog},
-                {"name": "var.silver_schema", "value": default_silver_schema},
-                {"name": "var.gold_schema", "value": default_gold_schema},
-                {"name": "var.batch_id", "value": "1"},
+                {"key": "var.catalog", "value": default_catalog},
+                {"key": "var.schema", "value": default_schema_name},
+                {"key": "var.schema", "value": default_schema_name},
+                {"key": "var.batch_id", "value": "1"},
             ]
         },
         "timeout_seconds": 3600,
@@ -353,10 +347,10 @@ CREATE SCHEMA IF NOT EXISTS {default_gold_schema};
             },
             "warehouse_id": warehouse_id,
             "parameters": [
-                {"name": "var.catalog", "value": default_catalog},
-                {"name": "var.silver_schema", "value": default_silver_schema},
-                {"name": "var.gold_schema", "value": default_gold_schema},
-                {"name": "var.batch_id", "value": str(default_batch_id)},
+                {"key": "var.catalog", "value": default_catalog},
+                {"key": "var.schema", "value": default_schema_name},
+                {"key": "var.schema", "value": default_schema_name},
+                {"key": "var.batch_id", "value": str(default_batch_id)},
             ]
         },
         "timeout_seconds": 3600,
@@ -418,19 +412,9 @@ CREATE SCHEMA IF NOT EXISTS {default_gold_schema};
                 "description": "Unity Catalog name"
             },
             {
-                "name": "bronze_schema",
-                "default": default_bronze_schema,
-                "description": "Bronze schema name"
-            },
-            {
-                "name": "silver_schema",
-                "default": default_silver_schema,
-                "description": "Silver schema name"
-            },
-            {
-                "name": "gold_schema",
-                "default": default_gold_schema,
-                "description": "Gold schema name"
+                "name": "schema_name",
+                "default": default_schema_name,
+                "description": "Schema name (used for all layers: bronze, silver, gold)"
             },
             {
                 "name": "raw_data_path",
@@ -482,19 +466,9 @@ def main():
         help="Unity Catalog name (default: tpcdi_catalog)"
     )
     parser.add_argument(
-        "--bronze-schema",
-        default="bronze_schema",
-        help="Bronze schema name (default: bronze_schema)"
-    )
-    parser.add_argument(
-        "--silver-schema",
-        default="silver_schema",
-        help="Silver schema name (default: silver_schema)"
-    )
-    parser.add_argument(
-        "--gold-schema",
-        default="gold_schema",
-        help="Gold schema name (default: gold_schema)"
+        "--schema-name",
+        default="tpcdi_schema",
+        help="Schema name (used for all layers: bronze, silver, gold) (default: tpcdi_schema)"
     )
     parser.add_argument(
         "--raw-data-path",
@@ -519,9 +493,7 @@ def main():
         workspace_path=args.workspace_path,
         workflow_type=args.workflow_type,
         default_catalog=args.catalog,
-        default_bronze_schema=args.bronze_schema,
-        default_silver_schema=args.silver_schema,
-        default_gold_schema=args.gold_schema,
+        default_schema_name=args.schema_name,
         default_raw_data_path=args.raw_data_path,
         default_batch_id=args.batch_id,
         warehouse_id=args.warehouse_id,
