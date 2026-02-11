@@ -8,7 +8,8 @@
 
 dbutils.widgets.text("catalog", "tpcdi_catalog", "Unity Catalog")
 dbutils.widgets.text("schema_name", "tpcdi_schema_sf10", "Schema Name")
-dbutils.widgets.text("raw_data_path", "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume/sf=10", "Raw Data Path")
+dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw Data Path")
+dbutils.widgets.text("sf", "10", "Scale Factor")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
 
 # COMMAND ----------
@@ -16,13 +17,18 @@ dbutils.widgets.text("batch_id", "1", "Batch ID")
 catalog = dbutils.widgets.get("catalog")
 schema_name = dbutils.widgets.get("schema_name")
 raw_data_path = dbutils.widgets.get("raw_data_path")
+sf = dbutils.widgets.get("sf")
 batch_id = int(dbutils.widgets.get("batch_id"))
+
+# Construct full path with sf appended
+full_raw_data_path = f"{raw_data_path}/sf={sf}"
 
 # Set SQL variables
 spark.sql(f"SET var.catalog = '{catalog}'")
 spark.sql(f"SET var.schema = '{schema_name}'")
-spark.sql(f"SET var.raw_data_path = '{raw_data_path}'")
+spark.sql(f"SET var.raw_data_path = '{full_raw_data_path}'")
 spark.sql(f"SET var.batch_id = {batch_id}")
+spark.sql(f"SET var.sf = {sf}")
 
 # COMMAND ----------
 
@@ -104,7 +110,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC INSERT OVERWRITE silver_date
+# MAGIC CREATE OR REPLACE TABLE silver_date AS
 # MAGIC SELECT 
 # MAGIC     CAST(split(raw_line, '\\|')[0] AS INT) AS sk_date_id,
 # MAGIC     CAST(split(raw_line, '\\|')[1] AS DATE) AS date_value,
@@ -135,7 +141,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- silver_time: Parse Time.txt (10 columns pipe-delimited)
-# MAGIC INSERT OVERWRITE silver_time
+# MAGIC CREATE OR REPLACE TABLE silver_time AS
 # MAGIC SELECT 
 # MAGIC     CAST(split(raw_line, '\\|')[0] AS INT) AS sk_time_id,
 # MAGIC     CAST(split(raw_line, '\\|')[1] AS TIME) AS time_value,
@@ -158,7 +164,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- silver_status_type: Parse StatusType.txt (2 columns)
-# MAGIC INSERT OVERWRITE silver_status_type
+# MAGIC CREATE OR REPLACE TABLE silver_status_type AS
 # MAGIC SELECT 
 # MAGIC     split(raw_line, '\\|')[0] AS st_id,
 # MAGIC     split(raw_line, '\\|')[1] AS st_name,
@@ -173,7 +179,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- silver_trade_type: Parse TradeType.txt (4 columns)
-# MAGIC INSERT OVERWRITE silver_trade_type
+# MAGIC CREATE OR REPLACE TABLE silver_trade_type AS
 # MAGIC SELECT 
 # MAGIC     split(raw_line, '\\|')[0] AS tt_id,
 # MAGIC     split(raw_line, '\\|')[1] AS tt_name,
@@ -190,7 +196,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- silver_industry: Parse Industry.txt (3 columns)
-# MAGIC INSERT OVERWRITE silver_industry
+# MAGIC CREATE OR REPLACE TABLE silver_industry AS
 # MAGIC SELECT 
 # MAGIC     split(raw_line, '\\|')[0] AS in_id,
 # MAGIC     split(raw_line, '\\|')[1] AS in_name,
@@ -206,7 +212,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- silver_tax_rate: Parse TaxRate.txt (3 columns)
-# MAGIC INSERT OVERWRITE silver_tax_rate
+# MAGIC CREATE OR REPLACE TABLE silver_tax_rate AS
 # MAGIC SELECT 
 # MAGIC     split(raw_line, '\\|')[0] AS tx_id,
 # MAGIC     split(raw_line, '\\|')[1] AS tx_name,
@@ -225,7 +231,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 # MAGIC -- Market Data: Parse FINWIRE (Fixed-Width)
 # MAGIC -- ============================================================================
 # MAGIC -- silver_companies: Extract CMP records from FINWIRE
-# MAGIC INSERT OVERWRITE silver_companies
+# MAGIC CREATE OR REPLACE TABLE silver_companies AS
 # MAGIC SELECT 
 # MAGIC     monotonically_increasing_id() AS sk_company_id,
 # MAGIC     TRIM(substring(raw_line, 79, 10)) AS company_id,  -- CIK
@@ -253,7 +259,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- silver_securities: Extract SEC records from FINWIRE
-# MAGIC INSERT OVERWRITE silver_securities
+# MAGIC CREATE OR REPLACE TABLE silver_securities AS
 # MAGIC SELECT 
 # MAGIC     TRIM(substring(raw_line, 19, 15)) AS symbol,
 # MAGIC     TRIM(substring(raw_line, 34, 6)) AS issue_type,
@@ -276,7 +282,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- silver_financials: Extract FIN records from FINWIRE
-# MAGIC INSERT OVERWRITE silver_financials
+# MAGIC CREATE OR REPLACE TABLE silver_financials AS
 # MAGIC SELECT 
 # MAGIC     TRIM(substring(raw_line, 214, 60)) AS co_name_or_cik,
 # MAGIC     CAST(TRIM(substring(raw_line, 19, 4)) AS INT) AS year,
@@ -309,7 +315,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 # MAGIC -- silver_customers: Extract from CustomerMgmt.xml
 # MAGIC -- Note: This assumes XML is parsed using spark-xml or native XML reader
 # MAGIC -- Adjust column paths based on your XML parsing method
-# MAGIC INSERT OVERWRITE silver_customers
+# MAGIC CREATE OR REPLACE TABLE silver_customers AS
 # MAGIC SELECT 
 # MAGIC     monotonically_increasing_id() AS sk_customer_id,
 # MAGIC     CAST(Customer._C_ID AS BIGINT) AS customer_id,
@@ -347,7 +353,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- silver_accounts: Extract from CustomerMgmt.xml
-# MAGIC INSERT OVERWRITE silver_accounts
+# MAGIC CREATE OR REPLACE TABLE silver_accounts AS
 # MAGIC SELECT 
 # MAGIC     CAST(Account._CA_ID AS BIGINT) AS account_id,
 # MAGIC     CAST(Account._CA_B_ID AS BIGINT) AS broker_id,
@@ -377,7 +383,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 # MAGIC -- Transaction Data (Batch 1)
 # MAGIC -- ============================================================================
 # MAGIC -- silver_trades: Parse Trade.txt (16 columns historical)
-# MAGIC INSERT OVERWRITE silver_trades
+# MAGIC CREATE OR REPLACE TABLE silver_trades AS
 # MAGIC SELECT 
 # MAGIC     CAST(split(raw_line, '\\|')[0] AS BIGINT) AS trade_id,
 # MAGIC     CAST(split(raw_line, '\\|')[1] AS TIMESTAMP) AS trade_dts,
@@ -410,7 +416,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- silver_daily_market: Parse DailyMarket.txt (6 columns historical)
-# MAGIC INSERT OVERWRITE silver_daily_market
+# MAGIC CREATE OR REPLACE TABLE silver_daily_market AS
 # MAGIC SELECT 
 # MAGIC     CONCAT(CAST(split(raw_line, '\\|')[0] AS DATE), '|', split(raw_line, '\\|')[1]) AS dm_key,
 # MAGIC     CAST(split(raw_line, '\\|')[0] AS DATE) AS dm_date,
@@ -431,7 +437,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- silver_cash_transaction: Parse CashTransaction.txt (4 columns historical)
-# MAGIC INSERT OVERWRITE silver_cash_transaction
+# MAGIC CREATE OR REPLACE TABLE silver_cash_transaction AS
 # MAGIC SELECT 
 # MAGIC     CONCAT(CAST(split(raw_line, '\\|')[0] AS BIGINT), '|', CAST(split(raw_line, '\\|')[1] AS TIMESTAMP)) AS ct_key,
 # MAGIC     CAST(split(raw_line, '\\|')[0] AS BIGINT) AS ct_ca_id,
@@ -454,7 +460,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- silver_holding_history: Parse HoldingHistory.txt (4 columns historical)
-# MAGIC INSERT OVERWRITE silver_holding_history
+# MAGIC CREATE OR REPLACE TABLE silver_holding_history AS
 # MAGIC SELECT 
 # MAGIC     CAST(split(raw_line, '\\|')[0] AS BIGINT) AS hh_h_t_id,
 # MAGIC     CAST(split(raw_line, '\\|')[1] AS BIGINT) AS hh_t_id,
@@ -476,7 +482,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- silver_watch_history: Parse WatchHistory.txt (4 columns historical)
-# MAGIC INSERT OVERWRITE silver_watch_history
+# MAGIC CREATE OR REPLACE TABLE silver_watch_history AS
 # MAGIC SELECT 
 # MAGIC     CONCAT(CAST(split(raw_line, '\\|')[0] AS BIGINT), '|', split(raw_line, '\\|')[1]) AS wh_key,
 # MAGIC     CAST(split(raw_line, '\\|')[0] AS BIGINT) AS w_c_id,
@@ -502,7 +508,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 # MAGIC -- Other Sources (Batch 1)
 # MAGIC -- ============================================================================
 # MAGIC -- silver_prospect: Parse Prospect.csv (23 columns comma-delimited)
-# MAGIC INSERT OVERWRITE silver_prospect
+# MAGIC CREATE OR REPLACE TABLE silver_prospect AS
 # MAGIC SELECT 
 # MAGIC     split(raw_line, ',')[0] AS agency_id,
 # MAGIC     split(raw_line, ',')[1] AS last_name,

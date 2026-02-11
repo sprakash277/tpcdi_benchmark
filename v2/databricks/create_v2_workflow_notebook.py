@@ -337,7 +337,8 @@ def create_workflow_definition():
                 "base_parameters": {
                     "catalog": catalog,
                     "schema_name": schema_name_with_sf,
-                    "raw_data_path": raw_data_path,
+                    "raw_data_path": raw_data_path_base,
+                    "sf": sf,
                     "batch_id": "1",
                 },
                 "source": "WORKSPACE"
@@ -356,6 +357,8 @@ def create_workflow_definition():
                 "base_parameters": {
                     "catalog": catalog,
                     "schema_name": schema_name_with_sf,
+                    "raw_data_path": raw_data_path_base,
+                    "sf": sf,
                     "batch_id": "1",
                 },
                 "source": "WORKSPACE"
@@ -374,6 +377,8 @@ def create_workflow_definition():
                 "base_parameters": {
                     "catalog": catalog,
                     "schema_name": schema_name_with_sf,
+                    "raw_data_path": raw_data_path_base,
+                    "sf": sf,
                     "batch_id": "1",
                 },
                 "source": "WORKSPACE"
@@ -392,7 +397,8 @@ def create_workflow_definition():
                 "base_parameters": {
                     "catalog": catalog,
                     "schema_name": schema_name_with_sf,
-                    "raw_data_path": raw_data_path,
+                    "raw_data_path": raw_data_path_base,
+                    "sf": sf,
                     "batch_id": str(batch_id),
                 },
                 "source": "WORKSPACE"
@@ -427,6 +433,8 @@ def create_workflow_definition():
                 "base_parameters": {
                     "catalog": catalog,
                     "schema_name": schema_name_with_sf,
+                    "raw_data_path": raw_data_path_base,
+                    "sf": sf,
                     "batch_id": str(batch_id),
                 },
                 "source": "WORKSPACE"

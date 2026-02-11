@@ -8,7 +8,8 @@
 
 dbutils.widgets.text("catalog", "tpcdi_catalog", "Unity Catalog")
 dbutils.widgets.text("schema_name", "tpcdi_schema_sf10", "Schema Name")
-dbutils.widgets.text("raw_data_path", "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume/sf=10", "Raw Data Path")
+dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw Data Path")
+dbutils.widgets.text("sf", "10", "Scale Factor")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
 
 # COMMAND ----------
@@ -16,13 +17,18 @@ dbutils.widgets.text("batch_id", "1", "Batch ID")
 catalog = dbutils.widgets.get("catalog")
 schema_name = dbutils.widgets.get("schema_name")
 raw_data_path = dbutils.widgets.get("raw_data_path")
+sf = dbutils.widgets.get("sf")
 batch_id = int(dbutils.widgets.get("batch_id"))
+
+# Construct full path with sf appended
+full_raw_data_path = f"{raw_data_path}/sf={sf}"
 
 # Set SQL variables
 spark.sql(f"SET var.catalog = '{catalog}'")
 spark.sql(f"SET var.schema = '{schema_name}'")
-spark.sql(f"SET var.raw_data_path = '{raw_data_path}'")
+spark.sql(f"SET var.raw_data_path = '{full_raw_data_path}'")
 spark.sql(f"SET var.batch_id = {batch_id}")
+spark.sql(f"SET var.sf = {sf}")
 
 # COMMAND ----------
 
@@ -106,7 +112,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC INSERT INTO gold_dim_customer
+# MAGIC CREATE OR REPLACE TABLE gold_dim_customer AS
 # MAGIC SELECT 
 # MAGIC     sk_customer_id,
 # MAGIC     customer_id,
@@ -138,7 +144,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- gold_dim_account: Current versions only from silver_accounts
-# MAGIC INSERT INTO gold_dim_account
+# MAGIC CREATE OR REPLACE TABLE gold_dim_account AS
 # MAGIC SELECT 
 # MAGIC     monotonically_increasing_id() AS sk_account_id,
 # MAGIC     account_id,
@@ -157,7 +163,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- gold_dim_date: From silver_date
-# MAGIC INSERT INTO gold_dim_date
+# MAGIC CREATE OR REPLACE TABLE gold_dim_date AS
 # MAGIC SELECT 
 # MAGIC     sk_date_id AS sk_date_id,
 # MAGIC     sk_date_id AS date_id,
@@ -186,7 +192,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- gold_dim_time: From silver_time
-# MAGIC INSERT INTO gold_dim_time
+# MAGIC CREATE OR REPLACE TABLE gold_dim_time AS
 # MAGIC SELECT 
 # MAGIC     sk_time_id AS sk_time_id,
 # MAGIC     sk_time_id AS time_id,
@@ -207,7 +213,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- gold_dim_trade_type: From silver_trade_type
-# MAGIC INSERT INTO gold_dim_trade_type
+# MAGIC CREATE OR REPLACE TABLE gold_dim_trade_type AS
 # MAGIC SELECT 
 # MAGIC     tt_id AS sk_trade_type_id,
 # MAGIC     tt_id AS trade_type_id,
@@ -223,7 +229,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- gold_dim_status_type: From silver_status_type
-# MAGIC INSERT INTO gold_dim_status_type
+# MAGIC CREATE OR REPLACE TABLE gold_dim_status_type AS
 # MAGIC SELECT 
 # MAGIC     st_id AS sk_status_type_id,
 # MAGIC     st_id AS status_type_id,
@@ -237,7 +243,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- gold_dim_industry: From silver_industry
-# MAGIC INSERT INTO gold_dim_industry
+# MAGIC CREATE OR REPLACE TABLE gold_dim_industry AS
 # MAGIC SELECT 
 # MAGIC     in_id AS sk_industry_id,
 # MAGIC     in_id AS industry_id,
@@ -252,7 +258,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- gold_dim_company: From silver_companies (current only)
-# MAGIC INSERT INTO gold_dim_company
+# MAGIC CREATE OR REPLACE TABLE gold_dim_company AS
 # MAGIC SELECT 
 # MAGIC     sc.sk_company_id,
 # MAGIC     sc.company_id,
@@ -279,7 +285,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- gold_dim_security: From silver_securities (current only)
-# MAGIC INSERT INTO gold_dim_security
+# MAGIC CREATE OR REPLACE TABLE gold_dim_security AS
 # MAGIC SELECT 
 # MAGIC     ss.symbol AS sk_security_id,
 # MAGIC     ss.symbol AS security_id,
@@ -304,7 +310,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 # MAGIC -- gold_dim_broker: From silver_hr (extract brokers)
 # MAGIC -- Note: This assumes HR.csv has been parsed and brokers identified
 # MAGIC -- Adjust based on your HR parsing logic
-# MAGIC INSERT INTO gold_dim_broker
+# MAGIC CREATE OR REPLACE TABLE gold_dim_broker AS
 # MAGIC SELECT 
 # MAGIC     monotonically_increasing_id() AS sk_broker_id,
 # MAGIC     CAST(employee_id AS BIGINT) AS broker_id,
@@ -339,7 +345,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 # MAGIC -- Fact Tables (Batch 1: INSERT)
 # MAGIC -- ============================================================================
 # MAGIC -- gold_fact_trade: Join trades with dimensions
-# MAGIC INSERT INTO gold_fact_trade
+# MAGIC CREATE OR REPLACE TABLE gold_fact_trade AS
 # MAGIC SELECT 
 # MAGIC     st.trade_id AS sk_trade_id,  -- Use trade_id as surrogate key
 # MAGIC     dd.sk_date_id,
@@ -376,7 +382,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- gold_fact_market_history: From silver_daily_market
-# MAGIC INSERT INTO gold_fact_market_history
+# MAGIC CREATE OR REPLACE TABLE gold_fact_market_history AS
 # MAGIC SELECT 
 # MAGIC     dd.sk_date_id,
 # MAGIC     ds.sk_security_id,
@@ -399,7 +405,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- gold_fact_cash_balances: Aggregate from silver_cash_transaction
-# MAGIC INSERT INTO gold_fact_cash_balances
+# MAGIC CREATE OR REPLACE TABLE gold_fact_cash_balances AS
 # MAGIC SELECT 
 # MAGIC     dd.sk_date_id,
 # MAGIC     da.sk_account_id,
@@ -420,7 +426,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- gold_fact_holdings: From silver_holding_history
-# MAGIC INSERT INTO gold_fact_holdings
+# MAGIC CREATE OR REPLACE TABLE gold_fact_holdings AS
 # MAGIC SELECT 
 # MAGIC     dd.sk_date_id,
 # MAGIC     da.sk_account_id,
@@ -444,7 +450,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- gold_fact_watches: From silver_watch_history
-# MAGIC INSERT INTO gold_fact_watches
+# MAGIC CREATE OR REPLACE TABLE gold_fact_watches AS
 # MAGIC SELECT 
 # MAGIC     dc.sk_customer_id,
 # MAGIC     ds.sk_security_id,
@@ -466,7 +472,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 # MAGIC -- Other Gold Tables
 # MAGIC -- ============================================================================
 # MAGIC -- gold_financials: From silver_financials
-# MAGIC INSERT INTO gold_financials
+# MAGIC CREATE OR REPLACE TABLE gold_financials AS
 # MAGIC SELECT 
 # MAGIC     co_name_or_cik,
 # MAGIC     year,
@@ -491,7 +497,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- gold_prospect: From silver_prospect
-# MAGIC INSERT INTO gold_prospect
+# MAGIC CREATE OR REPLACE TABLE gold_prospect AS
 # MAGIC SELECT 
 # MAGIC     agency_id,
 # MAGIC     last_name,

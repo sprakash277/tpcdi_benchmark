@@ -8,7 +8,8 @@
 
 dbutils.widgets.text("catalog", "tpcdi_catalog", "Unity Catalog")
 dbutils.widgets.text("schema_name", "tpcdi_schema_sf10", "Schema Name")
-dbutils.widgets.text("raw_data_path", "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume/sf=10", "Raw Data Path")
+dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw Data Path")
+dbutils.widgets.text("sf", "10", "Scale Factor")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
 
 # COMMAND ----------
@@ -16,13 +17,18 @@ dbutils.widgets.text("batch_id", "1", "Batch ID")
 catalog = dbutils.widgets.get("catalog")
 schema_name = dbutils.widgets.get("schema_name")
 raw_data_path = dbutils.widgets.get("raw_data_path")
+sf = dbutils.widgets.get("sf")
 batch_id = int(dbutils.widgets.get("batch_id"))
+
+# Construct full path with sf appended
+full_raw_data_path = f"{raw_data_path}/sf={sf}"
 
 # Set SQL variables
 spark.sql(f"SET var.catalog = '{catalog}'")
 spark.sql(f"SET var.schema = '{schema_name}'")
-spark.sql(f"SET var.raw_data_path = '{raw_data_path}'")
+spark.sql(f"SET var.raw_data_path = '{full_raw_data_path}'")
 spark.sql(f"SET var.batch_id = {batch_id}")
+spark.sql(f"SET var.sf = {sf}")
 
 # COMMAND ----------
 

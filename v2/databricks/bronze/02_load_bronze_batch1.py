@@ -8,7 +8,8 @@
 
 dbutils.widgets.text("catalog", "tpcdi_catalog", "Unity Catalog")
 dbutils.widgets.text("schema_name", "tpcdi_schema_sf10", "Schema Name")
-dbutils.widgets.text("raw_data_path", "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume/sf=10", "Raw Data Path")
+dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw Data Path")
+dbutils.widgets.text("sf", "10", "Scale Factor")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
 
 # COMMAND ----------
@@ -16,13 +17,18 @@ dbutils.widgets.text("batch_id", "1", "Batch ID")
 catalog = dbutils.widgets.get("catalog")
 schema_name = dbutils.widgets.get("schema_name")
 raw_data_path = dbutils.widgets.get("raw_data_path")
+sf = dbutils.widgets.get("sf")
 batch_id = int(dbutils.widgets.get("batch_id"))
+
+# Construct full path with sf appended
+full_raw_data_path = f"{raw_data_path}/sf={sf}"
 
 # Set SQL variables
 spark.sql(f"SET var.catalog = '{catalog}'")
 spark.sql(f"SET var.schema = '{schema_name}'")
-spark.sql(f"SET var.raw_data_path = '{raw_data_path}'")
+spark.sql(f"SET var.raw_data_path = '{full_raw_data_path}'")
 spark.sql(f"SET var.batch_id = {batch_id}")
+spark.sql(f"SET var.sf = {sf}")
 
 # COMMAND ----------
 
@@ -95,7 +101,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 # MAGIC %sql
 # MAGIC -- Load Date.txt
 # MAGIC
-# MAGIC INSERT INTO bronze_date (raw_line, _batch_id, _load_timestamp, _source_file)
+# MAGIC CREATE OR REPLACE TABLE bronze_date AS
 # MAGIC SELECT 
 # MAGIC     value AS raw_line,
 # MAGIC     1 AS _batch_id,
@@ -108,7 +114,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- Load Time.txt
-# MAGIC INSERT INTO bronze_time (raw_line, _batch_id, _load_timestamp, _source_file)
+# MAGIC CREATE OR REPLACE TABLE bronze_time AS
 # MAGIC SELECT 
 # MAGIC     value AS raw_line,
 # MAGIC     1 AS _batch_id,
@@ -121,7 +127,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- Load StatusType.txt
-# MAGIC INSERT INTO bronze_status_type (raw_line, _batch_id, _load_timestamp, _source_file)
+# MAGIC CREATE OR REPLACE TABLE bronze_status_type AS
 # MAGIC SELECT 
 # MAGIC     value AS raw_line,
 # MAGIC     1 AS _batch_id,
@@ -134,7 +140,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- Load TradeType.txt
-# MAGIC INSERT INTO bronze_trade_type (raw_line, _batch_id, _load_timestamp, _source_file)
+# MAGIC CREATE OR REPLACE TABLE bronze_trade_type AS
 # MAGIC SELECT 
 # MAGIC     value AS raw_line,
 # MAGIC     1 AS _batch_id,
@@ -147,7 +153,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- Load Industry.txt
-# MAGIC INSERT INTO bronze_industry (raw_line, _batch_id, _load_timestamp, _source_file)
+# MAGIC CREATE OR REPLACE TABLE bronze_industry AS
 # MAGIC SELECT 
 # MAGIC     value AS raw_line,
 # MAGIC     1 AS _batch_id,
@@ -160,7 +166,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- Load TaxRate.txt
-# MAGIC INSERT INTO bronze_tax_rate (raw_line, _batch_id, _load_timestamp, _source_file)
+# MAGIC CREATE OR REPLACE TABLE bronze_tax_rate AS
 # MAGIC SELECT 
 # MAGIC     value AS raw_line,
 # MAGIC     1 AS _batch_id,
@@ -178,7 +184,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- Load CustomerMgmt.xml (XML file - use spark-xml or native XML reader)
-# MAGIC INSERT INTO bronze_customer_mgmt (raw_xml, _batch_id, _load_timestamp, _source_file)
+# MAGIC CREATE OR REPLACE TABLE bronze_customer_mgmt AS
 # MAGIC SELECT 
 # MAGIC     _c0 AS raw_xml,
 # MAGIC     1 AS _batch_id,
@@ -195,7 +201,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- Load FINWIRE files (multiple files: FINWIRE1967Q1.txt, FINWIRE1967Q2.txt, etc.)
-# MAGIC INSERT INTO bronze_finwire (raw_line, _batch_id, _load_timestamp, _source_file)
+# MAGIC CREATE OR REPLACE TABLE bronze_finwire AS
 # MAGIC SELECT 
 # MAGIC     value AS raw_line,
 # MAGIC     1 AS _batch_id,
@@ -213,7 +219,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- Load Trade.txt
-# MAGIC INSERT INTO bronze_trade (raw_line, _batch_id, _load_timestamp, _source_file)
+# MAGIC CREATE OR REPLACE TABLE bronze_trade AS
 # MAGIC SELECT 
 # MAGIC     value AS raw_line,
 # MAGIC     1 AS _batch_id,
@@ -226,7 +232,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- Load DailyMarket.txt
-# MAGIC INSERT INTO bronze_daily_market (raw_line, _batch_id, _load_timestamp, _source_file)
+# MAGIC CREATE OR REPLACE TABLE bronze_daily_market AS
 # MAGIC SELECT 
 # MAGIC     value AS raw_line,
 # MAGIC     1 AS _batch_id,
@@ -239,7 +245,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- Load CashTransaction.txt
-# MAGIC INSERT INTO bronze_cash_transaction (raw_line, _batch_id, _load_timestamp, _source_file)
+# MAGIC CREATE OR REPLACE TABLE bronze_cash_transaction AS
 # MAGIC SELECT 
 # MAGIC     value AS raw_line,
 # MAGIC     1 AS _batch_id,
@@ -252,7 +258,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- Load HoldingHistory.txt
-# MAGIC INSERT INTO bronze_holding_history (raw_line, _batch_id, _load_timestamp, _source_file)
+# MAGIC CREATE OR REPLACE TABLE bronze_holding_history AS
 # MAGIC SELECT 
 # MAGIC     value AS raw_line,
 # MAGIC     1 AS _batch_id,
@@ -265,7 +271,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- Load WatchHistory.txt
-# MAGIC INSERT INTO bronze_watch_history (raw_line, _batch_id, _load_timestamp, _source_file)
+# MAGIC CREATE OR REPLACE TABLE bronze_watch_history AS
 # MAGIC SELECT 
 # MAGIC     value AS raw_line,
 # MAGIC     1 AS _batch_id,
@@ -283,7 +289,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- Load HR.csv
-# MAGIC INSERT INTO bronze_hr (raw_line, _batch_id, _load_timestamp, _source_file)
+# MAGIC CREATE OR REPLACE TABLE bronze_hr AS
 # MAGIC SELECT 
 # MAGIC     value AS raw_line,
 # MAGIC     1 AS _batch_id,
@@ -296,7 +302,7 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC -- Load Prospect.csv
-# MAGIC INSERT INTO bronze_prospect (raw_line, _batch_id, _load_timestamp, _source_file)
+# MAGIC CREATE OR REPLACE TABLE bronze_prospect AS
 # MAGIC SELECT 
 # MAGIC     value AS raw_line,
 # MAGIC     1 AS _batch_id,
