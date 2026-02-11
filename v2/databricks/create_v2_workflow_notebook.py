@@ -65,7 +65,7 @@ dbutils.widgets.text("catalog", "tpcdi_catalog", "Unity Catalog Name")
 dbutils.widgets.text("schema_name", "tpcdi_schema", "Schema Name (used for all layers)")
 dbutils.widgets.text("raw_data_path", "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume/sf=10", "Raw Data Path")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
-# Note: Notebook tasks use clusters, not SQL warehouses
+# Note: Notebook tasks use clusters, not SQL warehouses (warehouse_id removed)
 
 # Cluster configuration
 dbutils.widgets.dropdown(
@@ -127,7 +127,6 @@ catalog = dbutils.widgets.get("catalog")
 schema_name = dbutils.widgets.get("schema_name")
 raw_data_path = dbutils.widgets.get("raw_data_path")
 batch_id_str = dbutils.widgets.get("batch_id")
-warehouse_id = dbutils.widgets.get("warehouse_id")
 
 spark_version = dbutils.widgets.get("spark_version")
 cloud = dbutils.widgets.get("cloud")
@@ -162,9 +161,6 @@ if not workspace_path:
     except Exception:
         workspace_path = "/Workspace/Repos"
         print(f"Could not auto-detect workspace_path, using default: {workspace_path}")
-
-if not warehouse_id:
-    print("WARNING: warehouse_id not set. You must set it before creating the workflow.")
 
 # COMMAND ----------
 

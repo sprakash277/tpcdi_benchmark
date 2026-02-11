@@ -41,9 +41,9 @@ def create_sql_task(
         "description": description,
         "job_cluster_key": "default_cluster",
         "notebook_task": {
-                "query_id": sql_file_path  # Will be replaced with actual SQL content
-            },
-            "warehouse_id": None  # Will be set by user
+            "notebook_path": sql_file_path.replace(".sql", ""),
+            "base_parameters": {},
+            "source": "WORKSPACE"
         },
         "timeout_seconds": 0,
         "email_notifications": {},
@@ -452,11 +452,6 @@ def main():
         default=1,
         help="Default batch ID (default: 1)"
     )
-    parser.add_argument(
-        "--warehouse-id",
-        help="SQL Warehouse ID (optional)"
-    )
-    
     args = parser.parse_args()
     
     workflow = create_workflow_definition(
@@ -467,7 +462,6 @@ def main():
         default_schema_name=args.schema_name,
         default_raw_data_path=args.raw_data_path,
         default_batch_id=args.batch_id,
-        warehouse_id=args.warehouse_id,
     )
     
     with open(args.output, 'w') as f:
