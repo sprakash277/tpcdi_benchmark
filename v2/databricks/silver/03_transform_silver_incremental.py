@@ -105,258 +105,236 @@ spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- silver_customers: Parse Customer.txt with SCD Type 2 MERGE
-# MAGIC -- Format: CDC_FLAG|CDC_DSN|C_ID|C_TAX_ID|C_ST_ID|C_L_NAME|...
+# silver_customers: Parse Customer.txt with SCD Type 2 MERGE (use temp view so INSERT can reference it)
+spark.sql(f"""
+CREATE OR REPLACE TEMP VIEW incoming_customers AS
+SELECT 
+    monotonically_increasing_id() AS sk_customer_id,
+    CAST(split(raw_line, '\\\\|')[2] AS BIGINT) AS customer_id,
+    split(raw_line, '\\\\|')[3] AS tax_id,
+    split(raw_line, '\\\\|')[4] AS status,
+    split(raw_line, '\\\\|')[5] AS last_name,
+    split(raw_line, '\\\\|')[6] AS first_name,
+    split(raw_line, '\\\\|')[7] AS middle_name,
+    split(raw_line, '\\\\|')[8] AS gender,
+    CAST(split(raw_line, '\\\\|')[9] AS INT) AS tier,
+    CAST(split(raw_line, '\\\\|')[10] AS DATE) AS dob,
+    split(raw_line, '\\\\|')[11] AS address_line1,
+    split(raw_line, '\\\\|')[12] AS address_line2,
+    split(raw_line, '\\\\|')[13] AS postal_code,
+    split(raw_line, '\\\\|')[14] AS city,
+    split(raw_line, '\\\\|')[15] AS state_prov,
+    split(raw_line, '\\\\|')[16] AS country,
+    split(raw_line, '\\\\|')[17] AS email1,
+    split(raw_line, '\\\\|')[18] AS email2,
+    split(raw_line, '\\\\|')[19] AS local_tax_id,
+    split(raw_line, '\\\\|')[20] AS national_tax_id,
+    split(raw_line, '\\\\|')[0] AS cdc_flag,
+    CAST(split(raw_line, '\\\\|')[1] AS TIMESTAMP) AS cdc_dsn,
+    {batch_id} AS batch_id,
+    current_timestamp() AS load_timestamp
+FROM {catalog}.{schema_name}.bronze_customer
+WHERE _batch_id = {batch_id}
+  AND raw_line IS NOT NULL
+  AND raw_line != ''
+  AND size(split(raw_line, '\\\\|')) >= 21
+""")
+
+spark.sql(f"""
+MERGE INTO {catalog}.{schema_name}.silver_customers AS target
+USING (
+    SELECT customer_id, MIN(cdc_dsn) AS new_effective_date
+    FROM incoming_customers
+    WHERE cdc_flag IN ('U', 'D')
+    GROUP BY customer_id
+) AS updates
+ON target.customer_id = updates.customer_id AND target.is_current = true
+WHEN MATCHED THEN UPDATE SET
+    target.is_current = false,
+    target.end_date = updates.new_effective_date
+""")
+
+spark.sql(f"""
+INSERT INTO {catalog}.{schema_name}.silver_customers
+SELECT 
+    sk_customer_id,
+    customer_id,
+    tax_id,
+    status,
+    last_name,
+    first_name,
+    middle_name,
+    gender,
+    tier,
+    dob,
+    address_line1,
+    address_line2,
+    postal_code,
+    city,
+    state_prov,
+    country,
+    email1,
+    email2,
+    local_tax_id,
+    national_tax_id,
+    CASE WHEN cdc_flag = 'D' THEN false ELSE true END AS is_current,
+    cdc_dsn AS effective_date,
+    NULL AS end_date,
+    batch_id,
+    load_timestamp,
+    cdc_flag AS record_type
+FROM incoming_customers
+WHERE cdc_flag IN ('I', 'U')
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC WITH incoming_customers AS (
-# MAGIC     SELECT 
-# MAGIC         monotonically_increasing_id() AS sk_customer_id,
-# MAGIC         CAST(split(raw_line, '\\|')[2] AS BIGINT) AS customer_id,  -- Skip CDC_FLAG, CDC_DSN
-# MAGIC         split(raw_line, '\\|')[3] AS tax_id,
-# MAGIC         split(raw_line, '\\|')[4] AS status,
-# MAGIC         split(raw_line, '\\|')[5] AS last_name,
-# MAGIC         split(raw_line, '\\|')[6] AS first_name,
-# MAGIC         split(raw_line, '\\|')[7] AS middle_name,
-# MAGIC         split(raw_line, '\\|')[8] AS gender,
-# MAGIC         CAST(split(raw_line, '\\|')[9] AS INT) AS tier,
-# MAGIC         CAST(split(raw_line, '\\|')[10] AS DATE) AS dob,
-# MAGIC         split(raw_line, '\\|')[11] AS address_line1,
-# MAGIC         split(raw_line, '\\|')[12] AS address_line2,
-# MAGIC         split(raw_line, '\\|')[13] AS postal_code,
-# MAGIC         split(raw_line, '\\|')[14] AS city,
-# MAGIC         split(raw_line, '\\|')[15] AS state_prov,
-# MAGIC         split(raw_line, '\\|')[16] AS country,
-# MAGIC         split(raw_line, '\\|')[17] AS email1,
-# MAGIC         split(raw_line, '\\|')[18] AS email2,
-# MAGIC         split(raw_line, '\\|')[19] AS local_tax_id,
-# MAGIC         split(raw_line, '\\|')[20] AS national_tax_id,
-# MAGIC         split(raw_line, '\\|')[0] AS cdc_flag,  -- I=Insert, U=Update, D=Delete
-# MAGIC         CAST(split(raw_line, '\\|')[1] AS TIMESTAMP) AS cdc_dsn,  -- Change timestamp
-# MAGIC         ${var.batch_id} AS batch_id,
-# MAGIC         current_timestamp() AS load_timestamp
-# MAGIC     FROM bronze_customer
-# MAGIC     WHERE _batch_id = ${var.batch_id}
-# MAGIC       AND raw_line IS NOT NULL
-# MAGIC       AND raw_line != ''
-# MAGIC       AND size(split(raw_line, '\\|')) >= 21
-# MAGIC ),
-# MAGIC -- Close existing current records that have updates
-# MAGIC updates_to_close AS (
-# MAGIC     SELECT 
-# MAGIC         customer_id,
-# MAGIC         MIN(cdc_dsn) AS new_effective_date
-# MAGIC     FROM incoming_customers
-# MAGIC     WHERE cdc_flag IN ('U', 'D')  -- Updates and deletes
-# MAGIC     GROUP BY customer_id
-# MAGIC )
-# MAGIC MERGE INTO silver_customers AS target
-# MAGIC USING updates_to_close AS updates
-# MAGIC ON target.customer_id = updates.customer_id 
-# MAGIC    AND target.is_current = true
-# MAGIC WHEN MATCHED THEN UPDATE SET
-# MAGIC     target.is_current = false,
-# MAGIC     target.end_date = updates.new_effective_date;
+# silver_accounts: Parse Account.txt with SCD Type 2 MERGE (use temp view so INSERT can reference it)
+spark.sql(f"""
+CREATE OR REPLACE TEMP VIEW incoming_accounts AS
+SELECT 
+    CAST(split(raw_line, '\\\\|')[2] AS BIGINT) AS account_id,
+    CAST(split(raw_line, '\\\\|')[3] AS BIGINT) AS broker_id,
+    CAST(split(raw_line, '\\\\|')[4] AS BIGINT) AS customer_id,
+    split(raw_line, '\\\\|')[5] AS account_name,
+    CAST(split(raw_line, '\\\\|')[6] AS INT) AS tax_status,
+    split(raw_line, '\\\\|')[7] AS status_id,
+    split(raw_line, '\\\\|')[0] AS cdc_flag,
+    CAST(split(raw_line, '\\\\|')[1] AS TIMESTAMP) AS cdc_dsn,
+    {batch_id} AS batch_id,
+    current_timestamp() AS load_timestamp
+FROM {catalog}.{schema_name}.bronze_account
+WHERE _batch_id = {batch_id}
+  AND raw_line IS NOT NULL
+  AND raw_line != ''
+  AND size(split(raw_line, '\\\\|')) >= 8
+""")
+
+spark.sql(f"""
+MERGE INTO {catalog}.{schema_name}.silver_accounts AS target
+USING (
+    SELECT account_id, MIN(cdc_dsn) AS new_effective_date
+    FROM incoming_accounts
+    WHERE cdc_flag IN ('U', 'D')
+    GROUP BY account_id
+) AS updates
+ON target.account_id = updates.account_id AND target.is_current = true
+WHEN MATCHED THEN UPDATE SET
+    target.is_current = false,
+    target.end_date = updates.new_effective_date
+""")
+
+spark.sql(f"""
+INSERT INTO {catalog}.{schema_name}.silver_accounts
+SELECT 
+    account_id,
+    broker_id,
+    customer_id,
+    account_name,
+    tax_status,
+    status_id,
+    NULL AS action_type,
+    cdc_dsn AS action_timestamp,
+    CASE WHEN cdc_flag = 'D' THEN false ELSE true END AS is_current,
+    cdc_dsn AS effective_date,
+    NULL AS end_date,
+    batch_id,
+    load_timestamp,
+    cdc_flag AS record_type
+FROM incoming_accounts
+WHERE cdc_flag IN ('I', 'U')
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Insert new versions (I and U records)
-# MAGIC INSERT INTO silver_customers
-# MAGIC SELECT 
-# MAGIC     sk_customer_id,
-# MAGIC     customer_id,
-# MAGIC     tax_id,
-# MAGIC     status,
-# MAGIC     last_name,
-# MAGIC     first_name,
-# MAGIC     middle_name,
-# MAGIC     gender,
-# MAGIC     tier,
-# MAGIC     dob,
-# MAGIC     address_line1,
-# MAGIC     address_line2,
-# MAGIC     postal_code,
-# MAGIC     city,
-# MAGIC     state_prov,
-# MAGIC     country,
-# MAGIC     email1,
-# MAGIC     email2,
-# MAGIC     local_tax_id,
-# MAGIC     national_tax_id,
-# MAGIC     CASE WHEN cdc_flag = 'D' THEN false ELSE true END AS is_current,  -- D = inactive
-# MAGIC     cdc_dsn AS effective_date,
-# MAGIC     NULL AS end_date,
-# MAGIC     batch_id,
-# MAGIC     load_timestamp,
-# MAGIC     cdc_flag AS record_type
-# MAGIC FROM incoming_customers
-# MAGIC WHERE cdc_flag IN ('I', 'U');  -- Insert new and updated versions (not D-only)
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- silver_accounts: Parse Account.txt with SCD Type 2 MERGE
-# MAGIC -- Format: CDC_FLAG|CDC_DSN|CA_ID|CA_B_ID|CA_C_ID|CA_NAME|CA_TAX_ST|CA_ST_ID
-# MAGIC WITH incoming_accounts AS (
-# MAGIC     SELECT 
-# MAGIC         CAST(split(raw_line, '\\|')[2] AS BIGINT) AS account_id,
-# MAGIC         CAST(split(raw_line, '\\|')[3] AS BIGINT) AS broker_id,
-# MAGIC         CAST(split(raw_line, '\\|')[4] AS BIGINT) AS customer_id,
-# MAGIC         split(raw_line, '\\|')[5] AS account_name,
-# MAGIC         CAST(split(raw_line, '\\|')[6] AS INT) AS tax_status,
-# MAGIC         split(raw_line, '\\|')[7] AS status_id,
-# MAGIC         split(raw_line, '\\|')[0] AS cdc_flag,
-# MAGIC         CAST(split(raw_line, '\\|')[1] AS TIMESTAMP) AS cdc_dsn,
-# MAGIC         ${var.batch_id} AS batch_id,
-# MAGIC         current_timestamp() AS load_timestamp
-# MAGIC     FROM bronze_account
-# MAGIC     WHERE _batch_id = ${var.batch_id}
-# MAGIC       AND raw_line IS NOT NULL
-# MAGIC       AND raw_line != ''
-# MAGIC       AND size(split(raw_line, '\\|')) >= 8
-# MAGIC ),
-# MAGIC updates_to_close AS (
-# MAGIC     SELECT 
-# MAGIC         account_id,
-# MAGIC         MIN(cdc_dsn) AS new_effective_date
-# MAGIC     FROM incoming_accounts
-# MAGIC     WHERE cdc_flag IN ('U', 'D')
-# MAGIC     GROUP BY account_id
-# MAGIC )
-# MAGIC MERGE INTO silver_accounts AS target
-# MAGIC USING updates_to_close AS updates
-# MAGIC ON target.account_id = updates.account_id 
-# MAGIC    AND target.is_current = true
-# MAGIC WHEN MATCHED THEN UPDATE SET
-# MAGIC     target.is_current = false,
-# MAGIC     target.end_date = updates.new_effective_date;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC INSERT INTO silver_accounts
-# MAGIC SELECT 
-# MAGIC     account_id,
-# MAGIC     broker_id,
-# MAGIC     customer_id,
-# MAGIC     account_name,
-# MAGIC     tax_status,
-# MAGIC     status_id,
-# MAGIC     NULL AS action_type,
-# MAGIC     cdc_dsn AS action_timestamp,
-# MAGIC     CASE WHEN cdc_flag = 'D' THEN false ELSE true END AS is_current,
-# MAGIC     cdc_dsn AS effective_date,
-# MAGIC     NULL AS end_date,
-# MAGIC     batch_id,
-# MAGIC     load_timestamp,
-# MAGIC     cdc_flag AS record_type
-# MAGIC FROM incoming_accounts
-# MAGIC WHERE cdc_flag IN ('I', 'U');
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- ============================================================================
-# MAGIC -- Transaction Data: Incremental (with CDC columns)
-# MAGIC -- ============================================================================
-# MAGIC -- silver_trades: Parse Trade.txt (18 columns incremental: +CDC_FLAG, +CDC_DSN)
-# MAGIC WITH incoming_trades AS (
-# MAGIC     SELECT 
-# MAGIC         CAST(split(raw_line, '\\|')[2] AS BIGINT) AS trade_id,  -- Skip CDC_FLAG, CDC_DSN
-# MAGIC         CAST(split(raw_line, '\\|')[3] AS TIMESTAMP) AS trade_dts,
-# MAGIC         split(raw_line, '\\|')[4] AS status_id,
-# MAGIC         split(raw_line, '\\|')[5] AS trade_type_id,
-# MAGIC         CAST(split(raw_line, '\\|')[6] AS BOOLEAN) AS is_cash,
-# MAGIC         split(raw_line, '\\|')[7] AS symbol,
-# MAGIC         CAST(split(raw_line, '\\|')[8] AS INT) AS quantity,
-# MAGIC         CAST(split(raw_line, '\\|')[9] AS DOUBLE) AS bid_price,
-# MAGIC         CAST(split(raw_line, '\\|')[10] AS BIGINT) AS account_id,
-# MAGIC         split(raw_line, '\\|')[11] AS exec_name,
-# MAGIC         CAST(split(raw_line, '\\|')[12] AS DOUBLE) AS trade_price,
-# MAGIC         CAST(split(raw_line, '\\|')[13] AS DOUBLE) AS charge,
-# MAGIC         CAST(split(raw_line, '\\|')[14] AS DOUBLE) AS commission,
-# MAGIC         CAST(split(raw_line, '\\|')[15] AS DOUBLE) AS tax,
-# MAGIC         split(raw_line, '\\|')[0] AS cdc_flag,
-# MAGIC         CAST(split(raw_line, '\\|')[1] AS TIMESTAMP) AS cdc_dsn,
-# MAGIC         ${var.batch_id} AS batch_id,
-# MAGIC         current_timestamp() AS load_timestamp
-# MAGIC     FROM bronze_trade
-# MAGIC     WHERE _batch_id = ${var.batch_id}
-# MAGIC       AND raw_line IS NOT NULL
-# MAGIC       AND raw_line != ''
-# MAGIC       AND size(split(raw_line, '\\|')) = 18  -- Incremental = 18 columns
-# MAGIC ),
-# MAGIC updates_to_close AS (
-# MAGIC     SELECT 
-# MAGIC         trade_id,
-# MAGIC         MIN(cdc_dsn) AS new_effective_date
-# MAGIC     FROM incoming_trades
-# MAGIC     WHERE cdc_flag IN ('U', 'D')
-# MAGIC     GROUP BY trade_id
-# MAGIC )
-# MAGIC MERGE INTO silver_trades AS target
-# MAGIC USING updates_to_close AS updates
-# MAGIC ON target.trade_id = updates.trade_id 
-# MAGIC    AND target.is_current = true
-# MAGIC WHEN MATCHED THEN UPDATE SET
-# MAGIC     target.is_current = false,
-# MAGIC     target.end_date = updates.new_effective_date;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC INSERT INTO silver_trades
-# MAGIC SELECT 
-# MAGIC     trade_id,
-# MAGIC     trade_dts,
-# MAGIC     status_id,
-# MAGIC     trade_type_id,
-# MAGIC     is_cash,
-# MAGIC     symbol,
-# MAGIC     quantity,
-# MAGIC     bid_price,
-# MAGIC     account_id,
-# MAGIC     exec_name,
-# MAGIC     trade_price,
-# MAGIC     charge,
-# MAGIC     commission,
-# MAGIC     tax,
-# MAGIC     CASE WHEN cdc_flag = 'D' THEN false ELSE true END AS is_current,
-# MAGIC     cdc_dsn AS effective_date,
-# MAGIC     NULL AS end_date,
-# MAGIC     batch_id,
-# MAGIC     load_timestamp,
-# MAGIC     cdc_flag AS record_type
-# MAGIC FROM incoming_trades
-# MAGIC WHERE cdc_flag IN ('I', 'U');
-
-# COMMAND ----------
+# silver_trades: temp view + MERGE + INSERT (one cell)
+spark.sql(f"""
+CREATE OR REPLACE TEMP VIEW incoming_trades AS
+SELECT 
+    CAST(split(raw_line, '\\\\|')[2] AS BIGINT) AS trade_id,
+    CAST(split(raw_line, '\\\\|')[3] AS TIMESTAMP) AS trade_dts,
+    split(raw_line, '\\\\|')[4] AS status_id,
+    split(raw_line, '\\\\|')[5] AS trade_type_id,
+    CAST(split(raw_line, '\\\\|')[6] AS BOOLEAN) AS is_cash,
+    split(raw_line, '\\\\|')[7] AS symbol,
+    CAST(split(raw_line, '\\\\|')[8] AS INT) AS quantity,
+    CAST(split(raw_line, '\\\\|')[9] AS DOUBLE) AS bid_price,
+    CAST(split(raw_line, '\\\\|')[10] AS BIGINT) AS account_id,
+    split(raw_line, '\\\\|')[11] AS exec_name,
+    CAST(split(raw_line, '\\\\|')[12] AS DOUBLE) AS trade_price,
+    CAST(split(raw_line, '\\\\|')[13] AS DOUBLE) AS charge,
+    CAST(split(raw_line, '\\\\|')[14] AS DOUBLE) AS commission,
+    CAST(split(raw_line, '\\\\|')[15] AS DOUBLE) AS tax,
+    split(raw_line, '\\\\|')[0] AS cdc_flag,
+    CAST(split(raw_line, '\\\\|')[1] AS TIMESTAMP) AS cdc_dsn,
+    {batch_id} AS batch_id,
+    current_timestamp() AS load_timestamp
+FROM {catalog}.{schema_name}.bronze_trade
+WHERE _batch_id = {batch_id}
+  AND raw_line IS NOT NULL
+  AND raw_line != ''
+  AND size(split(raw_line, '\\\\|')) = 18
+""")
+spark.sql(f"""
+MERGE INTO {catalog}.{schema_name}.silver_trades AS target
+USING (
+    SELECT trade_id, MIN(cdc_dsn) AS new_effective_date
+    FROM incoming_trades
+    WHERE cdc_flag IN ('U', 'D')
+    GROUP BY trade_id
+) AS updates
+ON target.trade_id = updates.trade_id AND target.is_current = true
+WHEN MATCHED THEN UPDATE SET
+    target.is_current = false,
+    target.end_date = updates.new_effective_date
+""")
+spark.sql(f"""
+INSERT INTO {catalog}.{schema_name}.silver_trades
+SELECT 
+    trade_id,
+    trade_dts,
+    status_id,
+    trade_type_id,
+    is_cash,
+    symbol,
+    quantity,
+    bid_price,
+    account_id,
+    exec_name,
+    trade_price,
+    charge,
+    commission,
+    tax,
+    CASE WHEN cdc_flag = 'D' THEN false ELSE true END AS is_current,
+    cdc_dsn AS effective_date,
+    NULL AS end_date,
+    batch_id,
+    load_timestamp,
+    cdc_flag AS record_type
+FROM incoming_trades
+WHERE cdc_flag IN ('I', 'U')
+""")
 
 # COMMAND ----------
 
 spark.sql(f"""
--- silver_daily_market: Parse DailyMarket.txt (8 columns incremental: +CDC_FLAG, +CDC_DSN)
-MERGE INTO silver_daily_market AS target
+MERGE INTO {catalog}.{schema_name}.silver_daily_market AS target
 USING (
     SELECT 
-        CONCAT(CAST(split(raw_line, '\\|')[2] AS DATE), '|', split(raw_line, '\\|')[3]) AS dm_key,
-        CAST(split(raw_line, '\\|')[2] AS DATE) AS dm_date,
-        split(raw_line, '\\|')[3] AS dm_s_symb,
-        CAST(split(raw_line, '\\|')[4] AS DOUBLE) AS dm_close,
-        CAST(split(raw_line, '\\|')[5] AS DOUBLE) AS dm_high,
-        CAST(split(raw_line, '\\|')[6] AS DOUBLE) AS dm_low,
-        CAST(split(raw_line, '\\|')[7] AS BIGINT) AS dm_vol,
+        CONCAT(CAST(split(raw_line, '\\\\|')[2] AS DATE), '|', split(raw_line, '\\\\|')[3]) AS dm_key,
+        CAST(split(raw_line, '\\\\|')[2] AS DATE) AS dm_date,
+        split(raw_line, '\\\\|')[3] AS dm_s_symb,
+        CAST(split(raw_line, '\\\\|')[4] AS DOUBLE) AS dm_close,
+        CAST(split(raw_line, '\\\\|')[5] AS DOUBLE) AS dm_high,
+        CAST(split(raw_line, '\\\\|')[6] AS DOUBLE) AS dm_low,
+        CAST(split(raw_line, '\\\\|')[7] AS BIGINT) AS dm_vol,
         {batch_id} AS batch_id,
         current_timestamp() AS load_timestamp
-    FROM bronze_daily_market
+    FROM {catalog}.{schema_name}.bronze_daily_market
     WHERE _batch_id = {batch_id}
       AND raw_line IS NOT NULL
       AND raw_line != ''
-      AND size(split(raw_line, '\\|')) = 8  -- Incremental = 8 columns
+      AND size(split(raw_line, '\\\\|')) = 8
 ) AS source
 ON target.dm_key = source.dm_key
 WHEN MATCHED THEN UPDATE SET
@@ -366,174 +344,162 @@ WHEN MATCHED THEN UPDATE SET
     target.dm_vol = source.dm_vol,
     target.batch_id = source.batch_id,
     target.load_timestamp = source.load_timestamp
-WHEN NOT MATCHED THEN INSERT *;
+WHEN NOT MATCHED THEN INSERT *
 """)
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- silver_cash_transaction: Parse CashTransaction.txt (6 columns incremental)
-# MAGIC WITH incoming_cash AS (
-# MAGIC     SELECT 
-# MAGIC         CONCAT(CAST(split(raw_line, '\\|')[2] AS BIGINT), '|', CAST(split(raw_line, '\\|')[3] AS TIMESTAMP)) AS ct_key,
-# MAGIC         CAST(split(raw_line, '\\|')[2] AS BIGINT) AS ct_ca_id,
-# MAGIC         CAST(split(raw_line, '\\|')[3] AS TIMESTAMP) AS ct_dts,
-# MAGIC         CAST(split(raw_line, '\\|')[4] AS DOUBLE) AS ct_amt,
-# MAGIC         split(raw_line, '\\|')[5] AS ct_name,
-# MAGIC         split(raw_line, '\\|')[0] AS cdc_flag,
-# MAGIC         CAST(split(raw_line, '\\|')[1] AS TIMESTAMP) AS cdc_dsn,
-# MAGIC         ${var.batch_id} AS batch_id,
-# MAGIC         current_timestamp() AS load_timestamp
-# MAGIC     FROM bronze_cash_transaction
-# MAGIC     WHERE _batch_id = ${var.batch_id}
-# MAGIC       AND raw_line IS NOT NULL
-# MAGIC       AND raw_line != ''
-# MAGIC       AND size(split(raw_line, '\\|')) = 6
-# MAGIC ),
-# MAGIC updates_to_close AS (
-# MAGIC     SELECT 
-# MAGIC         ct_key,
-# MAGIC         MIN(cdc_dsn) AS new_effective_date
-# MAGIC     FROM incoming_cash
-# MAGIC     WHERE cdc_flag IN ('U', 'D')
-# MAGIC     GROUP BY ct_key
-# MAGIC )
-# MAGIC MERGE INTO silver_cash_transaction AS target
-# MAGIC USING updates_to_close AS updates
-# MAGIC ON target.ct_key = updates.ct_key 
-# MAGIC    AND target.is_current = true
-# MAGIC WHEN MATCHED THEN UPDATE SET
-# MAGIC     target.is_current = false,
-# MAGIC     target.end_date = updates.new_effective_date;
+# silver_cash_transaction: temp view + MERGE + INSERT (one cell)
+spark.sql(f"""
+CREATE OR REPLACE TEMP VIEW incoming_cash AS
+SELECT 
+    CONCAT(CAST(split(raw_line, '\\\\|')[2] AS BIGINT), '|', CAST(split(raw_line, '\\\\|')[3] AS TIMESTAMP)) AS ct_key,
+    CAST(split(raw_line, '\\\\|')[2] AS BIGINT) AS ct_ca_id,
+    CAST(split(raw_line, '\\\\|')[3] AS TIMESTAMP) AS ct_dts,
+    CAST(split(raw_line, '\\\\|')[4] AS DOUBLE) AS ct_amt,
+    split(raw_line, '\\\\|')[5] AS ct_name,
+    split(raw_line, '\\\\|')[0] AS cdc_flag,
+    CAST(split(raw_line, '\\\\|')[1] AS TIMESTAMP) AS cdc_dsn,
+    {batch_id} AS batch_id,
+    current_timestamp() AS load_timestamp
+FROM {catalog}.{schema_name}.bronze_cash_transaction
+WHERE _batch_id = {batch_id}
+  AND raw_line IS NOT NULL
+  AND raw_line != ''
+  AND size(split(raw_line, '\\\\|')) = 6
+""")
+spark.sql(f"""
+MERGE INTO {catalog}.{schema_name}.silver_cash_transaction AS target
+USING (
+    SELECT ct_key, MIN(cdc_dsn) AS new_effective_date
+    FROM incoming_cash
+    WHERE cdc_flag IN ('U', 'D')
+    GROUP BY ct_key
+) AS updates
+ON target.ct_key = updates.ct_key AND target.is_current = true
+WHEN MATCHED THEN UPDATE SET
+    target.is_current = false,
+    target.end_date = updates.new_effective_date
+""")
+spark.sql(f"""
+INSERT INTO {catalog}.{schema_name}.silver_cash_transaction
+SELECT 
+    ct_key,
+    ct_ca_id,
+    ct_dts,
+    ct_amt,
+    ct_name,
+    CASE WHEN cdc_flag = 'D' THEN false ELSE true END AS is_current,
+    cdc_dsn AS effective_date,
+    NULL AS end_date,
+    batch_id,
+    load_timestamp,
+    cdc_flag AS record_type
+FROM incoming_cash
+WHERE cdc_flag IN ('I', 'U')
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC INSERT INTO silver_cash_transaction
-# MAGIC SELECT 
-# MAGIC     ct_key,
-# MAGIC     ct_ca_id,
-# MAGIC     ct_dts,
-# MAGIC     ct_amt,
-# MAGIC     ct_name,
-# MAGIC     CASE WHEN cdc_flag = 'D' THEN false ELSE true END AS is_current,
-# MAGIC     cdc_dsn AS effective_date,
-# MAGIC     NULL AS end_date,
-# MAGIC     batch_id,
-# MAGIC     load_timestamp,
-# MAGIC     cdc_flag AS record_type
-# MAGIC FROM incoming_cash
-# MAGIC WHERE cdc_flag IN ('I', 'U');
+# silver_holding_history: temp view + MERGE + INSERT (one cell)
+spark.sql(f"""
+CREATE OR REPLACE TEMP VIEW incoming_holdings AS
+SELECT 
+    CAST(split(raw_line, '\\\\|')[2] AS BIGINT) AS hh_h_t_id,
+    CAST(split(raw_line, '\\\\|')[3] AS BIGINT) AS hh_t_id,
+    CAST(split(raw_line, '\\\\|')[4] AS INT) AS hh_before_qty,
+    CAST(split(raw_line, '\\\\|')[5] AS INT) AS hh_after_qty,
+    split(raw_line, '\\\\|')[0] AS cdc_flag,
+    CAST(split(raw_line, '\\\\|')[1] AS TIMESTAMP) AS cdc_dsn,
+    {batch_id} AS batch_id,
+    current_timestamp() AS load_timestamp
+FROM {catalog}.{schema_name}.bronze_holding_history
+WHERE _batch_id = {batch_id}
+  AND raw_line IS NOT NULL
+  AND raw_line != ''
+  AND size(split(raw_line, '\\\\|')) = 6
+""")
+spark.sql(f"""
+MERGE INTO {catalog}.{schema_name}.silver_holding_history AS target
+USING (
+    SELECT hh_h_t_id, MIN(cdc_dsn) AS new_effective_date
+    FROM incoming_holdings
+    WHERE cdc_flag IN ('U', 'D')
+    GROUP BY hh_h_t_id
+) AS updates
+ON target.hh_h_t_id = updates.hh_h_t_id AND target.is_current = true
+WHEN MATCHED THEN UPDATE SET
+    target.is_current = false,
+    target.end_date = updates.new_effective_date
+""")
+spark.sql(f"""
+INSERT INTO {catalog}.{schema_name}.silver_holding_history
+SELECT 
+    hh_h_t_id,
+    hh_t_id,
+    hh_before_qty,
+    hh_after_qty,
+    CASE WHEN cdc_flag = 'D' THEN false ELSE true END AS is_current,
+    cdc_dsn AS effective_date,
+    NULL AS end_date,
+    batch_id,
+    load_timestamp,
+    cdc_flag AS record_type
+FROM incoming_holdings
+WHERE cdc_flag IN ('I', 'U')
+""")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- silver_holding_history: Parse HoldingHistory.txt (6 columns incremental)
-# MAGIC WITH incoming_holdings AS (
-# MAGIC     SELECT 
-# MAGIC         CAST(split(raw_line, '\\|')[2] AS BIGINT) AS hh_h_t_id,
-# MAGIC         CAST(split(raw_line, '\\|')[3] AS BIGINT) AS hh_t_id,
-# MAGIC         CAST(split(raw_line, '\\|')[4] AS INT) AS hh_before_qty,
-# MAGIC         CAST(split(raw_line, '\\|')[5] AS INT) AS hh_after_qty,
-# MAGIC         split(raw_line, '\\|')[0] AS cdc_flag,
-# MAGIC         CAST(split(raw_line, '\\|')[1] AS TIMESTAMP) AS cdc_dsn,
-# MAGIC         ${var.batch_id} AS batch_id,
-# MAGIC         current_timestamp() AS load_timestamp
-# MAGIC     FROM bronze_holding_history
-# MAGIC     WHERE _batch_id = ${var.batch_id}
-# MAGIC       AND raw_line IS NOT NULL
-# MAGIC       AND raw_line != ''
-# MAGIC       AND size(split(raw_line, '\\|')) = 6
-# MAGIC ),
-# MAGIC updates_to_close AS (
-# MAGIC     SELECT 
-# MAGIC         hh_h_t_id,
-# MAGIC         MIN(cdc_dsn) AS new_effective_date
-# MAGIC     FROM incoming_holdings
-# MAGIC     WHERE cdc_flag IN ('U', 'D')
-# MAGIC     GROUP BY hh_h_t_id
-# MAGIC )
-# MAGIC MERGE INTO silver_holding_history AS target
-# MAGIC USING updates_to_close AS updates
-# MAGIC ON target.hh_h_t_id = updates.hh_h_t_id 
-# MAGIC    AND target.is_current = true
-# MAGIC WHEN MATCHED THEN UPDATE SET
-# MAGIC     target.is_current = false,
-# MAGIC     target.end_date = updates.new_effective_date;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC INSERT INTO silver_holding_history
-# MAGIC SELECT 
-# MAGIC     hh_h_t_id,
-# MAGIC     hh_t_id,
-# MAGIC     hh_before_qty,
-# MAGIC     hh_after_qty,
-# MAGIC     CASE WHEN cdc_flag = 'D' THEN false ELSE true END AS is_current,
-# MAGIC     cdc_dsn AS effective_date,
-# MAGIC     NULL AS end_date,
-# MAGIC     batch_id,
-# MAGIC     load_timestamp,
-# MAGIC     cdc_flag AS record_type
-# MAGIC FROM incoming_holdings
-# MAGIC WHERE cdc_flag IN ('I', 'U');
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- silver_watch_history: Parse WatchHistory.txt (6 columns incremental)
-# MAGIC WITH incoming_watches AS (
-# MAGIC     SELECT 
-# MAGIC         CONCAT(CAST(split(raw_line, '\\|')[2] AS BIGINT), '|', split(raw_line, '\\|')[3]) AS wh_key,
-# MAGIC         CAST(split(raw_line, '\\|')[2] AS BIGINT) AS w_c_id,
-# MAGIC         split(raw_line, '\\|')[3] AS w_s_symb,
-# MAGIC         CAST(split(raw_line, '\\|')[4] AS TIMESTAMP) AS w_dts,
-# MAGIC         split(raw_line, '\\|')[5] AS w_action,
-# MAGIC         split(raw_line, '\\|')[0] AS cdc_flag,
-# MAGIC         CAST(split(raw_line, '\\|')[1] AS TIMESTAMP) AS cdc_dsn,
-# MAGIC         ${var.batch_id} AS batch_id,
-# MAGIC         current_timestamp() AS load_timestamp
-# MAGIC     FROM bronze_watch_history
-# MAGIC     WHERE _batch_id = ${var.batch_id}
-# MAGIC       AND raw_line IS NOT NULL
-# MAGIC       AND raw_line != ''
-# MAGIC       AND size(split(raw_line, '\\|')) = 6
-# MAGIC ),
-# MAGIC updates_to_close AS (
-# MAGIC     SELECT 
-# MAGIC         wh_key,
-# MAGIC         MIN(cdc_dsn) AS new_effective_date
-# MAGIC     FROM incoming_watches
-# MAGIC     WHERE cdc_flag IN ('U', 'D')
-# MAGIC     GROUP BY wh_key
-# MAGIC )
-# MAGIC MERGE INTO silver_watch_history AS target
-# MAGIC USING updates_to_close AS updates
-# MAGIC ON target.wh_key = updates.wh_key 
-# MAGIC    AND target.is_current = true
-# MAGIC WHEN MATCHED THEN UPDATE SET
-# MAGIC     target.is_current = false,
-# MAGIC     target.end_date = updates.new_effective_date;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC INSERT INTO silver_watch_history
-# MAGIC SELECT 
-# MAGIC     wh_key,
-# MAGIC     w_c_id,
-# MAGIC     w_s_symb,
-# MAGIC     w_dts,
-# MAGIC     w_action,
-# MAGIC     CASE WHEN cdc_flag = 'D' THEN false ELSE true END AS is_current,
-# MAGIC     cdc_dsn AS effective_date,
-# MAGIC     NULL AS end_date,
-# MAGIC     batch_id,
-# MAGIC     load_timestamp,
-# MAGIC     cdc_flag AS record_type
-# MAGIC FROM incoming_watches
-# MAGIC WHERE cdc_flag IN ('I', 'U');
+# silver_watch_history: temp view + MERGE + INSERT (one cell)
+spark.sql(f"""
+CREATE OR REPLACE TEMP VIEW incoming_watches AS
+SELECT 
+    CONCAT(CAST(split(raw_line, '\\\\|')[2] AS BIGINT), '|', split(raw_line, '\\\\|')[3]) AS wh_key,
+    CAST(split(raw_line, '\\\\|')[2] AS BIGINT) AS w_c_id,
+    split(raw_line, '\\\\|')[3] AS w_s_symb,
+    CAST(split(raw_line, '\\\\|')[4] AS TIMESTAMP) AS w_dts,
+    split(raw_line, '\\\\|')[5] AS w_action,
+    split(raw_line, '\\\\|')[0] AS cdc_flag,
+    CAST(split(raw_line, '\\\\|')[1] AS TIMESTAMP) AS cdc_dsn,
+    {batch_id} AS batch_id,
+    current_timestamp() AS load_timestamp
+FROM {catalog}.{schema_name}.bronze_watch_history
+WHERE _batch_id = {batch_id}
+  AND raw_line IS NOT NULL
+  AND raw_line != ''
+  AND size(split(raw_line, '\\\\|')) = 6
+""")
+spark.sql(f"""
+MERGE INTO {catalog}.{schema_name}.silver_watch_history AS target
+USING (
+    SELECT wh_key, MIN(cdc_dsn) AS new_effective_date
+    FROM incoming_watches
+    WHERE cdc_flag IN ('U', 'D')
+    GROUP BY wh_key
+) AS updates
+ON target.wh_key = updates.wh_key AND target.is_current = true
+WHEN MATCHED THEN UPDATE SET
+    target.is_current = false,
+    target.end_date = updates.new_effective_date
+""")
+spark.sql(f"""
+INSERT INTO {catalog}.{schema_name}.silver_watch_history
+SELECT 
+    wh_key,
+    w_c_id,
+    w_s_symb,
+    w_dts,
+    w_action,
+    CASE WHEN cdc_flag = 'D' THEN false ELSE true END AS is_current,
+    cdc_dsn AS effective_date,
+    NULL AS end_date,
+    batch_id,
+    load_timestamp,
+    cdc_flag AS record_type
+FROM incoming_watches
+WHERE cdc_flag IN ('I', 'U')
+""")
 
 # COMMAND ----------
 
