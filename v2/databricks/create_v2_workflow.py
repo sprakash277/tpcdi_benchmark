@@ -21,9 +21,10 @@ def get_table_files(layer: str) -> List[Tuple[str, Path]]:
         return []
     
     table_files = []
-    for sql_file in sorted(tables_dir.glob("create_*.sql")):
-        table_name = sql_file.stem.replace("create_", "")
-        table_files.append((table_name, sql_file))
+    # Look for .py notebook files (converted from .sql)
+    for py_file in sorted(tables_dir.glob("create_*.py")):
+        table_name = py_file.stem.replace("create_", "")
+        table_files.append((table_name, py_file))
     
     return table_files
 
@@ -103,12 +104,12 @@ def create_workflow_definition(
     job_name: str,
     workspace_path: str,
     workflow_type: str = "batch",  # "batch" or "incremental"
-    default_catalog: str = "tpcdi_catalog",
+    default_catalog: str = "sumit_prakash_benchmark",
     default_schema_name: str = "tpcdi_schema",
     default_sf: int = 10,
-    default_raw_data_path: str = "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume",
+    default_raw_data_path: str = "gs://sumit_prakash_gcs/tpcdi",
     default_batch_id: int = 1,
-    default_metrics_output: str = "dbfs:/mnt/tpcdi/metrics",
+    default_metrics_output: str = "gs://sumit_prakash_gcs/tpcdi/metrics",
     cluster_config: Dict[str, Any] = None,
 ) -> Dict[str, Any]:
     """
@@ -164,13 +165,13 @@ def create_workflow_definition(
     bronze_tables = get_table_files("bronze")
     bronze_create_tasks = []
     
-    for table_name, sql_file in bronze_tables:
-        relative_path = sql_file.relative_to(Path(__file__).parent)
-        sql_file_path = f"{base_path}/{relative_path}"
+    for table_name, py_file in bronze_tables:
+        relative_path = py_file.relative_to(Path(__file__).parent)
+        py_file_path = f"{base_path}/{relative_path}"
         
         task_key = f"bronze_create_{table_name}"
-        # Convert SQL file path to notebook path (remove .sql extension, Databricks can execute SQL files as notebooks)
-        notebook_path = sql_file_path.replace(".sql", "")
+        # Convert Python notebook file path to notebook path (remove .py extension for Databricks)
+        notebook_path = py_file_path.replace(".py", "")
         
         tasks.append({
             "task_key": task_key,
@@ -268,13 +269,13 @@ def create_workflow_definition(
     silver_tables = get_table_files("silver")
     silver_create_tasks = []
     
-    for table_name, sql_file in silver_tables:
-        relative_path = sql_file.relative_to(Path(__file__).parent)
-        sql_file_path = f"{base_path}/{relative_path}"
+    for table_name, py_file in silver_tables:
+        relative_path = py_file.relative_to(Path(__file__).parent)
+        py_file_path = f"{base_path}/{relative_path}"
         
         task_key = f"silver_create_{table_name}"
-        # Convert SQL file path to notebook path (remove .sql extension, Databricks can execute SQL files as notebooks)
-        notebook_path = sql_file_path.replace(".sql", "")
+        # Convert Python notebook file path to notebook path (remove .py extension for Databricks)
+        notebook_path = py_file_path.replace(".py", "")
         tasks.append({
             "task_key": task_key,
             "description": f"Create Silver table: {table_name}",
@@ -375,13 +376,13 @@ def create_workflow_definition(
     gold_tables = get_table_files("gold")
     gold_create_tasks = []
     
-    for table_name, sql_file in gold_tables:
-        relative_path = sql_file.relative_to(Path(__file__).parent)
-        sql_file_path = f"{base_path}/{relative_path}"
+    for table_name, py_file in gold_tables:
+        relative_path = py_file.relative_to(Path(__file__).parent)
+        py_file_path = f"{base_path}/{relative_path}"
         
         task_key = f"gold_create_{table_name}"
-        # Convert SQL file path to notebook path (remove .sql extension, Databricks can execute SQL files as notebooks)
-        notebook_path = sql_file_path.replace(".sql", "")
+        # Convert Python notebook file path to notebook path (remove .py extension for Databricks)
+        notebook_path = py_file_path.replace(".py", "")
         
         tasks.append({
             "task_key": task_key,
@@ -598,8 +599,8 @@ def main():
     )
     parser.add_argument(
         "--catalog",
-        default="tpcdi_catalog",
-        help="Unity Catalog name (default: tpcdi_catalog)"
+        default="sumit_prakash_benchmark",
+        help="Unity Catalog name (default: sumit_prakash_benchmark)"
     )
     parser.add_argument(
         "--schema-name",
@@ -614,14 +615,19 @@ def main():
     )
     parser.add_argument(
         "--raw-data-path",
-        default="/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume",
-        help="Base path to TPC-DI raw data (sf will be appended as /sf={sf}) (default: /Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume)"
+        default="gs://sumit_prakash_gcs/tpcdi",
+        help="Base path to TPC-DI raw data (sf will be appended as /sf={sf}) (default: gs://sumit_prakash_gcs/tpcdi)"
     )
     parser.add_argument(
         "--batch-id",
         type=int,
         default=1,
         help="Default batch ID (default: 1)"
+    )
+    parser.add_argument(
+        "--metrics-output",
+        default="gs://sumit_prakash_gcs/tpcdi/metrics",
+        help="Metrics output path (default: gs://sumit_prakash_gcs/tpcdi/metrics)"
     )
     args = parser.parse_args()
     

@@ -61,12 +61,12 @@ def get_worker_count_for_scale_factor(scale_factor: int) -> int:
 dbutils.widgets.text("job_name", "TPC-DI-v2-SQL", "Job Name")
 dbutils.widgets.text("workspace_path", "", "Workspace Path to SQL Files (e.g., /Workspace/Repos/org/repo/v2/databricks)")
 dbutils.widgets.dropdown("workflow_type", "batch", ["batch", "incremental"], "Workflow Type")
-dbutils.widgets.text("catalog", "tpcdi_catalog", "Unity Catalog Name")
+dbutils.widgets.text("catalog", "sumit_prakash_benchmark", "Unity Catalog Name")
 dbutils.widgets.text("schema_name", "tpcdi_schema", "Schema Name (used for all layers)")
 dbutils.widgets.text("sf", "10", "Scale Factor (SF)")
-dbutils.widgets.text("raw_data_path", "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume", "Raw Data Path (base path, sf will be appended)")
+dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw Data Path (base path, sf will be appended)")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
-dbutils.widgets.text("metrics_output", "dbfs:/mnt/tpcdi/metrics", "Metrics Output Path")
+dbutils.widgets.text("metrics_output", "gs://sumit_prakash_gcs/tpcdi/metrics", "Metrics Output Path")
 # Note: Notebook tasks use clusters, not SQL warehouses (warehouse_id removed)
 
 # Cluster configuration
@@ -184,9 +184,10 @@ def get_table_files(layer: str, base_path: Path) -> list:
         return []
     
     table_files = []
-    for sql_file in sorted(tables_dir.glob("create_*.sql")):
-        table_name = sql_file.stem.replace("create_", "")
-        table_files.append((table_name, sql_file))
+    # Look for .py notebook files (converted from .sql)
+    for py_file in sorted(tables_dir.glob("create_*.py")):
+        table_name = py_file.stem.replace("create_", "")
+        table_files.append((table_name, py_file))
     
     return table_files
 
@@ -218,13 +219,13 @@ def create_workflow_definition():
     bronze_tables = get_table_files("bronze", base_path)
     bronze_create_tasks = []
     
-    for table_name, sql_file in bronze_tables:
-        relative_path = sql_file.relative_to(base_path)
-        sql_file_path = f"{workspace_path}/{relative_path}"
+    for table_name, py_file in bronze_tables:
+        relative_path = py_file.relative_to(base_path)
+        py_file_path = f"{workspace_path}/{relative_path}"
         
         task_key = f"bronze_create_{table_name}"
-        # Convert SQL file path to notebook path (remove .sql extension, Databricks can execute SQL files as notebooks)
-        notebook_path = sql_file_path.replace(".sql", "")
+        # Convert Python notebook file path to notebook path (remove .py extension for Databricks)
+        notebook_path = py_file_path.replace(".py", "")
         
         tasks.append({
             "task_key": task_key,
@@ -247,13 +248,13 @@ def create_workflow_definition():
     silver_tables = get_table_files("silver", base_path)
     silver_create_tasks = []
     
-    for table_name, sql_file in silver_tables:
-        relative_path = sql_file.relative_to(base_path)
-        sql_file_path = f"{workspace_path}/{relative_path}"
+    for table_name, py_file in silver_tables:
+        relative_path = py_file.relative_to(base_path)
+        py_file_path = f"{workspace_path}/{relative_path}"
         
         task_key = f"silver_create_{table_name}"
-        # Convert SQL file path to notebook path (remove .sql extension, Databricks can execute SQL files as notebooks)
-        notebook_path = sql_file_path.replace(".sql", "")
+        # Convert Python notebook file path to notebook path (remove .py extension for Databricks)
+        notebook_path = py_file_path.replace(".py", "")
         
         tasks.append({
             "task_key": task_key,
@@ -276,13 +277,13 @@ def create_workflow_definition():
     gold_tables = get_table_files("gold", base_path)
     gold_create_tasks = []
     
-    for table_name, sql_file in gold_tables:
-        relative_path = sql_file.relative_to(base_path)
-        sql_file_path = f"{workspace_path}/{relative_path}"
+    for table_name, py_file in gold_tables:
+        relative_path = py_file.relative_to(base_path)
+        py_file_path = f"{workspace_path}/{relative_path}"
         
         task_key = f"gold_create_{table_name}"
-        # Convert SQL file path to notebook path (remove .sql extension, Databricks can execute SQL files as notebooks)
-        notebook_path = sql_file_path.replace(".sql", "")
+        # Convert Python notebook file path to notebook path (remove .py extension for Databricks)
+        notebook_path = py_file_path.replace(".py", "")
         
         tasks.append({
             "task_key": task_key,
