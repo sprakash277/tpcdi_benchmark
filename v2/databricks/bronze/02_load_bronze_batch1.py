@@ -83,10 +83,17 @@ for table_name in bronze_tables:
 
 # COMMAND ----------
 
+# COMMAND ----------
+
+# Set catalog and create/use schema
+spark.sql(f"USE CATALOG {catalog}")
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{schema_name}")
+spark.sql(f"USE {catalog}.{schema_name}")
+
+# COMMAND ----------
+
 # MAGIC %sql
 # MAGIC -- Load Date.txt
-# MAGIC USE CATALOG ${var.catalog};
-# MAGIC USE SCHEMA ${var.schema};
 # MAGIC
 # MAGIC INSERT INTO bronze_date (raw_line, _batch_id, _load_timestamp, _source_file)
 # MAGIC SELECT 

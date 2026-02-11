@@ -89,14 +89,18 @@ for table_name in silver_tables:
 # MAGIC -- ============================================================================
 # MAGIC -- Brokerage Data: Parse Customer.txt and Account.txt (Batch 2+)
 # MAGIC -- ============================================================================
-# MAGIC -- silver_customers: Parse Customer.txt with SCD Type 2 MERGE
-# MAGIC -- Format: CDC_FLAG|CDC_DSN|C_ID|C_TAX_ID|C_ST_ID|C_L_NAME|...
-# MAGIC USE CATALOG ${var.catalog};
+# COMMAND ----------
+
+# Set catalog and create/use schema
+spark.sql(f"USE CATALOG {catalog}")
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{schema_name}")
+spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC USE SCHEMA ${var.schema};
+# MAGIC -- silver_customers: Parse Customer.txt with SCD Type 2 MERGE
+# MAGIC -- Format: CDC_FLAG|CDC_DSN|C_ID|C_TAX_ID|C_ST_ID|C_L_NAME|...
 
 # COMMAND ----------
 

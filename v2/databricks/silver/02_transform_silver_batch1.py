@@ -89,13 +89,17 @@ for table_name in silver_tables:
 # MAGIC -- ============================================================================
 # MAGIC -- Reference Data (Batch 1: Overwrite)
 # MAGIC -- ============================================================================
-# MAGIC -- silver_date: Parse Date.txt (18 columns pipe-delimited)
-# MAGIC USE CATALOG ${var.catalog};
+# COMMAND ----------
+
+# Set catalog and create/use schema
+spark.sql(f"USE CATALOG {catalog}")
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{schema_name}")
+spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC USE SCHEMA ${var.schema};
+# MAGIC -- silver_date: Parse Date.txt (18 columns pipe-delimited)
 
 # COMMAND ----------
 

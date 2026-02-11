@@ -90,13 +90,17 @@ for table_name in bronze_tables:
 # MAGIC -- ============================================================================
 # MAGIC -- Brokerage Data (Batch 2+: Pipe-delimited)
 # MAGIC -- ============================================================================
-# MAGIC -- Load Customer.txt (incremental)
-# MAGIC USE CATALOG ${var.catalog};
+# COMMAND ----------
+
+# Set catalog and create/use schema
+spark.sql(f"USE CATALOG {catalog}")
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{schema_name}")
+spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC USE SCHEMA ${var.schema};
+# MAGIC -- Load Customer.txt (incremental)
 
 # COMMAND ----------
 

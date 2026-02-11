@@ -17,15 +17,14 @@ spark.sql(f"SET var.catalog = '{catalog}'")
 spark.sql(f"SET var.schema = '{schema_name}'")
 
 # COMMAND ----------
-# MAGIC %sql
-# MAGIC -- TPC-DI v2: Bronze Layer - Create bronze_watch_history
-# MAGIC -- Set catalog and schema
-# MAGIC USE CATALOG ${var.catalog};
+
+# Set catalog and create/use schema
+spark.sql(f"USE CATALOG {catalog}")
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{schema_name}")
+spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
-
 # MAGIC %sql
-# MAGIC USE SCHEMA ${var.schema};
 
 # COMMAND ----------
 

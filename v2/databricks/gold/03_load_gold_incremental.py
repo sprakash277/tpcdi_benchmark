@@ -91,13 +91,17 @@ for table_name in gold_tables:
 # MAGIC -- ============================================================================
 # MAGIC -- Dimension Tables (Batch 2+: MERGE upsert)
 # MAGIC -- ============================================================================
-# MAGIC -- gold_dim_customer: MERGE upsert (SCD Type 1 - latest only)
-# MAGIC USE CATALOG ${var.catalog};
+# COMMAND ----------
+
+# Set catalog and create/use schema
+spark.sql(f"USE CATALOG {catalog}")
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{schema_name}")
+spark.sql(f"USE {catalog}.{schema_name}")
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC USE SCHEMA ${var.schema};
+# MAGIC -- gold_dim_customer: MERGE upsert (SCD Type 1 - latest only)
 
 # COMMAND ----------
 
