@@ -2,7 +2,7 @@
 Gold Layer ETL - Business-Ready Analytics Tables for TPC-DI Benchmark.
 
 The Gold layer provides query-optimized, business-ready tables:
-- Dimensions: SCD Type 2 in Gold (MERGE expire/insert) where applicable
+- Dimensions: Current versions only (overwrite mode)
 - Fact tables: Append only on incremental (after $SK$ lookups)
 - Financials: SCD Type 1 MERGE (upsert)
 
@@ -132,13 +132,15 @@ class GoldETL:
         table_timing_start(f"{prefix}.gold_dim_customer")
         self.dim_customer.load(
             f"{prefix}.silver_customers",
-            f"{prefix}.gold_dim_customer"
+            f"{prefix}.gold_dim_customer",
+            load_type=load_type
         )
         
         table_timing_start(f"{prefix}.gold_dim_account")
         self.dim_account.load(
             f"{prefix}.silver_accounts",
-            f"{prefix}.gold_dim_account"
+            f"{prefix}.gold_dim_account",
+            load_type=load_type
         )
         
         table_timing_start(f"{prefix}.gold_dim_company")

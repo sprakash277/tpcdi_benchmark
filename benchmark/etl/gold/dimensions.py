@@ -18,33 +18,36 @@ logger = logging.getLogger(__name__)
 
 
 class GoldDimCustomer(GoldLoaderBase):
-    """Gold dimension table: DimCustomer (SCD Type 2 in Gold per TPC-DI spec)."""
+    """Gold dimension table: DimCustomer (current versions only)."""
 
-    def load(self, silver_table: str, target_table: str) -> DataFrame:
+    def load(self, silver_table: str, target_table: str, load_type=None) -> DataFrame:
         """
-        Create/update DimCustomer from silver_customers using SCD Type 2 MERGE:
-        expire old rows (set is_current=false, end_date=effective_date), insert new.
+        Create/update DimCustomer from silver_customers (current versions only).
+        - Batch load: Overwrite entire table
+        - Incremental load: MERGE upsert (update existing, insert new)
         """
-        logger.info("Loading gold.DimCustomer from %s (SCD2 MERGE)", silver_table)
+        from benchmark.config import LoadType
+        is_incremental = load_type == LoadType.INCREMENTAL
+        
+        logger.info("Loading gold.DimCustomer from %s (%s)", silver_table, "MERGE upsert" if is_incremental else "overwrite")
         current_df = self._select_current_version(silver_table)
         # Exclude placeholder key so we don't duplicate it when we add the placeholder row
         current_df = current_df.filter(col("customer_id") != lit(PLACEHOLDER_CUSTOMER_ID))
-        # Dedupe by customer_id so MERGE has at most one source row per target row (Delta requirement)
+        # Dedupe by customer_id (keep latest if multiple current versions)
         if "effective_date" in current_df.columns:
             w = Window.partitionBy("customer_id").orderBy(col("effective_date").desc_nulls_last())
             current_df = current_df.withColumn("_rn", row_number().over(w)).filter(col("_rn") == 1).drop("_rn")
         else:
             current_df = current_df.dropDuplicates(["customer_id"])
-        # Gold: all dimension cols + effective_date, end_date, is_current for SCD2
+        # Gold: dimension cols only (no SCD2 columns)
         want = [
             "sk_customer_id", "customer_id", "tax_id", "status", "last_name", "first_name",
             "middle_name", "gender", "tier", "dob", "address_line1", "address_line2",
             "postal_code", "city", "state_prov", "country", "email1", "email2",
-            "local_tax_id", "national_tax_id", "effective_date", "end_date", "is_current",
+            "local_tax_id", "national_tax_id",
         ]
         select_cols = [c for c in want if c in current_df.columns]
         gold_df = current_df.select(*select_cols).withColumn("etl_timestamp", current_timestamp())
-        from pyspark.sql.types import TimestampType
         ph = self.spark.range(1).select(
             lit(PLACEHOLDER_CUSTOMER_ID).alias("sk_customer_id"),
             lit(PLACEHOLDER_CUSTOMER_ID).alias("customer_id"),
@@ -57,46 +60,48 @@ class GoldDimCustomer(GoldLoaderBase):
             lit("").alias("state_prov"), lit("").alias("country"),
             lit("").alias("email1"), lit("").alias("email2"),
             lit("").alias("local_tax_id"), lit("").alias("national_tax_id"),
-            current_timestamp().cast(TimestampType()).alias("effective_date"),
-            lit(None).cast(TimestampType()).alias("end_date"),
-            lit(True).alias("is_current"),
             current_timestamp().alias("etl_timestamp"),
         )
         gold_df = gold_df.unionByName(ph, allowMissingColumns=True)
-        if hasattr(self.platform, "merge_scd2"):
-            self.platform.merge_scd2(gold_df, target_table, key_column="customer_id")
+        
+        if is_incremental and hasattr(self.platform, "merge_upsert"):
+            # Incremental: MERGE upsert (update existing, insert new)
+            self.platform.merge_upsert(gold_df, target_table, key_columns=["customer_id"])
         else:
+            # Batch: Overwrite entire table
             self._write_gold_table(gold_df, target_table, mode="overwrite")
         return gold_df
 
 
 class GoldDimAccount(GoldLoaderBase):
-    """Gold dimension table: DimAccount (SCD Type 2 in Gold per TPC-DI spec)."""
+    """Gold dimension table: DimAccount (current versions only)."""
 
-    def load(self, silver_table: str, target_table: str) -> DataFrame:
+    def load(self, silver_table: str, target_table: str, load_type=None) -> DataFrame:
         """
-        Create/update DimAccount from silver_accounts using SCD Type 2 MERGE:
-        expire old rows, insert new.
+        Create/update DimAccount from silver_accounts (current versions only).
+        - Batch load: Overwrite entire table
+        - Incremental load: MERGE upsert (update existing, insert new)
         """
-        logger.info("Loading gold.DimAccount from %s (SCD2 MERGE)", silver_table)
+        from benchmark.config import LoadType
+        is_incremental = load_type == LoadType.INCREMENTAL
+        
+        logger.info("Loading gold.DimAccount from %s (%s)", silver_table, "MERGE upsert" if is_incremental else "overwrite")
         current_df = self._select_current_version(silver_table)
         # Exclude placeholder key so we don't duplicate it when we add the placeholder row
         current_df = current_df.filter(col("account_id") != lit(PLACEHOLDER_ACCOUNT_ID))
-        # Dedupe by account_id so MERGE has at most one source row per target row (Delta requirement)
+        # Dedupe by account_id (keep latest if multiple current versions)
         if "effective_date" in current_df.columns:
             w = Window.partitionBy("account_id").orderBy(col("effective_date").desc_nulls_last())
             current_df = current_df.withColumn("_rn", row_number().over(w)).filter(col("_rn") == 1).drop("_rn")
         else:
             current_df = current_df.dropDuplicates(["account_id"])
         base_cols = ["account_id", "broker_id", "customer_id", "account_name", "tax_status", "status_id"]
-        scd2_cols = ["effective_date", "end_date", "is_current"]
-        select_cols = [c for c in base_cols + scd2_cols if c in current_df.columns]
+        # Gold: dimension cols only (no SCD2 columns)
+        select_cols = [c for c in base_cols if c in current_df.columns]
         gold_df = current_df.select(
             col("account_id").alias("sk_account_id"),
             *[col(c) for c in base_cols if c in current_df.columns],
-            *[col(c) for c in scd2_cols if c in current_df.columns],
         ).withColumn("etl_timestamp", current_timestamp())
-        from pyspark.sql.types import TimestampType
         ph = self.spark.range(1).select(
             lit(PLACEHOLDER_ACCOUNT_ID).alias("sk_account_id"),
             lit(PLACEHOLDER_ACCOUNT_ID).alias("account_id"),
@@ -105,15 +110,15 @@ class GoldDimAccount(GoldLoaderBase):
             lit("Unknown").alias("account_name"),
             lit(0).alias("tax_status"),
             lit("ACTV").alias("status_id"),
-            current_timestamp().cast(TimestampType()).alias("effective_date"),
-            lit(None).cast(TimestampType()).alias("end_date"),
-            lit(True).alias("is_current"),
             current_timestamp().alias("etl_timestamp"),
         )
         gold_df = gold_df.unionByName(ph, allowMissingColumns=True)
-        if hasattr(self.platform, "merge_scd2"):
-            self.platform.merge_scd2(gold_df, target_table, key_column="account_id")
+        
+        if is_incremental and hasattr(self.platform, "merge_upsert"):
+            # Incremental: MERGE upsert (update existing, insert new)
+            self.platform.merge_upsert(gold_df, target_table, key_columns=["account_id"])
         else:
+            # Batch: Overwrite entire table
             self._write_gold_table(gold_df, target_table, mode="overwrite")
         return gold_df
 
