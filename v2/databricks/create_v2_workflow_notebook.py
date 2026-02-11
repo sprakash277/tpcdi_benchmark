@@ -181,84 +181,131 @@ def get_table_files(layer: str, base_path: Path) -> list:
     """Get all table creation files for a layer."""
     # Convert Path to string for Databricks workspace paths
     base_path_str = str(base_path)
-    tables_dir_path = f"{base_path_str}/{layer}/tables"
+    
+    # Ensure workspace path has /Workspace prefix if it starts with /Users/
+    if base_path_str.startswith("/Users/"):
+        workspace_base_path = base_path_str.replace("/Users/", "/Workspace/Users/", 1)
+    elif base_path_str.startswith("/Workspace/"):
+        workspace_base_path = base_path_str
+    else:
+        workspace_base_path = base_path_str
+    
+    tables_dir_path = f"{workspace_base_path}/{layer}/tables"
     print(f"DEBUG: Looking for tables in {tables_dir_path}")
-    print(f"DEBUG: base_path = {base_path_str}, layer = {layer}")
+    print(f"DEBUG: base_path = {base_path_str}, workspace_base_path = {workspace_base_path}, layer = {layer}")
     
     table_files = []
     
-    # Use Databricks dbutils to list files (works with workspace paths)
+    # Try multiple approaches to find files
+    # Approach 1: Use Python's os.listdir() if running in a repo (files are on local filesystem)
     try:
-        # List all files in the tables directory
-        # dbutils.fs.ls() returns a list of FileInfo objects
-        files = dbutils.fs.ls(tables_dir_path)
-        print(f"DEBUG: Found {len(files)} total files in {tables_dir_path}")
-        
-        # Filter for create_* files (both .py and files without extension)
-        create_files = [f for f in files if f.name.startswith("create_")]
-        print(f"DEBUG: Found {len(create_files)} files starting with 'create_'")
-        
-        for file_info in sorted(create_files, key=lambda x: x.name):
-            file_name = file_info.name
-            file_path = file_info.path
+        import os
+        if os.path.exists(tables_dir_path):
+            files = os.listdir(tables_dir_path)
+            print(f"DEBUG: Found {len(files)} files using os.listdir()")
             
-            # Skip .sql files (they're not used anymore)
-            if file_name.endswith('.sql'):
-                print(f"DEBUG: Skipping .sql file: {file_name}")
-                continue
+            # Filter for create_* files
+            create_files = [f for f in files if f.startswith("create_")]
+            print(f"DEBUG: Found {len(create_files)} files starting with 'create_'")
             
-            # Skip directories
-            if file_info.isDir():
-                print(f"DEBUG: Skipping directory: {file_name}")
-                continue
-            
-            # Extract table name - remove 'create_' prefix and any extension
-            if file_name.endswith('.py'):
-                table_name = file_name.replace("create_", "").replace(".py", "")
-            else:
-                # File without extension
-                table_name = file_name.replace("create_", "")
-            
-            # Use the workspace path format (remove file:// prefix if present, keep dbfs:/ if present)
-            workspace_path = file_path.replace("file://", "")
-            # For workspace paths, we want the path as-is (e.g., /Users/...)
-            # Create a Path object for compatibility with existing code
-            table_files.append((table_name, Path(workspace_path)))
-            print(f"DEBUG: Added table: {table_name} from {file_name} (path: {workspace_path})")
-            
+            for file_name in sorted(create_files):
+                file_path = os.path.join(tables_dir_path, file_name)
+                
+                # Skip .sql files (they're not used anymore)
+                if file_name.endswith('.sql'):
+                    print(f"DEBUG: Skipping .sql file: {file_name}")
+                    continue
+                
+                # Skip directories
+                if os.path.isdir(file_path):
+                    print(f"DEBUG: Skipping directory: {file_name}")
+                    continue
+                
+                # Extract table name - remove 'create_' prefix and any extension
+                if file_name.endswith('.py'):
+                    table_name = file_name.replace("create_", "").replace(".py", "")
+                else:
+                    # File without extension
+                    table_name = file_name.replace("create_", "")
+                
+                # Use the workspace path format (with /Workspace prefix) for the notebook path
+                # But keep original base_path_str for relative path calculation
+                file_workspace_path = f"{workspace_base_path}/{layer}/tables/{file_name}"
+                table_files.append((table_name, Path(file_workspace_path)))
+                print(f"DEBUG: Added table: {table_name} from {file_name} (workspace path: {file_workspace_path})")
+                
     except Exception as e:
-        print(f"ERROR: Error reading tables directory {tables_dir_path}: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"DEBUG: os.listdir() failed: {e}")
         
-        # Fallback: try Path.glob() in case we're running locally (not in Databricks)
+        # Approach 2: Try dbutils.fs.ls() with workspace path format
         try:
-            tables_dir = base_path / layer / "tables"
-            if tables_dir.exists():
-                py_files = list(tables_dir.glob("create_*.py"))
-                print(f"DEBUG: Fallback - Found {len(py_files)} .py files using Path.glob()")
-                for py_file in sorted(py_files):
-                    table_name = py_file.stem.replace("create_", "")
-                    table_files.append((table_name, py_file))
-                    print(f"DEBUG: Added table (fallback): {table_name} from {py_file}")
-        except Exception as fallback_error:
-            print(f"ERROR: Fallback also failed: {fallback_error}")
+            files = dbutils.fs.ls(tables_dir_path)
+            print(f"DEBUG: Found {len(files)} files using dbutils.fs.ls()")
+            
+            create_files = [f for f in files if f.name.startswith("create_")]
+            print(f"DEBUG: Found {len(create_files)} files starting with 'create_'")
+            
+            for file_info in sorted(create_files, key=lambda x: x.name):
+                file_name = file_info.name
+                
+                # Skip .sql files and directories
+                if file_name.endswith('.sql') or file_info.isDir():
+                    continue
+                
+                if file_name.endswith('.py'):
+                    table_name = file_name.replace("create_", "").replace(".py", "")
+                else:
+                    table_name = file_name.replace("create_", "")
+                
+                # Use workspace path format
+                file_workspace_path = f"{workspace_base_path}/{layer}/tables/{file_name}"
+                table_files.append((table_name, Path(file_workspace_path)))
+                print(f"DEBUG: Added table: {table_name} from {file_name} (workspace path: {file_workspace_path})")
+                
+        except Exception as dbutils_error:
+            print(f"DEBUG: dbutils.fs.ls() also failed: {dbutils_error}")
+            
+            # Approach 3: Try Path.glob() as last resort
+            try:
+                tables_dir = Path(tables_dir_path)
+                if tables_dir.exists():
+                    py_files = list(tables_dir.glob("create_*.py"))
+                    print(f"DEBUG: Found {len(py_files)} .py files using Path.glob()")
+                    for py_file in sorted(py_files):
+                        table_name = py_file.stem.replace("create_", "")
+                        table_files.append((table_name, py_file))
+                        print(f"DEBUG: Added table: {table_name} from {py_file}")
+            except Exception as path_error:
+                print(f"ERROR: All methods failed to read {tables_dir_path}")
+                print(f"       os.listdir(): {e}")
+                print(f"       dbutils.fs.ls(): {dbutils_error}")
+                print(f"       Path.glob(): {path_error}")
+                import traceback
+                traceback.print_exc()
     
     if len(table_files) == 0:
         print(f"WARNING: No table files found in {tables_dir_path}")
         print(f"         Expected files matching pattern: create_*.py or create_* (no extension)")
-        print(f"         Make sure the files exist in the Databricks workspace at this location")
+        print(f"         Make sure the files exist in the Databricks workspace/repo at this location")
     
     return table_files
 
 def create_workflow_definition():
     """Create workflow definition based on widget values."""
     
-    base_path = Path(workspace_path)
+    # Ensure workspace_path has /Workspace prefix for Databricks workspace paths
+    if workspace_path.startswith("/Users/"):
+        workspace_path_normalized = workspace_path.replace("/Users/", "/Workspace/Users/", 1)
+    elif workspace_path.startswith("/Workspace/"):
+        workspace_path_normalized = workspace_path
+    else:
+        workspace_path_normalized = workspace_path
+    
+    base_path = Path(workspace_path_normalized)
     tasks = []
     
     # Setup task - using notebook
-    setup_notebook_path = f"{workspace_path}/00_setup"
+    setup_notebook_path = f"{workspace_path_normalized}/00_setup"
     
     tasks.append({
         "task_key": "00_setup",
@@ -284,16 +331,15 @@ def create_workflow_definition():
     bronze_create_tasks = []
     
     for table_name, notebook_file in bronze_tables:
-        relative_path = notebook_file.relative_to(base_path)
-        notebook_file_path = f"{workspace_path}/{relative_path}"
+        # notebook_file already has the full workspace path, so use it directly
+        # Remove .py extension if present for Databricks notebook path
+        notebook_file_str = str(notebook_file)
+        if notebook_file_str.endswith('.py'):
+            notebook_path = notebook_file_str[:-3]  # Remove .py extension
+        else:
+            notebook_path = notebook_file_str  # Already no extension
         
         task_key = f"bronze_create_{table_name}"
-        # Convert file path to notebook path (remove extension if present for Databricks)
-        # Databricks notebooks don't use extensions in their paths
-        if notebook_file_path.endswith('.py'):
-            notebook_path = notebook_file_path[:-3]  # Remove .py extension
-        else:
-            notebook_path = notebook_file_path  # Already no extension
         
         tasks.append({
             "task_key": task_key,
@@ -321,16 +367,15 @@ def create_workflow_definition():
     silver_create_tasks = []
     
     for table_name, notebook_file in silver_tables:
-        relative_path = notebook_file.relative_to(base_path)
-        notebook_file_path = f"{workspace_path}/{relative_path}"
+        # notebook_file already has the full workspace path, so use it directly
+        # Remove .py extension if present for Databricks notebook path
+        notebook_file_str = str(notebook_file)
+        if notebook_file_str.endswith('.py'):
+            notebook_path = notebook_file_str[:-3]  # Remove .py extension
+        else:
+            notebook_path = notebook_file_str  # Already no extension
         
         task_key = f"silver_create_{table_name}"
-        # Convert file path to notebook path (remove extension if present for Databricks)
-        # Databricks notebooks don't use extensions in their paths
-        if notebook_file_path.endswith('.py'):
-            notebook_path = notebook_file_path[:-3]  # Remove .py extension
-        else:
-            notebook_path = notebook_file_path  # Already no extension
         
         tasks.append({
             "task_key": task_key,
@@ -358,16 +403,15 @@ def create_workflow_definition():
     gold_create_tasks = []
     
     for table_name, notebook_file in gold_tables:
-        relative_path = notebook_file.relative_to(base_path)
-        notebook_file_path = f"{workspace_path}/{relative_path}"
+        # notebook_file already has the full workspace path, so use it directly
+        # Remove .py extension if present for Databricks notebook path
+        notebook_file_str = str(notebook_file)
+        if notebook_file_str.endswith('.py'):
+            notebook_path = notebook_file_str[:-3]  # Remove .py extension
+        else:
+            notebook_path = notebook_file_str  # Already no extension
         
         task_key = f"gold_create_{table_name}"
-        # Convert file path to notebook path (remove extension if present for Databricks)
-        # Databricks notebooks don't use extensions in their paths
-        if notebook_file_path.endswith('.py'):
-            notebook_path = notebook_file_path[:-3]  # Remove .py extension
-        else:
-            notebook_path = notebook_file_path  # Already no extension
         
         tasks.append({
             "task_key": task_key,
@@ -400,7 +444,7 @@ def create_workflow_definition():
             "job_cluster_key": "default_cluster",
             "depends_on": bronze_load_deps,
             "notebook_task": {
-                "notebook_path": f"{workspace_path}/bronze/02_load_bronze_batch1",
+                "notebook_path": f"{workspace_path_normalized}/bronze/02_load_bronze_batch1",
                 "base_parameters": {
                     "catalog": catalog,
                     "schema_name": schema_name_with_sf,
@@ -420,7 +464,7 @@ def create_workflow_definition():
                 "job_cluster_key": "default_cluster",
                 "depends_on": [{"task_key": "bronze_load_batch1"}],
                 "notebook_task": {
-                    "notebook_path": f"{workspace_path}/metrics/collect_table_metrics",
+                    "notebook_path": f"{workspace_path_normalized}/metrics/collect_table_metrics",
                     "base_parameters": {
                         "catalog": catalog,
                         "schema_name": schema_name_with_sf,
@@ -445,7 +489,7 @@ def create_workflow_definition():
             "job_cluster_key": "default_cluster",
             "depends_on": silver_transform_deps,
             "notebook_task": {
-                "notebook_path": f"{workspace_path}/silver/02_transform_silver_batch1",
+                "notebook_path": f"{workspace_path_normalized}/silver/02_transform_silver_batch1",
                 "base_parameters": {
                     "catalog": catalog,
                     "schema_name": schema_name_with_sf,
@@ -464,7 +508,7 @@ def create_workflow_definition():
                 "job_cluster_key": "default_cluster",
                 "depends_on": [{"task_key": "silver_transform_batch1"}],
                 "notebook_task": {
-                    "notebook_path": f"{workspace_path}/metrics/collect_table_metrics",
+                    "notebook_path": f"{workspace_path_normalized}/metrics/collect_table_metrics",
                     "base_parameters": {
                         "catalog": catalog,
                         "schema_name": schema_name_with_sf,
@@ -489,7 +533,7 @@ def create_workflow_definition():
             "job_cluster_key": "default_cluster",
             "depends_on": gold_load_deps,
             "notebook_task": {
-                "notebook_path": f"{workspace_path}/gold/02_load_gold_batch1",
+                "notebook_path": f"{workspace_path_normalized}/gold/02_load_gold_batch1",
                 "base_parameters": {
                     "catalog": catalog,
                     "schema_name": schema_name_with_sf,
@@ -508,7 +552,7 @@ def create_workflow_definition():
                 "job_cluster_key": "default_cluster",
                 "depends_on": [{"task_key": "gold_load_batch1"}],
                 "notebook_task": {
-                    "notebook_path": f"{workspace_path}/metrics/collect_table_metrics",
+                    "notebook_path": f"{workspace_path_normalized}/metrics/collect_table_metrics",
                     "base_parameters": {
                         "catalog": catalog,
                         "schema_name": schema_name_with_sf,
@@ -530,7 +574,7 @@ def create_workflow_definition():
             "job_cluster_key": "default_cluster",
             "depends_on": [{"task_key": t} for t in bronze_create_tasks],
             "notebook_task": {
-                "notebook_path": f"{workspace_path}/bronze/03_load_bronze_incremental",
+                "notebook_path": f"{workspace_path_normalized}/bronze/03_load_bronze_incremental",
                 "base_parameters": {
                     "catalog": catalog,
                     "schema_name": schema_name_with_sf,
@@ -550,7 +594,7 @@ def create_workflow_definition():
                 "job_cluster_key": "default_cluster",
                 "depends_on": [{"task_key": "bronze_load_incremental"}],
                 "notebook_task": {
-                    "notebook_path": f"{workspace_path}/metrics/collect_table_metrics",
+                    "notebook_path": f"{workspace_path_normalized}/metrics/collect_table_metrics",
                     "base_parameters": {
                         "catalog": catalog,
                         "schema_name": schema_name_with_sf,
@@ -574,7 +618,7 @@ def create_workflow_definition():
                 *[{"task_key": t} for t in silver_create_tasks]
             ],
             "notebook_task": {
-                "notebook_path": f"{workspace_path}/silver/03_transform_silver_incremental",
+                "notebook_path": f"{workspace_path_normalized}/silver/03_transform_silver_incremental",
                 "base_parameters": {
                     "catalog": catalog,
                     "schema_name": schema_name_with_sf,
@@ -593,7 +637,7 @@ def create_workflow_definition():
                 "job_cluster_key": "default_cluster",
                 "depends_on": [{"task_key": "silver_transform_incremental"}],
                 "notebook_task": {
-                    "notebook_path": f"{workspace_path}/metrics/collect_table_metrics",
+                    "notebook_path": f"{workspace_path_normalized}/metrics/collect_table_metrics",
                     "base_parameters": {
                         "catalog": catalog,
                         "schema_name": schema_name_with_sf,
@@ -617,7 +661,7 @@ def create_workflow_definition():
                 *[{"task_key": t} for t in gold_create_tasks]
             ],
             "notebook_task": {
-                "notebook_path": f"{workspace_path}/gold/03_load_gold_incremental",
+                "notebook_path": f"{workspace_path_normalized}/gold/03_load_gold_incremental",
                 "base_parameters": {
                     "catalog": catalog,
                     "schema_name": schema_name_with_sf,
@@ -636,7 +680,7 @@ def create_workflow_definition():
                 "job_cluster_key": "default_cluster",
                 "depends_on": [{"task_key": "gold_load_incremental"}],
                 "notebook_task": {
-                    "notebook_path": f"{workspace_path}/metrics/collect_table_metrics",
+                    "notebook_path": f"{workspace_path_normalized}/metrics/collect_table_metrics",
                     "base_parameters": {
                         "catalog": catalog,
                         "schema_name": schema_name_with_sf,
