@@ -294,14 +294,18 @@ print(f"Successfully loaded {df_bronze.count()} rows into bronze_customer_mgmt")
 # COMMAND ----------
 
 # Load FINWIRE files (multiple files: FINWIRE1967Q1.txt, FINWIRE1967Q2.txt, etc.)
-# List FINWIRE*.txt in Batch1 then load (avoids GCS glob path existence check)
+# List files in Batch1 then load by path (GCS does not resolve glob in path, so do not use FINWIRE*.txt in load())
 from pyspark.sql.functions import lit, current_timestamp, input_file_name, col
 
 batch1_path = f"{full_raw_data_path}/Batch1"
-finwire_files = [f.path for f in dbutils.fs.ls(batch1_path) if "FINWIRE" in f.name.upper() and f.name.lower().endswith(".txt")]
+try:
+    batch1_files = dbutils.fs.ls(batch1_path)
+except Exception as e:
+    raise FileNotFoundError(f"Batch1 path not found or not accessible: {batch1_path}. Check raw_data_path and sf. Error: {e}") from e
+finwire_files = [f.path for f in batch1_files if "FINWIRE" in f.name.upper() and f.name.lower().endswith(".txt")]
 if not finwire_files:
-    raise FileNotFoundError(f"No FINWIRE*.txt files found under {batch1_path}")
-df_finwire = spark.read.format("text").option("lineSep", "\n").load(*finwire_files)
+    raise FileNotFoundError(f"No FINWIRE*.txt files found under {batch1_path}. Listed: {[f.name for f in batch1_files][:20]}")
+df_finwire = spark.read.format("text").option("lineSep", "\n").load(finwire_files)
 df_finwire_bronze = df_finwire.select(
     col("value").alias("raw_line"),
     lit(1).alias("_batch_id"),
