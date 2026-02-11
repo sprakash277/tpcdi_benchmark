@@ -223,8 +223,8 @@ def create_workflow_definition():
         sql_file_path = f"{workspace_path}/{relative_path}"
         
         task_key = f"bronze_create_{table_name}"
-        # Convert SQL file path to notebook path (assume notebooks are in notebooks/ subdirectory)
-        notebook_path = sql_file_path.replace("/tables/create_", "/notebooks/create_").replace(".sql", "")
+        # Convert SQL file path to notebook path (remove .sql extension, Databricks can execute SQL files as notebooks)
+        notebook_path = sql_file_path.replace(".sql", "")
         
         tasks.append({
             "task_key": task_key,
@@ -252,8 +252,8 @@ def create_workflow_definition():
         sql_file_path = f"{workspace_path}/{relative_path}"
         
         task_key = f"silver_create_{table_name}"
-        # Convert SQL file path to notebook path
-        notebook_path = sql_file_path.replace("/tables/create_", "/notebooks/create_").replace(".sql", "")
+        # Convert SQL file path to notebook path (remove .sql extension, Databricks can execute SQL files as notebooks)
+        notebook_path = sql_file_path.replace(".sql", "")
         
         tasks.append({
             "task_key": task_key,
@@ -281,8 +281,8 @@ def create_workflow_definition():
         sql_file_path = f"{workspace_path}/{relative_path}"
         
         task_key = f"gold_create_{table_name}"
-        # Convert SQL file path to notebook path
-        notebook_path = sql_file_path.replace("/tables/create_", "/notebooks/create_").replace(".sql", "")
+        # Convert SQL file path to notebook path (remove .sql extension, Databricks can execute SQL files as notebooks)
+        notebook_path = sql_file_path.replace(".sql", "")
         
         tasks.append({
             "task_key": task_key,
