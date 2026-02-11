@@ -180,17 +180,38 @@ if not workspace_path:
 def get_table_files(layer: str, base_path: Path) -> list:
     """Get all table creation files for a layer."""
     tables_dir = base_path / layer / "tables"
+    print(f"DEBUG: Looking for tables in {tables_dir}")
+    print(f"DEBUG: base_path = {base_path}, layer = {layer}")
     
     table_files = []
-    # Look for .py notebook files (converted from .sql)
+    # Look for notebook files - try .py first (local filesystem), then files without extension (Databricks workspace)
     # Use glob directly - don't rely on exists() as it may not work for Databricks workspace paths
     try:
+        # First try .py files (for local filesystem or repos)
         py_files = list(tables_dir.glob("create_*.py"))
-        for py_file in sorted(py_files):
-            table_name = py_file.stem.replace("create_", "")
-            table_files.append((table_name, py_file))
+        print(f"DEBUG: Found {len(py_files)} .py files in {tables_dir}")
+        
+        # Also try files without extension (Databricks workspace notebooks)
+        no_ext_files = [f for f in tables_dir.glob("create_*") if f.is_file() and not f.suffix]
+        print(f"DEBUG: Found {len(no_ext_files)} files without extension in {tables_dir}")
+        
+        # Combine both, avoiding duplicates
+        all_files = set(py_files) | set(no_ext_files)
+        
+        for file_path in sorted(all_files):
+            # Extract table name - remove 'create_' prefix and any extension
+            table_name = file_path.stem.replace("create_", "")
+            table_files.append((table_name, file_path))
+            print(f"DEBUG: Added table: {table_name} from {file_path}")
+            
     except Exception as e:
-        print(f"WARNING: Error reading tables directory {tables_dir}: {e}")
+        print(f"ERROR: Error reading tables directory {tables_dir}: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    if len(table_files) == 0:
+        print(f"WARNING: No table files found in {tables_dir}")
+        print(f"         Expected files matching pattern: create_*.py or create_* (no extension)")
     
     return table_files
 
@@ -220,16 +241,23 @@ def create_workflow_definition():
     
     # Bronze table creation tasks
     bronze_tables = get_table_files("bronze", base_path)
-    print(f"DEBUG: Found {len(bronze_tables)} bronze tables")
+    print(f"DEBUG: get_table_files returned {len(bronze_tables)} bronze tables")
+    if len(bronze_tables) == 0:
+        print(f"ERROR: No bronze table files found! Check that notebook files exist in {base_path}/bronze/tables/")
+        print(f"       Expected files matching: create_*.py or create_* (no extension)")
     bronze_create_tasks = []
     
-    for table_name, py_file in bronze_tables:
-        relative_path = py_file.relative_to(base_path)
-        py_file_path = f"{workspace_path}/{relative_path}"
+    for table_name, notebook_file in bronze_tables:
+        relative_path = notebook_file.relative_to(base_path)
+        notebook_file_path = f"{workspace_path}/{relative_path}"
         
         task_key = f"bronze_create_{table_name}"
-        # Convert Python notebook file path to notebook path (remove .py extension for Databricks)
-        notebook_path = py_file_path.replace(".py", "")
+        # Convert file path to notebook path (remove extension if present for Databricks)
+        # Databricks notebooks don't use extensions in their paths
+        if notebook_file_path.endswith('.py'):
+            notebook_path = notebook_file_path[:-3]  # Remove .py extension
+        else:
+            notebook_path = notebook_file_path  # Already no extension
         
         tasks.append({
             "task_key": task_key,
@@ -250,15 +278,23 @@ def create_workflow_definition():
     
     # Silver table creation tasks
     silver_tables = get_table_files("silver", base_path)
+    print(f"DEBUG: get_table_files returned {len(silver_tables)} silver tables")
+    if len(silver_tables) == 0:
+        print(f"ERROR: No silver table files found! Check that notebook files exist in {base_path}/silver/tables/")
+        print(f"       Expected files matching: create_*.py or create_* (no extension)")
     silver_create_tasks = []
     
-    for table_name, py_file in silver_tables:
-        relative_path = py_file.relative_to(base_path)
-        py_file_path = f"{workspace_path}/{relative_path}"
+    for table_name, notebook_file in silver_tables:
+        relative_path = notebook_file.relative_to(base_path)
+        notebook_file_path = f"{workspace_path}/{relative_path}"
         
         task_key = f"silver_create_{table_name}"
-        # Convert Python notebook file path to notebook path (remove .py extension for Databricks)
-        notebook_path = py_file_path.replace(".py", "")
+        # Convert file path to notebook path (remove extension if present for Databricks)
+        # Databricks notebooks don't use extensions in their paths
+        if notebook_file_path.endswith('.py'):
+            notebook_path = notebook_file_path[:-3]  # Remove .py extension
+        else:
+            notebook_path = notebook_file_path  # Already no extension
         
         tasks.append({
             "task_key": task_key,
@@ -279,15 +315,23 @@ def create_workflow_definition():
     
     # Gold table creation tasks
     gold_tables = get_table_files("gold", base_path)
+    print(f"DEBUG: get_table_files returned {len(gold_tables)} gold tables")
+    if len(gold_tables) == 0:
+        print(f"ERROR: No gold table files found! Check that notebook files exist in {base_path}/gold/tables/")
+        print(f"       Expected files matching: create_*.py or create_* (no extension)")
     gold_create_tasks = []
     
-    for table_name, py_file in gold_tables:
-        relative_path = py_file.relative_to(base_path)
-        py_file_path = f"{workspace_path}/{relative_path}"
+    for table_name, notebook_file in gold_tables:
+        relative_path = notebook_file.relative_to(base_path)
+        notebook_file_path = f"{workspace_path}/{relative_path}"
         
         task_key = f"gold_create_{table_name}"
-        # Convert Python notebook file path to notebook path (remove .py extension for Databricks)
-        notebook_path = py_file_path.replace(".py", "")
+        # Convert file path to notebook path (remove extension if present for Databricks)
+        # Databricks notebooks don't use extensions in their paths
+        if notebook_file_path.endswith('.py'):
+            notebook_path = notebook_file_path[:-3]  # Remove .py extension
+        else:
+            notebook_path = notebook_file_path  # Already no extension
         
         tasks.append({
             "task_key": task_key,
@@ -309,7 +353,11 @@ def create_workflow_definition():
     # Load/Transform tasks based on workflow type
     if workflow_type == "batch":
         # Bronze load batch 1
-        bronze_load_deps = [{"task_key": t} for t in bronze_create_tasks] if bronze_create_tasks else [{"task_key": "00_setup"}]
+        # Dependencies: 00_setup + all bronze table creation tasks
+        bronze_load_deps = [{"task_key": "00_setup"}]
+        bronze_load_deps.extend([{"task_key": t} for t in bronze_create_tasks])
+        print(f"DEBUG: bronze_load_batch1 depends on: {bronze_load_deps}")
+        
         tasks.append({
             "task_key": "bronze_load_batch1",
             "description": "Load Bronze Batch 1 data",
@@ -645,16 +693,50 @@ def create_workflow_definition():
 # Generate workflow
 workflow = create_workflow_definition()
 
+print(f"\n{'='*80}")
 print(f"Workflow Definition Generated:")
+print(f"{'='*80}")
 print(f"  Job Name: {job_name}")
 print(f"  Workflow Type: {workflow_type}")
+print(f"  Workspace Path: {workspace_path}")
 print(f"  Total Tasks: {len(workflow['tasks'])}")
+print(f"\n  Task Breakdown:")
 bronze_count = len(get_table_files('bronze', Path(workspace_path)))
 silver_count = len(get_table_files('silver', Path(workspace_path)))
 gold_count = len(get_table_files('gold', Path(workspace_path)))
-print(f"  Bronze Tables: {bronze_count}")
-print(f"  Silver Tables: {silver_count}")
-print(f"  Gold Tables: {gold_count}")
+print(f"    - Bronze Tables Found: {bronze_count}")
+print(f"    - Silver Tables Found: {silver_count}")
+print(f"    - Gold Tables Found: {gold_count}")
+
+# Count actual tasks by type
+task_keys = [t.get('task_key', '') for t in workflow['tasks']]
+bronze_create_count = len([k for k in task_keys if k.startswith('bronze_create_')])
+silver_create_count = len([k for k in task_keys if k.startswith('silver_create_')])
+gold_create_count = len([k for k in task_keys if k.startswith('gold_create_')])
+bronze_metrics_count = len([k for k in task_keys if k.startswith('bronze_metrics_')])
+silver_metrics_count = len([k for k in task_keys if k.startswith('silver_metrics_')])
+gold_metrics_count = len([k for k in task_keys if k.startswith('gold_metrics_')])
+
+print(f"\n  Tasks Added to Workflow:")
+print(f"    - Setup tasks: {len([k for k in task_keys if 'setup' in k])}")
+print(f"    - Bronze create tasks: {bronze_create_count}")
+print(f"    - Bronze load tasks: {len([k for k in task_keys if 'bronze_load' in k])}")
+print(f"    - Bronze metrics tasks: {bronze_metrics_count}")
+print(f"    - Silver create tasks: {silver_create_count}")
+print(f"    - Silver transform tasks: {len([k for k in task_keys if 'silver_transform' in k])}")
+print(f"    - Silver metrics tasks: {silver_metrics_count}")
+print(f"    - Gold create tasks: {gold_create_count}")
+print(f"    - Gold load tasks: {len([k for k in task_keys if 'gold_load' in k])}")
+print(f"    - Gold metrics tasks: {gold_metrics_count}")
+
+if bronze_create_count == 0 or silver_create_count == 0 or gold_create_count == 0:
+    print(f"\n  ⚠️  WARNING: Missing table creation tasks!")
+    print(f"     Expected: {bronze_count} bronze, {silver_count} silver, {gold_count} gold")
+    print(f"     Found: {bronze_create_count} bronze, {silver_create_count} silver, {gold_create_count} gold")
+    print(f"     Check that notebook files exist in:")
+    print(f"       - {workspace_path}/bronze/tables/create_*.py (or create_* without extension)")
+    print(f"       - {workspace_path}/silver/tables/create_*.py (or create_* without extension)")
+    print(f"       - {workspace_path}/gold/tables/create_*.py (or create_* without extension)")
 
 # Count task types
 create_tasks = [t for t in workflow['tasks'] if 'create' in t['task_key']]
