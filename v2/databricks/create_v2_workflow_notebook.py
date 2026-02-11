@@ -310,7 +310,7 @@ def create_workflow_definition():
             "job_cluster_key": "default_cluster",
             "depends_on": [{"task_key": t} for t in bronze_create_tasks],
             "notebook_task": {
-                "notebook_path": f"{workspace_path}/bronze/02_load_bronze_batch1",
+                "notebook_path": f"{workspace_path}/bronze/02_load_bronze_batch1.sql",
                 "base_parameters": {
                     "catalog": catalog,
                     "schema_name": schema_name_with_sf,
@@ -355,7 +355,7 @@ def create_workflow_definition():
                 *[{"task_key": t} for t in silver_create_tasks]
             ],
             "notebook_task": {
-                "notebook_path": f"{workspace_path}/silver/02_transform_silver_batch1",
+                "notebook_path": f"{workspace_path}/silver/02_transform_silver_batch1.sql",
                 "base_parameters": {
                     "catalog": catalog,
                     "schema_name": schema_name_with_sf,
@@ -399,7 +399,7 @@ def create_workflow_definition():
                 *[{"task_key": t} for t in gold_create_tasks]
             ],
             "notebook_task": {
-                "notebook_path": f"{workspace_path}/gold/02_load_gold_batch1",
+                "notebook_path": f"{workspace_path}/gold/02_load_gold_batch1.sql",
                 "base_parameters": {
                     "catalog": catalog,
                     "schema_name": schema_name_with_sf,
@@ -440,7 +440,7 @@ def create_workflow_definition():
             "job_cluster_key": "default_cluster",
             "depends_on": [{"task_key": t} for t in bronze_create_tasks],
             "notebook_task": {
-                "notebook_path": f"{workspace_path}/bronze/03_load_bronze_incremental",
+                "notebook_path": f"{workspace_path}/bronze/03_load_bronze_incremental.sql",
                 "base_parameters": {
                     "catalog": catalog,
                     "schema_name": schema_name_with_sf,
@@ -484,7 +484,7 @@ def create_workflow_definition():
                 *[{"task_key": t} for t in silver_create_tasks]
             ],
             "notebook_task": {
-                "notebook_path": f"{workspace_path}/silver/03_transform_silver_incremental",
+                "notebook_path": f"{workspace_path}/silver/03_transform_silver_incremental.sql",
                 "base_parameters": {
                     "catalog": catalog,
                     "schema_name": schema_name_with_sf,
@@ -527,7 +527,7 @@ def create_workflow_definition():
                 *[{"task_key": t} for t in gold_create_tasks]
             ],
             "notebook_task": {
-                "notebook_path": f"{workspace_path}/gold/03_load_gold_incremental",
+                "notebook_path": f"{workspace_path}/gold/03_load_gold_incremental.sql",
                 "base_parameters": {
                     "catalog": catalog,
                     "schema_name": schema_name_with_sf,
