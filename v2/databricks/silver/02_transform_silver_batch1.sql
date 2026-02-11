@@ -13,6 +13,10 @@
 -- ============================================================================
 
 -- silver_date: Parse Date.txt (18 columns pipe-delimited)
+USE CATALOG ${var.catalog};
+USE SCHEMA ${var.schema};
+
+
 INSERT OVERWRITE silver_date
 SELECT 
     CAST(split(raw_line, '\\|')[0] AS INT) AS sk_date_id,

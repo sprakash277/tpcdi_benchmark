@@ -14,6 +14,10 @@
 
 -- silver_customers: Parse Customer.txt with SCD Type 2 MERGE
 -- Format: CDC_FLAG|CDC_DSN|C_ID|C_TAX_ID|C_ST_ID|C_L_NAME|...
+USE CATALOG ${var.catalog};
+USE SCHEMA ${var.schema};
+
+
 WITH incoming_customers AS (
     SELECT 
         monotonically_increasing_id() AS sk_customer_id,

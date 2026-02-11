@@ -2,8 +2,8 @@
 -- TPC-DI v2: Silver Layer - Create silver_customers
 -- ============================================================================
 -- Set catalog and schema
--- USE CATALOG ${var.catalog};
--- USE SCHEMA ${var.schema};
+USE CATALOG ${var.catalog};
+USE SCHEMA ${var.schema};
 
 
 

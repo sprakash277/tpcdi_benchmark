@@ -2,8 +2,8 @@
 -- TPC-DI v2: Bronze Layer - Create bronze_customer_mgmt
 -- ============================================================================
 -- Set catalog and schema (variables set by workflow)
--- -- USE CATALOG ${var.catalog};
--- -- USE SCHEMA ${var.schema};
+USE CATALOG ${var.catalog};
+USE SCHEMA ${var.schema};
 
 
 

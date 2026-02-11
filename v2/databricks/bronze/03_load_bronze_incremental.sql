@@ -14,6 +14,10 @@
 -- ============================================================================
 
 -- Load Customer.txt (incremental)
+USE CATALOG ${var.catalog};
+USE SCHEMA ${var.schema};
+
+
 INSERT INTO bronze_customer (raw_line, _batch_id, _load_timestamp, _source_file)
 SELECT 
     value AS raw_line,

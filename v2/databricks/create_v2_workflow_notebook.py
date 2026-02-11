@@ -19,14 +19,50 @@
 
 # COMMAND ----------
 
+# Instance type options per cloud (only these are valid for each cloud)
+CLOUD_NODE_OPTIONS = {
+    "AWS": [
+        "i3.xlarge", "i3.2xlarge", "i3.4xlarge",
+        "m5d.xlarge", "m5d.2xlarge", "m5d.4xlarge",
+        "r5d.xlarge", "r5d.2xlarge", "r5d.4xlarge",
+    ],
+    "GCP": [
+        "c2-standard-4", "c2-standard-8", "c2-standard-16", "c2-standard-30",
+        "n2d-standard-4", "n2d-standard-8", "n2d-standard-16", "n2d-standard-32",
+        "n2d-standard-48", "n2d-standard-64", "n2d-standard-80", "n2d-standard-96",
+        "n2d-highmem-4", "n2d-highmem-8", "n2d-highmem-16", "n2d-highmem-32",
+        "n2d-highmem-48", "n2d-highmem-64", "n2d-highmem-80", "n2d-highmem-96",
+    ],
+    "Azure": [
+        "Standard_E4s_v3", "Standard_E8s_v3", "Standard_E16s_v3", "Standard_E32s_v3",
+        "Standard_D4s_v3", "Standard_D8s_v3", "Standard_D16s_v3", "Standard_D32s_v3",
+        "Standard_L4s_v2", "Standard_L8s_v2", "Standard_L16s_v2", "Standard_L32s_v2",
+    ],
+}
+DEFAULT_NODE_TYPES = {
+    "AWS": ("m5d.4xlarge", "m5d.4xlarge"),  # GCP equivalent: n2d-standard-16 (16 vCPUs, 64 GB RAM)
+    "GCP": ("n2d-standard-16", "n2d-standard-16"),
+    "Azure": ("Standard_E16s_v3", "Standard_E16s_v3"),  # GCP equivalent: n2d-standard-16 (16 vCPUs, 128 GB RAM)
+}
+
+def get_worker_count_for_scale_factor(scale_factor: int) -> int:
+    """Get recommended number of worker nodes based on scale factor."""
+    if scale_factor == 10:
+        return 2
+    elif scale_factor == 100:
+        return 3
+    elif scale_factor == 1000:
+        return 5
+    else:
+        # Default: scale_factor / 5, minimum 2, maximum 10
+        return max(2, min(10, scale_factor // 5))
+
 # Widgets for workflow configuration
 dbutils.widgets.text("job_name", "TPC-DI-v2-SQL", "Job Name")
 dbutils.widgets.text("workspace_path", "", "Workspace Path to SQL Files (e.g., /Workspace/Repos/org/repo/v2/databricks)")
 dbutils.widgets.dropdown("workflow_type", "batch", ["batch", "incremental"], "Workflow Type")
 dbutils.widgets.text("catalog", "tpcdi_catalog", "Unity Catalog Name")
-dbutils.widgets.text("bronze_schema", "bronze_schema", "Bronze Schema")
-dbutils.widgets.text("silver_schema", "silver_schema", "Silver Schema")
-dbutils.widgets.text("gold_schema", "gold_schema", "Gold Schema")
+dbutils.widgets.text("schema_name", "tpcdi_schema", "Schema Name (used for all layers)")
 dbutils.widgets.text("raw_data_path", "/Volumes/tpcdi_catalog/tpcdi_schema/tpcdi_volume/sf=10", "Raw Data Path")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
 dbutils.widgets.text("warehouse_id", "", "SQL Warehouse ID (required)")
@@ -49,10 +85,34 @@ dbutils.widgets.dropdown(
     ],
     "Cluster Spark Version (DBR)"
 )
-dbutils.widgets.dropdown("cloud", "AWS", ["AWS", "GCP", "Azure"], "Cloud")
-dbutils.widgets.text("node_type_id", "i3.xlarge", "Worker Node Type")
-dbutils.widgets.text("driver_node_type_id", "i3.xlarge", "Driver Node Type")
-dbutils.widgets.text("num_workers", "2", "Number of Workers")
+dbutils.widgets.dropdown("cloud", "AWS", ["AWS", "GCP", "Azure"], "Cloud (pick first; then re-run next cell for instance types)")
+dbutils.widgets.text("scale_factor", "10", "Scale Factor (SF=10→2 workers, SF=100→3 workers, SF=1000→5 workers)")
+dbutils.widgets.text("num_workers", "2", "Number of Workers (auto-set based on scale_factor if left blank)")
+
+# COMMAND ----------
+
+# Re-run this cell after changing Cloud to update Worker/Driver dropdowns to that cloud's instance types only
+cloud = dbutils.widgets.get("cloud")
+options = CLOUD_NODE_OPTIONS.get(cloud, CLOUD_NODE_OPTIONS["AWS"])
+default_worker = DEFAULT_NODE_TYPES.get(cloud, ("m5d.4xlarge", "m5d.4xlarge"))[0]
+default_driver = DEFAULT_NODE_TYPES.get(cloud, ("m5d.4xlarge", "m5d.4xlarge"))[1]
+# Ensure defaults are in the options list
+if default_worker not in options:
+    default_worker = options[0]
+if default_driver not in options:
+    default_driver = options[0]
+
+try:
+    dbutils.widgets.remove("node_type_id")
+except Exception:
+    pass
+try:
+    dbutils.widgets.remove("driver_node_type_id")
+except Exception:
+    pass
+dbutils.widgets.dropdown("node_type_id", default_worker, options, "Worker Node Type (" + cloud + ")")
+dbutils.widgets.dropdown("driver_node_type_id", default_driver, options, "Driver Node Type (" + cloud + ")")
+print(f"Instance type options updated for cloud: {cloud} ({len(options)} types)")
 
 # COMMAND ----------
 
@@ -64,18 +124,34 @@ job_name = dbutils.widgets.get("job_name")
 workspace_path = dbutils.widgets.get("workspace_path")
 workflow_type = dbutils.widgets.get("workflow_type")
 catalog = dbutils.widgets.get("catalog")
-bronze_schema = dbutils.widgets.get("bronze_schema")
-silver_schema = dbutils.widgets.get("silver_schema")
-gold_schema = dbutils.widgets.get("gold_schema")
+schema_name = dbutils.widgets.get("schema_name")
 raw_data_path = dbutils.widgets.get("raw_data_path")
-batch_id = int(dbutils.widgets.get("batch_id"))
+batch_id_str = dbutils.widgets.get("batch_id")
 warehouse_id = dbutils.widgets.get("warehouse_id")
 
 spark_version = dbutils.widgets.get("spark_version")
 cloud = dbutils.widgets.get("cloud")
 node_type_id = dbutils.widgets.get("node_type_id")
 driver_node_type_id = dbutils.widgets.get("driver_node_type_id")
-num_workers = int(dbutils.widgets.get("num_workers"))
+scale_factor_str = dbutils.widgets.get("scale_factor")
+num_workers_str = dbutils.widgets.get("num_workers")
+
+# Parse batch_id
+batch_id = int(batch_id_str) if batch_id_str else 1
+
+# Parse scale_factor and auto-calculate num_workers if not provided
+scale_factor = int(scale_factor_str) if scale_factor_str else 10
+if num_workers_str and num_workers_str.strip():
+    num_workers = int(num_workers_str)
+else:
+    # Auto-calculate based on scale factor
+    num_workers = get_worker_count_for_scale_factor(scale_factor)
+    print(f"Auto-setting num_workers={num_workers} based on scale_factor={scale_factor}")
+
+# Use schema_name for all layers
+bronze_schema = schema_name
+silver_schema = schema_name
+gold_schema = schema_name
 
 # Auto-detect workspace path if not provided
 if not workspace_path:
@@ -120,9 +196,7 @@ def create_workflow_definition():
     setup_sql = f"""
 CREATE CATALOG IF NOT EXISTS {catalog};
 USE CATALOG {catalog};
-CREATE SCHEMA IF NOT EXISTS {bronze_schema};
-CREATE SCHEMA IF NOT EXISTS {silver_schema};
-CREATE SCHEMA IF NOT EXISTS {gold_schema};
+CREATE SCHEMA IF NOT EXISTS {schema_name};
 """
     
     tasks.append({
@@ -159,7 +233,7 @@ CREATE SCHEMA IF NOT EXISTS {gold_schema};
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
                     {"name": "var.catalog", "value": catalog},
-                    {"name": "var.bronze_schema", "value": bronze_schema},
+                    {"name": "var.schema", "value": schema_name},
                 ]
             },
             "timeout_seconds": 300,
@@ -187,7 +261,7 @@ CREATE SCHEMA IF NOT EXISTS {gold_schema};
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
                     {"name": "var.catalog", "value": catalog},
-                    {"name": "var.silver_schema", "value": silver_schema},
+                    {"name": "var.schema", "value": schema_name},
                 ]
             },
             "timeout_seconds": 300,
@@ -215,7 +289,7 @@ CREATE SCHEMA IF NOT EXISTS {gold_schema};
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
                     {"name": "var.catalog", "value": catalog},
-                    {"name": "var.gold_schema", "value": gold_schema},
+                    {"name": "var.schema", "value": schema_name},
                 ]
             },
             "timeout_seconds": 300,
@@ -237,7 +311,7 @@ CREATE SCHEMA IF NOT EXISTS {gold_schema};
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
                     {"name": "var.catalog", "value": catalog},
-                    {"name": "var.bronze_schema", "value": bronze_schema},
+                    {"name": "var.schema", "value": schema_name},
                     {"name": "var.raw_data_path", "value": raw_data_path},
                     {"name": "var.batch_id", "value": "1"},
                 ]
@@ -261,8 +335,7 @@ CREATE SCHEMA IF NOT EXISTS {gold_schema};
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
                     {"name": "var.catalog", "value": catalog},
-                    {"name": "var.bronze_schema", "value": bronze_schema},
-                    {"name": "var.silver_schema", "value": silver_schema},
+                    {"name": "var.schema", "value": schema_name},
                     {"name": "var.batch_id", "value": "1"},
                 ]
             },
@@ -285,8 +358,7 @@ CREATE SCHEMA IF NOT EXISTS {gold_schema};
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
                     {"name": "var.catalog", "value": catalog},
-                    {"name": "var.silver_schema", "value": silver_schema},
-                    {"name": "var.gold_schema", "value": gold_schema},
+                    {"name": "var.schema", "value": schema_name},
                     {"name": "var.batch_id", "value": "1"},
                 ]
             },
@@ -306,7 +378,7 @@ CREATE SCHEMA IF NOT EXISTS {gold_schema};
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
                     {"name": "var.catalog", "value": catalog},
-                    {"name": "var.bronze_schema", "value": bronze_schema},
+                    {"name": "var.schema", "value": schema_name},
                     {"name": "var.raw_data_path", "value": raw_data_path},
                     {"name": "var.batch_id", "value": str(batch_id)},
                 ]
@@ -329,8 +401,7 @@ CREATE SCHEMA IF NOT EXISTS {gold_schema};
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
                     {"name": "var.catalog", "value": catalog},
-                    {"name": "var.bronze_schema", "value": bronze_schema},
-                    {"name": "var.silver_schema", "value": silver_schema},
+                    {"name": "var.schema", "value": schema_name},
                     {"name": "var.batch_id", "value": str(batch_id)},
                 ]
             },
@@ -352,8 +423,7 @@ CREATE SCHEMA IF NOT EXISTS {gold_schema};
                 "warehouse_id": warehouse_id if warehouse_id else None,
                 "parameters": [
                     {"name": "var.catalog", "value": catalog},
-                    {"name": "var.silver_schema", "value": silver_schema},
-                    {"name": "var.gold_schema", "value": gold_schema},
+                    {"name": "var.schema", "value": schema_name},
                     {"name": "var.batch_id", "value": str(batch_id)},
                 ]
             },
@@ -404,19 +474,9 @@ CREATE SCHEMA IF NOT EXISTS {gold_schema};
                 "description": "Unity Catalog name"
             },
             {
-                "name": "bronze_schema",
-                "default": bronze_schema,
-                "description": "Bronze schema name"
-            },
-            {
-                "name": "silver_schema",
-                "default": silver_schema,
-                "description": "Silver schema name"
-            },
-            {
-                "name": "gold_schema",
-                "default": gold_schema,
-                "description": "Gold schema name"
+                "name": "schema_name",
+                "default": schema_name,
+                "description": "Schema name (used for all layers: bronze, silver, gold)"
             },
             {
                 "name": "raw_data_path",

@@ -13,6 +13,10 @@
 -- ============================================================================
 
 -- gold_dim_customer: MERGE upsert (SCD Type 1 - latest only)
+USE CATALOG ${var.catalog};
+USE SCHEMA ${var.schema};
+
+
 MERGE INTO gold_dim_customer AS target
 USING (
     SELECT 

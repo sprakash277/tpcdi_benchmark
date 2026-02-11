@@ -2,8 +2,8 @@
 -- TPC-DI v2: Gold Layer - Create gold_dim_time
 -- ============================================================================
 -- Set catalog and schema
--- USE CATALOG ${var.catalog};
--- USE SCHEMA ${var.schema};
+USE CATALOG ${var.catalog};
+USE SCHEMA ${var.schema};
 
 
 

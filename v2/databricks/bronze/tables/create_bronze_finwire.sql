@@ -2,8 +2,8 @@
 -- TPC-DI v2: Bronze Layer - Create bronze_finwire
 -- ============================================================================
 -- Set catalog and schema
--- USE CATALOG ${var.catalog};
--- USE SCHEMA ${var.schema};
+USE CATALOG ${var.catalog};
+USE SCHEMA ${var.schema};
 
 
 

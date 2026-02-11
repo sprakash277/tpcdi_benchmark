@@ -13,6 +13,10 @@
 -- ============================================================================
 
 -- gold_dim_customer: Current versions only from silver_customers
+USE CATALOG ${var.catalog};
+USE SCHEMA ${var.schema};
+
+
 INSERT INTO gold_dim_customer
 SELECT 
     sk_customer_id,
