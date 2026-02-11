@@ -30,7 +30,8 @@ def create_workflow_definition(
 
     workflow_type: "data_gen" = data generation only (single task);
                    "benchmark" = benchmark ETL only (single task);
-                   "full" = both tasks in one job (data gen then benchmark).
+                   "full" = both tasks in one job (data gen then benchmark);
+                   "v2_batch" = single task running v2/databricks/run_tpcdi_batch (Bronze → Silver → Gold).
     """
     if cluster_config is None:
         cluster_config = {
@@ -99,7 +100,49 @@ def create_workflow_definition(
         benchmark_task["depends_on"] = [{"task_key": "01_data_generation"}]
         benchmark_task["run_if"] = "ALL_SUCCESS"
 
-    if workflow_type == "data_gen":
+    if workflow_type == "v2_batch":
+        v2_task = {
+            "task_key": "run_tpcdi_batch",
+            "description": "Run TPC-DI v2 batch pipeline (Bronze → Silver → Gold)",
+            "job_cluster_key": "run_tpcdi_batch_cluster",
+            "libraries": [
+                {"maven": {"coordinates": "com.databricks:spark-xml_2.13:0.18.0"}}
+            ],
+            "notebook_task": {
+                "notebook_path": benchmark_notebook_path,
+                "base_parameters": {
+                    "catalog": default_target_catalog,
+                    "schema_name": "tpcdi_schema_sf" + str(default_scale_factor),
+                    "raw_data_path": default_output_path,
+                    "sf": str(default_scale_factor),
+                    "batch_id": "1",
+                    "xml_format": default_customer_mgmt_xml_format or "com.databricks.spark.xml",
+                    "sql_base_path": "",
+                },
+                "source": "WORKSPACE"
+            },
+            "timeout_seconds": 0,
+            "email_notifications": {},
+            "webhook_notifications": {},
+            "retry_on_timeout": False,
+            "max_retries": 0,
+            "min_retry_interval_millis": 0,
+            "max_retry_interval_millis": 0,
+        }
+        tasks = [v2_task]
+        job_clusters_def = [
+            {"job_cluster_key": "run_tpcdi_batch_cluster", "new_cluster": cluster_config.copy()},
+        ]
+        parameters = [
+            {"name": "catalog", "default": default_target_catalog, "description": "Unity Catalog name"},
+            {"name": "schema_name", "default": "tpcdi_schema_sf" + str(default_scale_factor), "description": "Target schema name"},
+            {"name": "raw_data_path", "default": default_output_path, "description": "Raw data path (e.g. gs://bucket/tpcdi or dbfs:/mnt/tpcdi)"},
+            {"name": "sf", "default": str(default_scale_factor), "description": "Scale factor (10, 100, 1000)"},
+            {"name": "batch_id", "default": "1", "description": "Batch ID"},
+            {"name": "xml_format", "default": default_customer_mgmt_xml_format or "com.databricks.spark.xml", "description": "CustomerMgmt XML reader format"},
+            {"name": "sql_base_path", "default": "", "description": "Optional path to sql/ folder (default = notebook dir)"},
+        ]
+    elif workflow_type == "data_gen":
         tasks = [data_gen_task]
         job_clusters_def = [
             {"job_cluster_key": "01_data_generation_cluster", "new_cluster": cluster_config.copy()},
@@ -223,12 +266,12 @@ def main():
     parser.add_argument("--job-name", default="TPC-DI-Benchmark",
                        help="Name of the Databricks job")
     parser.add_argument("--workflow-type", default="benchmark",
-                       choices=["data_gen", "benchmark", "full"],
-                       help="data_gen = data generation only; benchmark = benchmark ETL only; full = both tasks in one job")
+                       choices=["data_gen", "benchmark", "full", "v2_batch"],
+                       help="data_gen = data generation only; benchmark = benchmark ETL only; full = both; v2_batch = single notebook run_tpcdi_batch (Bronze→Silver→Gold)")
     parser.add_argument("--data-gen-notebook", default="generate_tpcdi_data_notebook",
                        help="Path to data generation notebook (relative to workspace)")
     parser.add_argument("--benchmark-notebook", default="benchmark_databricks_notebook",
-                       help="Path to benchmark notebook (relative to workspace)")
+                       help="Path to benchmark notebook (relative to workspace); for v2_batch use v2/databricks/run_tpcdi_batch")
     parser.add_argument("--workspace-path", default="/Workspace/Repos",
                        help="Workspace path prefix for notebooks")
     
@@ -366,11 +409,16 @@ def main():
         "runtime_engine": "PHOTON",
     }
     
+    # For v2_batch, default notebook to run_tpcdi_batch if still using generic default
+    benchmark_notebook = args.benchmark_notebook
+    if args.workflow_type == "v2_batch" and args.benchmark_notebook == "benchmark_databricks_notebook":
+        benchmark_notebook = "v2/databricks/run_tpcdi_batch"
+
     # Create workflow definition
     workflow = create_workflow_definition(
         job_name=args.job_name,
         data_gen_notebook_path=args.data_gen_notebook,
-        benchmark_notebook_path=args.benchmark_notebook,
+        benchmark_notebook_path=benchmark_notebook,
         default_scale_factor=args.default_scale_factor,
         default_output_path=args.default_output_path,
         default_local_gen_path=args.default_local_gen_path or "/local_disk0",

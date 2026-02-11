@@ -1,14 +1,13 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Create TPC-DI v2 SQL Workflow
+# MAGIC # Create TPC-DI v2 Workflow
 # MAGIC
-# MAGIC This notebook creates a Databricks workflow for the SQL-only v2 implementation.
+# MAGIC This notebook creates a Databricks workflow for v2.
 # MAGIC
-# MAGIC Features:
-# MAGIC - Individual SQL tasks for each table creation
-# MAGIC - Separate batch and incremental workflows
-# MAGIC - Proper task dependencies
-# MAGIC - Configurable via widgets
+# MAGIC **Workflow types:**
+# MAGIC - **run_tpcdi_batch** – Single notebook `run_tpcdi_batch` (Bronze → Silver → Gold via SQL files). Recommended.
+# MAGIC - **batch** – Multi-task: setup → bronze batch1 → silver batch1 → gold batch1.
+# MAGIC - **incremental** – Multi-task: setup → bronze incremental → silver incremental → gold incremental.
 
 # COMMAND ----------
 
@@ -58,17 +57,17 @@ def get_worker_count_for_scale_factor(scale_factor: int) -> int:
         return max(2, min(10, scale_factor // 5))
 
 # Widgets for workflow configuration
-dbutils.widgets.text("job_name", "TPC-DI-v2-SQL", "Job Name")
-dbutils.widgets.text("workspace_path", "", "Workspace Path to SQL Files (e.g., /Workspace/Repos/org/repo/v2/databricks)")
-dbutils.widgets.dropdown("workflow_type", "batch", ["batch", "incremental"], "Workflow Type")
+dbutils.widgets.text("job_name", "TPC-DI-v2-Batch", "Job Name")
+dbutils.widgets.text("workspace_path", "", "Workspace Path (e.g., /Workspace/Repos/org/repo/v2/databricks)")
+dbutils.widgets.dropdown("workflow_type", "run_tpcdi_batch", ["run_tpcdi_batch", "batch", "incremental"], "Workflow Type (run_tpcdi_batch = single notebook)")
 dbutils.widgets.text("catalog", "sumit_prakash_benchmark", "Unity Catalog Name")
 dbutils.widgets.text("schema_name", "tpcdi_schema", "Schema Name (used for all layers)")
 dbutils.widgets.text("sf", "10", "Scale Factor (SF)")
 dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw Data Path (base path, sf will be appended)")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
 dbutils.widgets.text("metrics_output", "gs://sumit_prakash_gcs/tpcdi/metrics", "Metrics Output Path")
-dbutils.widgets.text("xml_format", "com.databricks.spark.xml", "XML Format (xml, com.databricks.spark.xml, or org.apache.spark.sql.execution.datasources.xml)")
-# Note: Notebook tasks use clusters, not SQL warehouses (warehouse_id removed)
+dbutils.widgets.text("xml_format", "com.databricks.spark.xml", "XML Format")
+dbutils.widgets.text("sql_base_path", "", "SQL base path (optional; for run_tpcdi_batch only)")
 
 # Cluster configuration
 dbutils.widgets.dropdown(
@@ -133,6 +132,7 @@ raw_data_path_base = dbutils.widgets.get("raw_data_path")
 batch_id_str = dbutils.widgets.get("batch_id")
 metrics_output = dbutils.widgets.get("metrics_output")
 xml_format = dbutils.widgets.get("xml_format") or "com.databricks.spark.xml"
+sql_base_path = dbutils.widgets.get("sql_base_path") or ""
 
 # Append sf to schema name and raw data path
 schema_name_with_sf = f"{schema_name}_sf{sf}"
@@ -305,7 +305,60 @@ def create_workflow_definition():
     
     base_path = Path(workspace_path_normalized)
     tasks = []
-    
+
+    # Single-notebook workflow: run_tpcdi_batch (Bronze → Silver → Gold via SQL files)
+    if workflow_type == "run_tpcdi_batch":
+        run_notebook_path = f"{workspace_path_normalized}/run_tpcdi_batch"
+        task = {
+            "task_key": "run_tpcdi_batch",
+            "description": "Run TPC-DI v2 batch pipeline (Bronze → Silver → Gold)",
+            "job_cluster_key": "default_cluster",
+            "libraries": [{"maven": {"coordinates": "com.databricks:spark-xml_2.13:0.18.0"}}],
+            "notebook_task": {
+                "notebook_path": run_notebook_path,
+                "base_parameters": {
+                    "catalog": catalog,
+                    "schema_name": schema_name_with_sf,
+                    "raw_data_path": raw_data_path_base,
+                    "sf": sf,
+                    "batch_id": batch_id_str or "1",
+                    "xml_format": xml_format,
+                    "sql_base_path": sql_base_path,
+                },
+                "source": "WORKSPACE",
+            },
+            "timeout_seconds": 0,
+            "max_retries": 0,
+        }
+        cluster_config = {
+            "spark_version": spark_version,
+            "node_type_id": node_type_id,
+            "num_workers": num_workers,
+            "driver_node_type_id": driver_node_type_id,
+        }
+        if "photon" in spark_version.lower():
+            cluster_config["runtime_engine"] = "PHOTON"
+        return {
+            "name": job_name,
+            "email_notifications": {},
+            "webhook_notifications": {},
+            "timeout_seconds": 0,
+            "max_concurrent_runs": 1,
+            "tasks": [task],
+            "job_clusters": [{"job_cluster_key": "default_cluster", "new_cluster": cluster_config}],
+            "format": "MULTI_TASK",
+            "parameters": [
+                {"name": "catalog", "default": catalog},
+                {"name": "schema_name", "default": schema_name_with_sf},
+                {"name": "raw_data_path", "default": raw_data_path_base},
+                {"name": "sf", "default": sf},
+                {"name": "batch_id", "default": batch_id_str or "1"},
+                {"name": "xml_format", "default": xml_format},
+                {"name": "sql_base_path", "default": sql_base_path},
+            ],
+            "tags": {"project": "tpcdi", "version": "v2", "type": "run_tpcdi_batch"},
+        }
+
     # Setup task - using notebook
     setup_notebook_path = f"{workspace_path_normalized}/00_setup"
     
@@ -536,24 +589,27 @@ print(f"  Job Name: {job_name}")
 print(f"  Workflow Type: {workflow_type}")
 print(f"  Workspace Path: {workspace_path}")
 print(f"  Total Tasks: {len(workflow['tasks'])}")
-print(f"\n  Task Breakdown:")
-bronze_count = len(get_table_files('bronze', Path(workspace_path)))
-silver_count = len(get_table_files('silver', Path(workspace_path)))
-gold_count = len(get_table_files('gold', Path(workspace_path)))
-print(f"    - Bronze Tables Found: {bronze_count}")
-print(f"    - Silver Tables Found: {silver_count}")
-print(f"    - Gold Tables Found: {gold_count}")
-
-# Count actual tasks by type
 task_keys = [t.get('task_key', '') for t in workflow['tasks']]
-
-print(f"\n  Tasks Added to Workflow:")
-print(f"    - Setup tasks: {len([k for k in task_keys if 'setup' in k])}")
-print(f"    - Bronze load tasks: {len([k for k in task_keys if 'bronze_load' in k])}")
-print(f"    - Silver transform tasks: {len([k for k in task_keys if 'silver_transform' in k])}")
-print(f"    - Gold load tasks: {len([k for k in task_keys if 'gold_load' in k])}")
-print(f"\n  Note: Table creation is now handled inside each load/transform notebook")
-print(f"        This keeps the workflow simple with only {len(workflow['tasks'])} tasks instead of 100+")
+if workflow_type == "run_tpcdi_batch":
+    print(f"\n  Single task: run_tpcdi_batch (Bronze → Silver → Gold via SQL files)")
+else:
+    print(f"\n  Task Breakdown:")
+    try:
+        bronze_count = len(get_table_files('bronze', Path(workspace_path)))
+        silver_count = len(get_table_files('silver', Path(workspace_path)))
+        gold_count = len(get_table_files('gold', Path(workspace_path)))
+        print(f"    - Bronze Tables Found: {bronze_count}")
+        print(f"    - Silver Tables Found: {silver_count}")
+        print(f"    - Gold Tables Found: {gold_count}")
+    except Exception:
+        pass
+    print(f"\n  Tasks Added to Workflow:")
+    print(f"    - Setup tasks: {len([k for k in task_keys if 'setup' in k])}")
+    print(f"    - Bronze load tasks: {len([k for k in task_keys if 'bronze_load' in k])}")
+    print(f"    - Silver transform tasks: {len([k for k in task_keys if 'silver_transform' in k])}")
+    print(f"    - Gold load tasks: {len([k for k in task_keys if 'gold_load' in k])}")
+    print(f"\n  Note: Table creation is now handled inside each load/transform notebook")
+print(f"        Total tasks: {len(workflow['tasks'])}")
 
 # COMMAND ----------
 
