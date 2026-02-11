@@ -293,25 +293,30 @@ print(f"Successfully loaded {df_bronze.count()} rows into bronze_customer_mgmt")
 
 # COMMAND ----------
 
-# Load FINWIRE files (multiple files: FINWIRE1967Q1.txt, FINWIRE1967Q2.txt, etc.)
-# List files in Batch1 then load by path (GCS does not resolve glob in path, so do not use FINWIRE*.txt in load())
-from pyspark.sql.functions import lit, current_timestamp, input_file_name, col
+# Load FINWIRE files - same as v1: single path with FINWIRE* glob, text format, rename value -> raw_line, add metadata
+from pyspark.sql.functions import lit, current_timestamp, col
 
-batch1_path = f"{full_raw_data_path}/Batch1"
+file_pattern = f"{full_raw_data_path}/Batch1/FINWIRE*"
+df_finwire = None
 try:
-    batch1_files = dbutils.fs.ls(batch1_path)
+    df_finwire = spark.read.format("text").load(file_pattern)
 except Exception as e:
-    raise FileNotFoundError(f"Batch1 path not found or not accessible: {batch1_path}. Check raw_data_path and sf. Error: {e}") from e
-finwire_files = [f.path for f in batch1_files if "FINWIRE" in f.name.upper() and f.name.lower().endswith(".txt")]
-if not finwire_files:
-    raise FileNotFoundError(f"No FINWIRE*.txt files found under {batch1_path}. Listed: {[f.name for f in batch1_files][:20]}")
-df_finwire = spark.read.format("text").option("lineSep", "\n").load(finwire_files)
-df_finwire_bronze = df_finwire.select(
-    col("value").alias("raw_line"),
-    lit(1).alias("_batch_id"),
-    current_timestamp().alias("_load_timestamp"),
-    input_file_name().alias("_source_file")
-).filter(col("value").isNotNull()).filter(col("value") != "").filter(col("value").length() >= 18)
+    if "Path does not exist" in str(e) or "Cannot find" in str(e) or "42K03" in str(e):
+        # Fallback for GCS etc. where glob in path is not resolved: list files then load
+        batch1_path = f"{full_raw_data_path}/Batch1"
+        batch1_files = dbutils.fs.ls(batch1_path)
+        finwire_files = [f.path for f in batch1_files if "FINWIRE" in f.name.upper() and (f.name.lower().endswith(".txt") or "." not in f.name)]
+        if not finwire_files:
+            raise FileNotFoundError(f"No FINWIRE files found under {batch1_path}. Error: {e}") from e
+        df_finwire = spark.read.format("text").load(finwire_files)
+    else:
+        raise
+
+df_finwire_bronze = df_finwire.withColumnRenamed("value", "raw_line") \
+    .withColumn("_batch_id", lit(batch_id)) \
+    .withColumn("_load_timestamp", current_timestamp()) \
+    .withColumn("_source_file", lit("FINWIRE*")) \
+    .filter(col("raw_line").isNotNull()).filter(col("raw_line") != "").filter(col("raw_line").length() >= 18)
 
 df_finwire_bronze.write.format("delta").mode("overwrite").saveAsTable(f"{catalog}.{schema_name}.bronze_finwire")
 print(f"Successfully loaded {df_finwire_bronze.count()} rows into bronze_finwire")
