@@ -294,7 +294,7 @@ print(f"Successfully loaded {df_bronze.count()} rows into bronze_customer_mgmt")
 # COMMAND ----------
 
 # Load FINWIRE files - same as v1: single path with FINWIRE* glob, text format, rename value -> raw_line, add metadata
-from pyspark.sql.functions import lit, current_timestamp, col
+from pyspark.sql.functions import lit, current_timestamp, col, length
 
 file_pattern = f"{full_raw_data_path}/Batch1/FINWIRE*"
 df_finwire = None
@@ -316,7 +316,7 @@ df_finwire_bronze = df_finwire.withColumnRenamed("value", "raw_line") \
     .withColumn("_batch_id", lit(batch_id)) \
     .withColumn("_load_timestamp", current_timestamp()) \
     .withColumn("_source_file", lit("FINWIRE*")) \
-    .filter(col("raw_line").isNotNull()).filter(col("raw_line") != "").filter(col("raw_line").length() >= 18)
+    .filter(col("raw_line").isNotNull()).filter(col("raw_line") != "").filter(length(col("raw_line")) >= 18)
 
 df_finwire_bronze.write.format("delta").mode("overwrite").saveAsTable(f"{catalog}.{schema_name}.bronze_finwire")
 print(f"Successfully loaded {df_finwire_bronze.count()} rows into bronze_finwire")
