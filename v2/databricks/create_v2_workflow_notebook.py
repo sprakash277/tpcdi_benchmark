@@ -130,6 +130,7 @@ schema_name = dbutils.widgets.get("schema_name")
 sf = dbutils.widgets.get("sf")
 raw_data_path_base = dbutils.widgets.get("raw_data_path")
 batch_id_str = dbutils.widgets.get("batch_id")
+metrics_output = dbutils.widgets.get("metrics_output")
 
 # Append sf to schema name and raw data path
 schema_name_with_sf = f"{schema_name}_sf{sf}"
