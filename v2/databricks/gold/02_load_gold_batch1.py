@@ -11,6 +11,7 @@ dbutils.widgets.text("schema_name", "tpcdi_schema_sf10", "Schema Name")
 dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw Data Path")
 dbutils.widgets.text("sf", "10", "Scale Factor")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
+dbutils.widgets.text("xml_format", "com.databricks.spark.xml", "XML Format")
 
 # COMMAND ----------
 
@@ -19,6 +20,7 @@ schema_name = dbutils.widgets.get("schema_name")
 raw_data_path = dbutils.widgets.get("raw_data_path")
 sf = dbutils.widgets.get("sf")
 batch_id = dbutils.widgets.get("batch_id")
+xml_format = dbutils.widgets.get("xml_format") or "com.databricks.spark.xml"
 
 # COMMAND ----------
 
@@ -55,6 +57,7 @@ params = {
     "raw_data_path": raw_data_path,
     "sf": sf,
     "batch_id": batch_id,
+    "xml_format": xml_format,
 }
 
 try:

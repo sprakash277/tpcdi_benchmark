@@ -1,11 +1,5 @@
 # Databricks notebook source
-# Load bronze_cash_transaction from Batch1/CashTransaction.txt
-dbutils.widgets.text("catalog", "tpcdi_catalog", "Unity Catalog")
-dbutils.widgets.text("schema_name", "tpcdi_schema_sf10", "Schema Name")
-dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw Data Path")
-dbutils.widgets.text("sf", "10", "Scale Factor")
-dbutils.widgets.text("batch_id", "1", "Batch ID")
-
+# Load bronze_cash_transaction from Batch1/CashTransaction.txt (widgets set by orchestrator)
 catalog = dbutils.widgets.get("catalog")
 schema_name = dbutils.widgets.get("schema_name")
 raw_data_path = dbutils.widgets.get("raw_data_path")

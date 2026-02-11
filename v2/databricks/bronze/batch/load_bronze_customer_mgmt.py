@@ -1,18 +1,11 @@
 # Databricks notebook source
-# Load bronze_customer_mgmt from Batch1/CustomerMgmt.xml (spark-xml, no UDTF)
-dbutils.widgets.text("catalog", "tpcdi_catalog", "Unity Catalog")
-dbutils.widgets.text("schema_name", "tpcdi_schema_sf10", "Schema Name")
-dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw Data Path")
-dbutils.widgets.text("sf", "10", "Scale Factor")
-dbutils.widgets.text("batch_id", "1", "Batch ID")
-dbutils.widgets.text("xml_format", "com.databricks.spark.xml", "XML Format")
-
+# Load bronze_customer_mgmt from Batch1/CustomerMgmt.xml (widgets set by orchestrator)
 catalog = dbutils.widgets.get("catalog")
 schema_name = dbutils.widgets.get("schema_name")
 raw_data_path = dbutils.widgets.get("raw_data_path")
 sf = dbutils.widgets.get("sf")
 batch_id = int(dbutils.widgets.get("batch_id"))
-xml_format = (dbutils.widgets.get("xml_format") or "xml").strip() or "xml"
+xml_format = (dbutils.widgets.get("xml_format") or "com.databricks.spark.xml").strip() or "xml"
 full_raw_data_path = f"{raw_data_path}/sf={sf}"
 xml_path = f"{full_raw_data_path}/Batch1/CustomerMgmt.xml"
 

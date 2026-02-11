@@ -11,6 +11,7 @@ dbutils.widgets.text("schema_name", "tpcdi_schema_sf10", "Schema Name")
 dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw Data Path")
 dbutils.widgets.text("sf", "10", "Scale Factor")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
+dbutils.widgets.text("xml_format", "com.databricks.spark.xml", "XML Format")
 
 # COMMAND ----------
 

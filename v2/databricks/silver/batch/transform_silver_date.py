@@ -1,9 +1,5 @@
 # Databricks notebook source
-# Transform bronze_date -> silver_date (pipe-delimited)
-dbutils.widgets.text("catalog", "tpcdi_catalog", "Unity Catalog")
-dbutils.widgets.text("schema_name", "tpcdi_schema_sf10", "Schema Name")
-dbutils.widgets.text("batch_id", "1", "Batch ID")
-
+# Transform bronze_date -> silver_date (widgets set by orchestrator)
 catalog = dbutils.widgets.get("catalog")
 schema_name = dbutils.widgets.get("schema_name")
 batch_id = int(dbutils.widgets.get("batch_id"))
