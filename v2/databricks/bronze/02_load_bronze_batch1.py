@@ -248,37 +248,37 @@ if df_xml_validation is None:
     raise RuntimeError(f"Failed to read/validate CustomerMgmt.xml from {xml_path}")
 
 # For bronze layer, read XML file as text and extract individual action elements as raw XML strings
-# Read the entire XML file as text (wholetext=True reads entire file as single row)
-from pyspark.sql.functions import lit, current_timestamp, regexp_extract_all, explode, col, when
+# Since Spark SQL regex doesn't support (?s) flag, we'll use a pattern that matches across newlines
+from pyspark.sql.functions import lit, current_timestamp, regexp_extract_all, explode, col, regexp_replace
 
 # Read XML file as text (whole file content)
 df_xml_text = spark.read.option("wholetext", "true").text(xml_path)
 
-# Extract individual action elements using regex
+# Replace newlines with a placeholder to make regex matching easier, then restore them
+# Pattern to match XML action elements (handles multi-line by matching any character including newlines)
+# Use [\s\S] instead of . with (?s) flag since Spark SQL doesn't support regex flags
+xml_content = df_xml_text.select(col("value")).first()[0]
+
+# Extract action elements using Python regex (since Spark SQL regex has limitations)
+import re
+
 # Try namespaced tag first: <TPCDI:Action>...</TPCDI:Action>
-# Note: regexp_extract_all with dotall flag (handles multi-line) - Spark regex supports (?s) flag
-df_actions = df_xml_text.select(
-    explode(
-        regexp_extract_all(
-            col("value"), 
-            r"(?s)<TPCDI:Action[^>]*>.*?</TPCDI:Action>", 
-            0
-        )
-    ).alias("raw_xml")
-).filter(col("raw_xml").isNotNull() & (col("raw_xml") != ""))
+pattern_ns = r"<TPCDI:Action[^>]*>[\s\S]*?</TPCDI:Action>"
+actions_ns = re.findall(pattern_ns, xml_content)
 
 # If no matches, try without namespace
-action_count = df_actions.count()
-if action_count == 0:
-    df_actions = df_xml_text.select(
-        explode(
-            regexp_extract_all(
-                col("value"), 
-                r"(?s)<Action[^>]*>.*?</Action>", 
-                0
-            )
-        ).alias("raw_xml")
-    ).filter(col("raw_xml").isNotNull() & (col("raw_xml") != ""))
+if not actions_ns:
+    pattern = r"<Action[^>]*>[\s\S]*?</Action>"
+    actions = re.findall(pattern, xml_content)
+else:
+    actions = actions_ns
+
+if not actions:
+    raise RuntimeError(f"Failed to extract any action elements from CustomerMgmt.xml")
+
+# Create DataFrame from extracted XML strings
+from pyspark.sql import Row
+df_actions = spark.createDataFrame([Row(raw_xml=action) for action in actions])
 
 # Add metadata columns
 df_bronze = df_actions.select(
