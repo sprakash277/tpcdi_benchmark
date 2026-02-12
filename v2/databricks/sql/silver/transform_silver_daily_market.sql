@@ -1,6 +1,7 @@
 CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_daily_market AS
 SELECT 
-    CONCAT(CAST(split_part(raw_line, '|', 1) AS DATE), '|', split_part(raw_line, '|', 2)) AS dm_key,
+    -- Composite Key: Date + Symbol (Used for Upserts in Incremental Batches)
+    CONCAT(CAST(split_part(raw_line, '|', 1) AS STRING), '|', split_part(raw_line, '|', 2)) AS dm_key,
     CAST(split_part(raw_line, '|', 1) AS DATE) AS dm_date,
     split_part(raw_line, '|', 2) AS dm_s_symb,
     CAST(split_part(raw_line, '|', 3) AS DOUBLE) AS dm_close,
@@ -13,4 +14,5 @@ FROM __CATALOG__.__SCHEMA__.bronze_daily_market
 WHERE _batch_id = __BATCH_ID__
   AND raw_line IS NOT NULL
   AND raw_line != ''
-  AND size(split(raw_line, '|')) = 6
+  -- Must use double backslash to escape pipe in size(split())
+  AND size(split(raw_line, '\\|')) = 6
