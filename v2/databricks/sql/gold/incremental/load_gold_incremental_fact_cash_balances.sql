@@ -9,7 +9,8 @@ USING (
         dc.sk_customer_id,
         sct.ct_ca_id AS account_id,
         SUM(sct.ct_amt) AS cash_balance,
-        COUNT(*) AS transaction_count
+        COUNT(*) AS transaction_count,
+        current_timestamp() AS etl_timestamp
     FROM __CATALOG__.__SCHEMA__.silver_cash_transaction sct
     INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_date dd ON DATE(sct.ct_dts) = dd.date_value
     INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_account da ON sct.ct_ca_id = da.account_id
