@@ -206,56 +206,14 @@ WHERE cdc_flag IN ('I', 'U');
 -- Transaction Data: Incremental (with CDC columns)
 -- ============================================================================
 
--- silver_trades: Parse Trade.txt (18 columns incremental: +CDC_FLAG, +CDC_DSN)
-WITH incoming_trades AS (
-    SELECT 
-        try_cast(split_part(raw_line, '|', 3) AS BIGINT) AS trade_id,  -- Skip CDC_FLAG, CDC_DSN
-        try_cast(split_part(raw_line, '|', 4) AS TIMESTAMP) AS trade_dts,
-        split_part(raw_line, '|', 5) AS status_id,
-        split_part(raw_line, '|', 6) AS trade_type_id,
-        try_cast(split_part(raw_line, '|', 7) AS BOOLEAN) AS is_cash,
-        split_part(raw_line, '|', 8) AS symbol,
-        try_cast(split_part(raw_line, '|', 9) AS INT) AS quantity,
-        try_cast(split_part(raw_line, '|', 10) AS DOUBLE) AS bid_price,
-        try_cast(split_part(raw_line, '|', 11) AS BIGINT) AS account_id,
-        split_part(raw_line, '|', 12) AS exec_name,
-        try_cast(split_part(raw_line, '|', 13) AS DOUBLE) AS trade_price,
-        try_cast(split_part(raw_line, '|', 14) AS DOUBLE) AS charge,
-        try_cast(split_part(raw_line, '|', 15) AS DOUBLE) AS commission,
-        try_cast(split_part(raw_line, '|', 16) AS DOUBLE) AS tax,
-        split_part(raw_line, '|', 1) AS cdc_flag,
-        try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
-        __BATCH_ID__ AS batch_id,
-        current_timestamp() AS load_timestamp
-    FROM bronze_trade
-    WHERE _batch_id = __BATCH_ID__
-      AND raw_line IS NOT NULL
-      AND raw_line != ''
-      AND size(split(raw_line, '|')) = 18  -- Incremental = 18 columns
-),
-updates_to_close AS (
-    SELECT 
-        trade_id,
-        CAST(MIN(cdc_dsn) AS TIMESTAMP) AS new_effective_date
-    FROM incoming_trades
-    WHERE cdc_flag IN ('U', 'D')
-    GROUP BY trade_id
-)
-MERGE INTO silver_trades AS target
-USING updates_to_close AS src
-ON target.trade_id = src.trade_id 
-   AND target.is_current = true
-WHEN MATCHED THEN UPDATE SET
-    target.is_current = false,
-    target.end_date = CAST(src.new_effective_date AS TIMESTAMP);
-
+-- silver_trades: Parse Trade.txt (incremental - TPC-DI: Flag|DSN|TradeID|DTS|Status|Type|Cash|Symb|Qty|Bid|AccID|Exec|Price|Chrg|Comm|Tax)
 WITH incoming_trades AS (
     SELECT 
         try_cast(split_part(raw_line, '|', 3) AS BIGINT) AS trade_id,
         try_cast(split_part(raw_line, '|', 4) AS TIMESTAMP) AS trade_dts,
         split_part(raw_line, '|', 5) AS status_id,
         split_part(raw_line, '|', 6) AS trade_type_id,
-        try_cast(split_part(raw_line, '|', 7) AS BOOLEAN) AS is_cash,
+        CASE WHEN split_part(raw_line, '|', 7) = '1' THEN true ELSE false END AS is_cash,
         split_part(raw_line, '|', 8) AS symbol,
         try_cast(split_part(raw_line, '|', 9) AS INT) AS quantity,
         try_cast(split_part(raw_line, '|', 10) AS DOUBLE) AS bid_price,
@@ -267,13 +225,12 @@ WITH incoming_trades AS (
         try_cast(split_part(raw_line, '|', 16) AS DOUBLE) AS tax,
         split_part(raw_line, '|', 1) AS cdc_flag,
         try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
-        __BATCH_ID__ AS batch_id,
-        current_timestamp() AS load_timestamp
+        __BATCH_ID__ AS batch_id
     FROM bronze_trade
     WHERE _batch_id = __BATCH_ID__
       AND raw_line IS NOT NULL
       AND raw_line != ''
-      AND size(split(raw_line, '|')) = 18
+      AND size(split(raw_line, '|')) >= 15
 )
 INSERT INTO silver_trades
 SELECT 
@@ -293,9 +250,9 @@ SELECT
     tax,
     CASE WHEN cdc_flag = 'D' THEN false ELSE true END AS is_current,
     cdc_dsn AS effective_date,
-    NULL AS end_date,
+    CAST(NULL AS TIMESTAMP) AS end_date,
     batch_id,
-    load_timestamp,
+    current_timestamp() AS load_timestamp,
     cdc_flag AS record_type
 FROM incoming_trades
 WHERE cdc_flag IN ('I', 'U');
