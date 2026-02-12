@@ -24,19 +24,39 @@ def sql_file_to_table_name(rel_path: str) -> Optional[str]:
     return None
 
 
-def get_table_stats(spark, catalog: str, schema_name: str, table_short_name: str) -> Tuple[int, float]:
-    """Return (row_count, size_mb) for catalog.schema.table_short_name. Returns (0, 0) if table missing or error."""
+def get_table_stats(
+    spark,
+    catalog: str,
+    schema_name: str,
+    table_short_name: str,
+    use_refresh: bool = False,
+) -> Tuple[int, float, float]:
+    """Return (row_count, size_mb, refresh_seconds) for catalog.schema.table_short_name.
+    When use_refresh=True (batch), run REFRESH TABLE first so COUNT/DESCRIBE see current state; refresh_seconds is the time spent in refresh.
+    When use_refresh=False (incremental), refresh_seconds is 0. Returns (0, 0.0, 0.0) if table missing or error."""
     full = f"{catalog}.{schema_name}.{table_short_name}"
+    refresh_seconds = 0.0
     try:
         if not spark.catalog.tableExists(full):
-            return 0, 0.0
+            return 0, 0.0, 0.0
+        if use_refresh:
+            import time as _time
+            t0 = _time.time()
+            try:
+                spark.sql(f"REFRESH TABLE {full}")
+            except Exception:
+                try:
+                    spark.catalog.refreshTable(full)
+                except Exception:
+                    pass
+            refresh_seconds = _time.time() - t0
         row_count = spark.sql(f"SELECT COUNT(*) AS cnt FROM {full}").collect()[0]["cnt"]
         detail = spark.sql(f"DESCRIBE DETAIL {full}").collect()[0]
         size_bytes = detail.get("sizeInBytes") or 0
         size_mb = size_bytes / (1024 * 1024) if size_bytes else 0.0
-        return row_count, size_mb
+        return row_count, size_mb, refresh_seconds
     except Exception:
-        return 0, 0.0
+        return 0, 0.0, 0.0
 
 
 def record_table_load(
@@ -69,6 +89,7 @@ def print_benchmark_report(
     schema_name: str,
     load_type: str,
     sf: str,
+    total_refresh_seconds: float = 0.0,
 ) -> None:
     """Print TPC-DI benchmark results in V1 format (steps, table-level stats, optional cost)."""
     total_duration = (job_end_time - job_start_time) if job_end_time and job_start_time else 0
@@ -117,8 +138,10 @@ def print_benchmark_report(
         f"  Total Data Size: {total_mb:.2f} MB",
         f"  Throughput: {rows_per_sec:.2f} rows/sec",
         f"  Data Throughput: {mb_per_sec:.2f} MB/sec",
-        "",
     ]
+    if total_refresh_seconds > 0:
+        lines.append(f"  Table stats refresh: {total_refresh_seconds:.2f}s")
+    lines.append("")
 
     try:
         from benchmark.cost import estimate_databricks_cost

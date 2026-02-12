@@ -91,26 +91,33 @@ def run_sql_multi(sql_content, use_pipe_placeholder=False):
 
 # --- Timed runners call into tpcdi_metrics for stats
 def run_sql_timed(rel_path, use_pipe_placeholder=False):
-    """Run single-statement SQL file and record duration + table stats."""
+    """Run single-statement SQL file and record duration + table stats. Uses REFRESH for batch so stats see current state."""
     table_name = metrics.sql_file_to_table_name(rel_path)
     t0 = time.time()
     run_sql(read_sql_file(rel_path), use_pipe_placeholder=use_pipe_placeholder)
     duration = time.time() - t0
     if table_name:
-        row_count, size_mb = metrics.get_table_stats(spark, catalog, schema_name, table_name)
+        use_refresh = not is_incremental
+        row_count, size_mb, refresh_sec = metrics.get_table_stats(spark, catalog, schema_name, table_name, use_refresh=use_refresh)
+        if use_refresh:
+            _total_refresh_seconds += refresh_sec
+            duration += refresh_sec
         metrics.record_table_load(_table_details, table_name, duration, row_count, size_mb, catalog, schema_name)
     return duration
 
 def run_sql_multi_timed(rel_path, use_pipe_placeholder=False, incremental=False):
     """Run multi-statement SQL file and record duration + table stats.
-    Batch: stats = table count/size after load. Incremental: stats = delta (rows/size added this run)."""
+    Incremental: stats = delta (rows/size added this run). No refresh so before/after counts are correct."""
     table_name = metrics.sql_file_to_table_name(rel_path)
-    count_before, size_before_mb = metrics.get_table_stats(spark, catalog, schema_name, table_name) if table_name and incremental else (0, 0.0)
+    if table_name and incremental:
+        count_before, size_before_mb, _ = metrics.get_table_stats(spark, catalog, schema_name, table_name, use_refresh=False)
+    else:
+        count_before, size_before_mb = 0, 0.0
     t0 = time.time()
     run_sql_multi(read_sql_file(rel_path), use_pipe_placeholder=use_pipe_placeholder)
     duration = time.time() - t0
     if table_name:
-        count_after, size_after_mb = metrics.get_table_stats(spark, catalog, schema_name, table_name)
+        count_after, size_after_mb, _ = metrics.get_table_stats(spark, catalog, schema_name, table_name, use_refresh=False)
         if incremental:
             row_count = max(0, count_after - count_before)
             size_mb = max(0.0, size_after_mb - size_before_mb)
@@ -125,6 +132,7 @@ job_start_time = None
 job_end_time = None
 _steps = []
 _table_details = []
+_total_refresh_seconds = 0.0
 
 job_start_time = time.time()
 spark.sql(f"USE CATALOG {catalog}")
@@ -229,7 +237,7 @@ if is_incremental:
     _steps.append({"step_name": "gold_etl", "duration_seconds": time.time() - _inc_gold_start, "rows_processed": _inc_gold_rows})
 
     job_end_time = time.time()
-    metrics.print_benchmark_report(spark, _steps, _table_details, job_start_time, job_end_time, catalog, schema_name, load_type, sf)
+    metrics.print_benchmark_report(spark, _steps, _table_details, job_start_time, job_end_time, catalog, schema_name, load_type, sf, total_refresh_seconds=_total_refresh_seconds)
     dbutils.notebook.exit("Incremental load completed.")
 
 # COMMAND ----------
@@ -257,8 +265,9 @@ for nb_name, table_short in [("load_bronze_customer_mgmt", "bronze_customer_mgmt
     print(f"Bronze: {nb_name}")
     t0 = time.time()
     dbutils.notebook.run(bronze_notebook_dir + "/" + nb_name, timeout_seconds=600, arguments=params)
-    rc, sz = metrics.get_table_stats(spark, catalog, schema_name, table_short)
-    metrics.record_table_load(_table_details, table_short, time.time() - t0, rc, sz, catalog, schema_name)
+    rc, sz, refresh_sec = metrics.get_table_stats(spark, catalog, schema_name, table_short, use_refresh=True)
+    _total_refresh_seconds += refresh_sec
+    metrics.record_table_load(_table_details, table_short, time.time() - t0 + refresh_sec, rc, sz, catalog, schema_name)
 
 bronze_sql_after_finwire = [
     "sql/bronze/load_bronze_trade.sql",
@@ -312,8 +321,9 @@ for nb_name, table_short in [("transform_silver_customers", "silver_customers"),
     print(f"Silver: {nb_name}")
     t0 = time.time()
     dbutils.notebook.run(silver_notebook_dir + "/" + nb_name, timeout_seconds=600, arguments=params)
-    rc, sz = metrics.get_table_stats(spark, catalog, schema_name, table_short)
-    metrics.record_table_load(_table_details, table_short, time.time() - t0, rc, sz, catalog, schema_name)
+    rc, sz, refresh_sec = metrics.get_table_stats(spark, catalog, schema_name, table_short, use_refresh=True)
+    _total_refresh_seconds += refresh_sec
+    metrics.record_table_load(_table_details, table_short, time.time() - t0 + refresh_sec, rc, sz, catalog, schema_name)
 _silver_rows = sum(d["row_count"] for d in _table_details[_n_before_silver:])
 _steps.append({"step_name": "silver_etl", "duration_seconds": time.time() - _silver_start, "rows_processed": _silver_rows})
 
@@ -352,7 +362,7 @@ _gold_rows = sum(d["row_count"] for d in _table_details[_n_before_gold:])
 _steps.append({"step_name": "gold_etl", "duration_seconds": time.time() - _gold_start, "rows_processed": _gold_rows})
 
 job_end_time = time.time()
-metrics.print_benchmark_report(spark, _steps, _table_details, job_start_time, job_end_time, catalog, schema_name, load_type, sf)
+metrics.print_benchmark_report(spark, _steps, _table_details, job_start_time, job_end_time, catalog, schema_name, load_type, sf, total_refresh_seconds=_total_refresh_seconds)
 
 # COMMAND ----------
 
