@@ -106,7 +106,7 @@ if is_incremental:
     print("Bronze: load_bronze_incremental.sql")
     run_sql_multi(read_sql_file("sql/bronze/load_bronze_incremental.sql"))
     print("Silver: transform_silver_incremental.sql")
-    run_sql_multi(read_sql_file("sql/silver/transform_silver_incremental.sql"), use_pipe_placeholder=True)
+    run_sql_multi(read_sql_file("sql/silver/transform_silver_incremental.sql"))
     print("Gold: load_gold_incremental.sql")
     run_sql_multi(read_sql_file("sql/gold/load_gold_incremental.sql"))
     dbutils.notebook.exit("Incremental load completed.")

@@ -21,34 +21,34 @@ USE SCHEMA __SCHEMA__;
 WITH incoming_customers AS (
     SELECT 
         monotonically_increasing_id() AS sk_customer_id,
-        CAST(split(raw_line, '__PIPE__')[2] AS BIGINT) AS customer_id,  -- Skip CDC_FLAG, CDC_DSN
-        split(raw_line, '__PIPE__')[3] AS tax_id,
-        split(raw_line, '__PIPE__')[4] AS status,
-        split(raw_line, '__PIPE__')[5] AS last_name,
-        split(raw_line, '__PIPE__')[6] AS first_name,
-        split(raw_line, '__PIPE__')[7] AS middle_name,
-        split(raw_line, '__PIPE__')[8] AS gender,
-        CAST(split(raw_line, '__PIPE__')[9] AS INT) AS tier,
-        CAST(split(raw_line, '__PIPE__')[10] AS DATE) AS dob,
-        split(raw_line, '__PIPE__')[11] AS address_line1,
-        split(raw_line, '__PIPE__')[12] AS address_line2,
-        split(raw_line, '__PIPE__')[13] AS postal_code,
-        split(raw_line, '__PIPE__')[14] AS city,
-        split(raw_line, '__PIPE__')[15] AS state_prov,
-        split(raw_line, '__PIPE__')[16] AS country,
-        split(raw_line, '__PIPE__')[17] AS email1,
-        split(raw_line, '__PIPE__')[18] AS email2,
-        split(raw_line, '__PIPE__')[19] AS local_tax_id,
-        split(raw_line, '__PIPE__')[20] AS national_tax_id,
-        split(raw_line, '__PIPE__')[0] AS cdc_flag,  -- I=Insert, U=Update, D=Delete
-        CAST(split(raw_line, '__PIPE__')[1] AS TIMESTAMP) AS cdc_dsn,  -- Change timestamp
+        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS customer_id,  -- Skip CDC_FLAG, CDC_DSN
+        split_part(raw_line, '|', 4) AS tax_id,
+        split_part(raw_line, '|', 5) AS status,
+        split_part(raw_line, '|', 6) AS last_name,
+        split_part(raw_line, '|', 7) AS first_name,
+        split_part(raw_line, '|', 8) AS middle_name,
+        split_part(raw_line, '|', 9) AS gender,
+        CAST(split_part(raw_line, '|', 10) AS INT) AS tier,
+        CAST(split_part(raw_line, '|', 11) AS DATE) AS dob,
+        split_part(raw_line, '|', 12) AS address_line1,
+        split_part(raw_line, '|', 13) AS address_line2,
+        split_part(raw_line, '|', 14) AS postal_code,
+        split_part(raw_line, '|', 15) AS city,
+        split_part(raw_line, '|', 16) AS state_prov,
+        split_part(raw_line, '|', 17) AS country,
+        split_part(raw_line, '|', 18) AS email1,
+        split_part(raw_line, '|', 19) AS email2,
+        split_part(raw_line, '|', 20) AS local_tax_id,
+        split_part(raw_line, '|', 21) AS national_tax_id,
+        split_part(raw_line, '|', 1) AS cdc_flag,  -- I=Insert, U=Update, D=Delete
+        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,  -- Change timestamp
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_customer
     WHERE _batch_id = __BATCH_ID__
       AND raw_line IS NOT NULL
       AND raw_line != ''
-      AND size(split(raw_line, '__PIPE__')) >= 21
+      AND size(split(raw_line, '|')) >= 21
 ),
 -- Close existing current records that have updates
 updates_to_close AS (
@@ -103,21 +103,21 @@ WHERE cdc_flag IN ('I', 'U');  -- Insert new and updated versions (not D-only)
 -- Format: CDC_FLAG|CDC_DSN|CA_ID|CA_B_ID|CA_C_ID|CA_NAME|CA_TAX_ST|CA_ST_ID
 WITH incoming_accounts AS (
     SELECT 
-        CAST(split(raw_line, '__PIPE__')[2] AS BIGINT) AS account_id,
-        CAST(split(raw_line, '__PIPE__')[3] AS BIGINT) AS broker_id,
-        CAST(split(raw_line, '__PIPE__')[4] AS BIGINT) AS customer_id,
-        split(raw_line, '__PIPE__')[5] AS account_name,
-        CAST(split(raw_line, '__PIPE__')[6] AS INT) AS tax_status,
-        split(raw_line, '__PIPE__')[7] AS status_id,
-        split(raw_line, '__PIPE__')[0] AS cdc_flag,
-        CAST(split(raw_line, '__PIPE__')[1] AS TIMESTAMP) AS cdc_dsn,
+        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS account_id,
+        CAST(split_part(raw_line, '|', 4) AS BIGINT) AS broker_id,
+        CAST(split_part(raw_line, '|', 5) AS BIGINT) AS customer_id,
+        split_part(raw_line, '|', 6) AS account_name,
+        CAST(split_part(raw_line, '|', 7) AS INT) AS tax_status,
+        split_part(raw_line, '|', 8) AS status_id,
+        split_part(raw_line, '|', 1) AS cdc_flag,
+        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_account
     WHERE _batch_id = __BATCH_ID__
       AND raw_line IS NOT NULL
       AND raw_line != ''
-      AND size(split(raw_line, '__PIPE__')) >= 8
+      AND size(split(raw_line, '|')) >= 8
 ),
 updates_to_close AS (
     SELECT 
@@ -161,29 +161,29 @@ WHERE cdc_flag IN ('I', 'U');
 -- silver_trades: Parse Trade.txt (18 columns incremental: +CDC_FLAG, +CDC_DSN)
 WITH incoming_trades AS (
     SELECT 
-        CAST(split(raw_line, '__PIPE__')[2] AS BIGINT) AS trade_id,  -- Skip CDC_FLAG, CDC_DSN
-        CAST(split(raw_line, '__PIPE__')[3] AS TIMESTAMP) AS trade_dts,
-        split(raw_line, '__PIPE__')[4] AS status_id,
-        split(raw_line, '__PIPE__')[5] AS trade_type_id,
-        CAST(split(raw_line, '__PIPE__')[6] AS BOOLEAN) AS is_cash,
-        split(raw_line, '__PIPE__')[7] AS symbol,
-        CAST(split(raw_line, '__PIPE__')[8] AS INT) AS quantity,
-        CAST(split(raw_line, '__PIPE__')[9] AS DOUBLE) AS bid_price,
-        CAST(split(raw_line, '__PIPE__')[10] AS BIGINT) AS account_id,
-        split(raw_line, '__PIPE__')[11] AS exec_name,
-        CAST(split(raw_line, '__PIPE__')[12] AS DOUBLE) AS trade_price,
-        CAST(split(raw_line, '__PIPE__')[13] AS DOUBLE) AS charge,
-        CAST(split(raw_line, '__PIPE__')[14] AS DOUBLE) AS commission,
-        CAST(split(raw_line, '__PIPE__')[15] AS DOUBLE) AS tax,
-        split(raw_line, '__PIPE__')[0] AS cdc_flag,
-        CAST(split(raw_line, '__PIPE__')[1] AS TIMESTAMP) AS cdc_dsn,
+        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS trade_id,  -- Skip CDC_FLAG, CDC_DSN
+        CAST(split_part(raw_line, '|', 4) AS TIMESTAMP) AS trade_dts,
+        split_part(raw_line, '|', 5) AS status_id,
+        split_part(raw_line, '|', 6) AS trade_type_id,
+        CAST(split_part(raw_line, '|', 7) AS BOOLEAN) AS is_cash,
+        split_part(raw_line, '|', 8) AS symbol,
+        CAST(split_part(raw_line, '|', 9) AS INT) AS quantity,
+        CAST(split_part(raw_line, '|', 10) AS DOUBLE) AS bid_price,
+        CAST(split_part(raw_line, '|', 11) AS BIGINT) AS account_id,
+        split_part(raw_line, '|', 12) AS exec_name,
+        CAST(split_part(raw_line, '|', 13) AS DOUBLE) AS trade_price,
+        CAST(split_part(raw_line, '|', 14) AS DOUBLE) AS charge,
+        CAST(split_part(raw_line, '|', 15) AS DOUBLE) AS commission,
+        CAST(split_part(raw_line, '|', 16) AS DOUBLE) AS tax,
+        split_part(raw_line, '|', 1) AS cdc_flag,
+        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_trade
     WHERE _batch_id = __BATCH_ID__
       AND raw_line IS NOT NULL
       AND raw_line != ''
-      AND size(split(raw_line, '__PIPE__')) = 18  -- Incremental = 18 columns
+      AND size(split(raw_line, '|')) = 18  -- Incremental = 18 columns
 ),
 updates_to_close AS (
     SELECT 
@@ -230,20 +230,20 @@ WHERE cdc_flag IN ('I', 'U');
 MERGE INTO silver_daily_market AS target
 USING (
     SELECT 
-        CONCAT(CAST(split(raw_line, '__PIPE__')[2] AS DATE), '|', split(raw_line, '__PIPE__')[3]) AS dm_key,
-        CAST(split(raw_line, '__PIPE__')[2] AS DATE) AS dm_date,
-        split(raw_line, '__PIPE__')[3] AS dm_s_symb,
-        CAST(split(raw_line, '__PIPE__')[4] AS DOUBLE) AS dm_close,
-        CAST(split(raw_line, '__PIPE__')[5] AS DOUBLE) AS dm_high,
-        CAST(split(raw_line, '__PIPE__')[6] AS DOUBLE) AS dm_low,
-        CAST(split(raw_line, '__PIPE__')[7] AS BIGINT) AS dm_vol,
+        CONCAT(CAST(split_part(raw_line, '|', 3) AS DATE), '|', split_part(raw_line, '|', 4)) AS dm_key,
+        CAST(split_part(raw_line, '|', 3) AS DATE) AS dm_date,
+        split_part(raw_line, '|', 4) AS dm_s_symb,
+        CAST(split_part(raw_line, '|', 5) AS DOUBLE) AS dm_close,
+        CAST(split_part(raw_line, '|', 6) AS DOUBLE) AS dm_high,
+        CAST(split_part(raw_line, '|', 7) AS DOUBLE) AS dm_low,
+        CAST(split_part(raw_line, '|', 8) AS BIGINT) AS dm_vol,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_daily_market
     WHERE _batch_id = __BATCH_ID__
       AND raw_line IS NOT NULL
       AND raw_line != ''
-      AND size(split(raw_line, '__PIPE__')) = 8  -- Incremental = 8 columns
+      AND size(split(raw_line, '|')) = 8  -- Incremental = 8 columns
 ) AS source
 ON target.dm_key = source.dm_key
 WHEN MATCHED THEN UPDATE SET
@@ -258,20 +258,20 @@ WHEN NOT MATCHED THEN INSERT *;
 -- silver_cash_transaction: Parse CashTransaction.txt (6 columns incremental)
 WITH incoming_cash AS (
     SELECT 
-        CONCAT(CAST(split(raw_line, '__PIPE__')[2] AS BIGINT), '|', CAST(split(raw_line, '__PIPE__')[3] AS TIMESTAMP)) AS ct_key,
-        CAST(split(raw_line, '__PIPE__')[2] AS BIGINT) AS ct_ca_id,
-        CAST(split(raw_line, '__PIPE__')[3] AS TIMESTAMP) AS ct_dts,
-        CAST(split(raw_line, '__PIPE__')[4] AS DOUBLE) AS ct_amt,
-        split(raw_line, '__PIPE__')[5] AS ct_name,
-        split(raw_line, '__PIPE__')[0] AS cdc_flag,
-        CAST(split(raw_line, '__PIPE__')[1] AS TIMESTAMP) AS cdc_dsn,
+        CONCAT(CAST(split_part(raw_line, '|', 3) AS BIGINT), '|', CAST(split_part(raw_line, '|', 4) AS TIMESTAMP)) AS ct_key,
+        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS ct_ca_id,
+        CAST(split_part(raw_line, '|', 4) AS TIMESTAMP) AS ct_dts,
+        CAST(split_part(raw_line, '|', 5) AS DOUBLE) AS ct_amt,
+        split_part(raw_line, '|', 6) AS ct_name,
+        split_part(raw_line, '|', 1) AS cdc_flag,
+        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_cash_transaction
     WHERE _batch_id = __BATCH_ID__
       AND raw_line IS NOT NULL
       AND raw_line != ''
-      AND size(split(raw_line, '__PIPE__')) = 6
+      AND size(split(raw_line, '|')) = 6
 ),
 updates_to_close AS (
     SELECT 
@@ -308,19 +308,19 @@ WHERE cdc_flag IN ('I', 'U');
 -- silver_holding_history: Parse HoldingHistory.txt (6 columns incremental)
 WITH incoming_holdings AS (
     SELECT 
-        CAST(split(raw_line, '__PIPE__')[2] AS BIGINT) AS hh_h_t_id,
-        CAST(split(raw_line, '__PIPE__')[3] AS BIGINT) AS hh_t_id,
-        CAST(split(raw_line, '__PIPE__')[4] AS INT) AS hh_before_qty,
-        CAST(split(raw_line, '__PIPE__')[5] AS INT) AS hh_after_qty,
-        split(raw_line, '__PIPE__')[0] AS cdc_flag,
-        CAST(split(raw_line, '__PIPE__')[1] AS TIMESTAMP) AS cdc_dsn,
+        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS hh_h_t_id,
+        CAST(split_part(raw_line, '|', 4) AS BIGINT) AS hh_t_id,
+        CAST(split_part(raw_line, '|', 5) AS INT) AS hh_before_qty,
+        CAST(split_part(raw_line, '|', 6) AS INT) AS hh_after_qty,
+        split_part(raw_line, '|', 1) AS cdc_flag,
+        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_holding_history
     WHERE _batch_id = __BATCH_ID__
       AND raw_line IS NOT NULL
       AND raw_line != ''
-      AND size(split(raw_line, '__PIPE__')) = 6
+      AND size(split(raw_line, '|')) = 6
 ),
 updates_to_close AS (
     SELECT 
@@ -356,20 +356,20 @@ WHERE cdc_flag IN ('I', 'U');
 -- silver_watch_history: Parse WatchHistory.txt (6 columns incremental)
 WITH incoming_watches AS (
     SELECT 
-        CONCAT(CAST(split(raw_line, '__PIPE__')[2] AS BIGINT), '|', split(raw_line, '__PIPE__')[3]) AS wh_key,
-        CAST(split(raw_line, '__PIPE__')[2] AS BIGINT) AS w_c_id,
-        split(raw_line, '__PIPE__')[3] AS w_s_symb,
-        CAST(split(raw_line, '__PIPE__')[4] AS TIMESTAMP) AS w_dts,
-        split(raw_line, '__PIPE__')[5] AS w_action,
-        split(raw_line, '__PIPE__')[0] AS cdc_flag,
-        CAST(split(raw_line, '__PIPE__')[1] AS TIMESTAMP) AS cdc_dsn,
+        CONCAT(CAST(split_part(raw_line, '|', 3) AS BIGINT), '|', split_part(raw_line, '|', 4)) AS wh_key,
+        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS w_c_id,
+        split_part(raw_line, '|', 4) AS w_s_symb,
+        CAST(split_part(raw_line, '|', 5) AS TIMESTAMP) AS w_dts,
+        split_part(raw_line, '|', 6) AS w_action,
+        split_part(raw_line, '|', 1) AS cdc_flag,
+        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_watch_history
     WHERE _batch_id = __BATCH_ID__
       AND raw_line IS NOT NULL
       AND raw_line != ''
-      AND size(split(raw_line, '__PIPE__')) = 6
+      AND size(split(raw_line, '|')) = 6
 ),
 updates_to_close AS (
     SELECT 
@@ -407,31 +407,31 @@ WHERE cdc_flag IN ('I', 'U');
 -- Other Sources: Prospect (Batch 2+)
 -- ============================================================================
 
--- silver_prospect: Parse Prospect.csv (append for incremental)
+-- silver_prospect: Parse Prospect.csv (append for incremental, comma-delimited like batch)
 INSERT INTO silver_prospect
 SELECT 
-    split(raw_line, ',')[0] AS agency_id,
-    split(raw_line, ',')[1] AS last_name,
-    split(raw_line, ',')[2] AS first_name,
-    split(raw_line, ',')[3] AS middle_initial,
-    split(raw_line, ',')[4] AS gender,
-    split(raw_line, ',')[5] AS address_line1,
-    split(raw_line, ',')[6] AS address_line2,
-    split(raw_line, ',')[7] AS postal_code,
-    split(raw_line, ',')[8] AS city,
-    split(raw_line, ',')[9] AS state,
-    split(raw_line, ',')[10] AS country,
-    split(raw_line, ',')[11] AS phone,
-    CAST(split(raw_line, ',')[12] AS INT) AS income,
-    CAST(split(raw_line, ',')[13] AS INT) AS number_cars,
-    CAST(split(raw_line, ',')[14] AS INT) AS number_children,
-    split(raw_line, ',')[15] AS marital_status,
-    CAST(split(raw_line, ',')[16] AS INT) AS age,
-    CAST(split(raw_line, ',')[17] AS INT) AS credit_rating,
-    split(raw_line, ',')[18] AS own_or_rent_flag,
-    split(raw_line, ',')[19] AS employer,
-    CAST(split(raw_line, ',')[20] AS INT) AS number_credit_cards,
-    CAST(split(raw_line, ',')[21] AS INT) AS net_worth,
+    split_part(raw_line, ',', 1) AS agency_id,
+    split_part(raw_line, ',', 2) AS last_name,
+    split_part(raw_line, ',', 3) AS first_name,
+    split_part(raw_line, ',', 4) AS middle_initial,
+    split_part(raw_line, ',', 5) AS gender,
+    split_part(raw_line, ',', 6) AS address_line1,
+    split_part(raw_line, ',', 7) AS address_line2,
+    split_part(raw_line, ',', 8) AS postal_code,
+    split_part(raw_line, ',', 9) AS city,
+    split_part(raw_line, ',', 10) AS state,
+    split_part(raw_line, ',', 11) AS country,
+    split_part(raw_line, ',', 12) AS phone,
+    CAST(split_part(raw_line, ',', 13) AS INT) AS income,
+    CAST(split_part(raw_line, ',', 14) AS INT) AS number_cars,
+    CAST(split_part(raw_line, ',', 15) AS INT) AS number_children,
+    split_part(raw_line, ',', 16) AS marital_status,
+    CAST(split_part(raw_line, ',', 17) AS INT) AS age,
+    CAST(split_part(raw_line, ',', 18) AS INT) AS credit_rating,
+    split_part(raw_line, ',', 19) AS own_or_rent_flag,
+    split_part(raw_line, ',', 20) AS employer,
+    CAST(split_part(raw_line, ',', 21) AS INT) AS number_credit_cards,
+    CAST(split_part(raw_line, ',', 22) AS INT) AS net_worth,
     __BATCH_ID__ AS batch_id,
     current_timestamp() AS load_timestamp
 FROM bronze_prospect
