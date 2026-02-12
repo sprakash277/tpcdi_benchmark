@@ -5,10 +5,10 @@
 
 -- Deduplicate source so only the LATEST record per symbol tries to CLOSE the existing Gold record
 WITH latest_silver_securities AS (
-    SELECT symbol, COALESCE(effective_date, load_timestamp) AS effective_date
+    SELECT symbol, load_timestamp
     FROM __CATALOG__.__SCHEMA__.silver_securities
     WHERE batch_id = __BATCH_ID__
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY COALESCE(effective_date, load_timestamp) DESC) = 1
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY load_timestamp DESC) = 1
 )
 MERGE INTO __CATALOG__.__SCHEMA__.gold_dim_security AS target
 USING latest_silver_securities AS source
@@ -16,7 +16,7 @@ ON target.symbol = source.symbol
    AND target.is_current = true
 WHEN MATCHED THEN UPDATE SET
     target.is_current = false,
-    target.end_date = source.effective_date,
+    target.end_date = source.load_timestamp,
     target.etl_timestamp = current_timestamp();
 
 -- Step 2: Insert new versions with Company SK lookup (LEFT JOIN for late-arriving companies → -1)
@@ -36,13 +36,13 @@ SELECT
     COALESCE(dc.sk_company_id, -1) AS sk_company_id,
     ss.co_name_or_cik AS company_id,
     true AS is_current,
-    COALESCE(ss.effective_date, ss.load_timestamp) AS start_date,
+    ss.load_timestamp AS start_date,
     CAST('9999-12-31' AS DATE) AS end_date,
     __BATCH_ID__ AS batch_id,
     current_timestamp() AS etl_timestamp
 FROM __CATALOG__.__SCHEMA__.silver_securities ss
 LEFT JOIN __CATALOG__.__SCHEMA__.gold_dim_company dc
     ON ss.co_name_or_cik = dc.company_id
-   AND COALESCE(ss.effective_date, ss.load_timestamp) >= dc.start_date
-   AND (dc.end_date IS NULL OR COALESCE(ss.effective_date, ss.load_timestamp) < dc.end_date)
+   AND ss.load_timestamp >= dc.start_date
+   AND (dc.end_date IS NULL OR ss.load_timestamp < dc.end_date)
 WHERE ss.batch_id = __BATCH_ID__;
