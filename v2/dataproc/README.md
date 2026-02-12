@@ -46,6 +46,8 @@ export RAW_DATA_PATH=gs://my-bucket/tpcdi
 
 ### Option 2: gcloud directly
 
+When using multi-line commands, ensure each line ends with `\` with no space after it; otherwise the next line is run as a separate command and script args (e.g. `--raw-data-path`) are lost.
+
 ```bash
 cd v2/dataproc
 zip -q tpcdi_metrics.zip tpcdi_metrics.py

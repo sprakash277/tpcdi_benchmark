@@ -76,6 +76,10 @@ def main():
     batch_id = args.batch_id
     load_type = args.load_type
 
+    # Use same GCS bucket as raw data for Spark internal catalog (warehouse); avoids creating DB under /tmp
+    warehouse_dir = f"{raw_data_path}/warehouse"
+    database_location = f"{warehouse_dir}/{database}.db"
+
     base_dir = args.sql_base_path or str(Path(__file__).resolve().parent)
     if base_dir not in sys.path:
         sys.path.insert(0, base_dir)
@@ -84,11 +88,13 @@ def main():
     from pyspark.sql import SparkSession
     spark = (
         SparkSession.builder.appName("TPC-DI-v2-Dataproc")
+        .config("spark.sql.warehouse.dir", warehouse_dir)
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
         .getOrCreate()
     )
-    spark.sql(f"CREATE DATABASE IF NOT EXISTS {database}")
+    # Create database with explicit GCS location so tables live in same bucket as raw data
+    spark.sql(f"CREATE DATABASE IF NOT EXISTS {database} LOCATION '{database_location}'")
     spark.sql(f"USE {database}")
 
     def read_sql_file(rel_path: str) -> str:
