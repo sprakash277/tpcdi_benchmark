@@ -54,7 +54,7 @@ WITH incoming_customers AS (
 updates_to_close AS (
     SELECT 
         customer_id,
-        MIN(cdc_dsn) AS new_effective_date
+        CAST(MIN(cdc_dsn) AS TIMESTAMP) AS new_effective_date
     FROM incoming_customers
     WHERE cdc_flag IN ('U', 'D')  -- Updates and deletes
     GROUP BY customer_id
@@ -65,7 +65,7 @@ ON target.customer_id = src.customer_id
    AND target.is_current = true
 WHEN MATCHED THEN UPDATE SET
     target.is_current = false,
-    target.end_date = src.new_effective_date;
+    target.end_date = CAST(src.new_effective_date AS TIMESTAMP);
 
 -- Insert new versions (I and U records) - CTE repeated so INSERT runs as separate statement
 WITH incoming_customers AS (
@@ -154,7 +154,7 @@ WITH incoming_accounts AS (
 updates_to_close AS (
     SELECT 
         account_id,
-        MIN(cdc_dsn) AS new_effective_date
+        CAST(MIN(cdc_dsn) AS TIMESTAMP) AS new_effective_date
     FROM incoming_accounts
     WHERE cdc_flag IN ('U', 'D')
     GROUP BY account_id
@@ -165,7 +165,7 @@ ON target.account_id = src.account_id
    AND target.is_current = true
 WHEN MATCHED THEN UPDATE SET
     target.is_current = false,
-    target.end_date = src.new_effective_date;
+    target.end_date = CAST(src.new_effective_date AS TIMESTAMP);
 
 WITH incoming_accounts AS (
     SELECT 
@@ -236,7 +236,7 @@ WITH incoming_trades AS (
 updates_to_close AS (
     SELECT 
         trade_id,
-        MIN(cdc_dsn) AS new_effective_date
+        CAST(MIN(cdc_dsn) AS TIMESTAMP) AS new_effective_date
     FROM incoming_trades
     WHERE cdc_flag IN ('U', 'D')
     GROUP BY trade_id
@@ -247,7 +247,7 @@ ON target.trade_id = src.trade_id
    AND target.is_current = true
 WHEN MATCHED THEN UPDATE SET
     target.is_current = false,
-    target.end_date = src.new_effective_date;
+    target.end_date = CAST(src.new_effective_date AS TIMESTAMP);
 
 WITH incoming_trades AS (
     SELECT 
@@ -350,7 +350,7 @@ WITH incoming_cash AS (
 updates_to_close AS (
     SELECT 
         ct_key,
-        MIN(cdc_dsn) AS new_effective_date
+        CAST(MIN(cdc_dsn) AS TIMESTAMP) AS new_effective_date
     FROM incoming_cash
     WHERE cdc_flag IN ('U', 'D')
     GROUP BY ct_key
@@ -361,7 +361,7 @@ ON target.ct_key = src.ct_key
    AND target.is_current = true
 WHEN MATCHED THEN UPDATE SET
     target.is_current = false,
-    target.end_date = src.new_effective_date;
+    target.end_date = CAST(src.new_effective_date AS TIMESTAMP);
 
 WITH incoming_cash AS (
     SELECT 
@@ -416,7 +416,7 @@ WITH incoming_holdings AS (
 updates_to_close AS (
     SELECT 
         hh_h_t_id,
-        MIN(cdc_dsn) AS new_effective_date
+        CAST(MIN(cdc_dsn) AS TIMESTAMP) AS new_effective_date
     FROM incoming_holdings
     WHERE cdc_flag IN ('U', 'D')
     GROUP BY hh_h_t_id
@@ -427,7 +427,7 @@ ON target.hh_h_t_id = src.hh_h_t_id
    AND target.is_current = true
 WHEN MATCHED THEN UPDATE SET
     target.is_current = false,
-    target.end_date = src.new_effective_date;
+    target.end_date = CAST(src.new_effective_date AS TIMESTAMP);
 
 WITH incoming_holdings AS (
     SELECT 
@@ -481,7 +481,7 @@ WITH incoming_watches AS (
 updates_to_close AS (
     SELECT 
         wh_key,
-        MIN(cdc_dsn) AS new_effective_date
+        CAST(MIN(cdc_dsn) AS TIMESTAMP) AS new_effective_date
     FROM incoming_watches
     WHERE cdc_flag IN ('U', 'D')
     GROUP BY wh_key
@@ -492,7 +492,7 @@ ON target.wh_key = src.wh_key
    AND target.is_current = true
 WHEN MATCHED THEN UPDATE SET
     target.is_current = false,
-    target.end_date = src.new_effective_date;
+    target.end_date = CAST(src.new_effective_date AS TIMESTAMP);
 
 WITH incoming_watches AS (
     SELECT 
