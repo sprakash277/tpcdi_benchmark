@@ -60,12 +60,12 @@ updates_to_close AS (
     GROUP BY customer_id
 )
 MERGE INTO silver_customers AS target
-USING updates_to_close AS updates
-ON target.customer_id = updates.customer_id 
+USING updates_to_close AS src
+ON target.customer_id = src.customer_id 
    AND target.is_current = true
 WHEN MATCHED THEN UPDATE SET
     target.is_current = false,
-    target.end_date = updates.new_effective_date;
+    target.end_date = src.new_effective_date;
 
 -- Insert new versions (I and U records) - CTE repeated so INSERT runs as separate statement
 WITH incoming_customers AS (
@@ -160,12 +160,12 @@ updates_to_close AS (
     GROUP BY account_id
 )
 MERGE INTO silver_accounts AS target
-USING updates_to_close AS updates
-ON target.account_id = updates.account_id 
+USING updates_to_close AS src
+ON target.account_id = src.account_id 
    AND target.is_current = true
 WHEN MATCHED THEN UPDATE SET
     target.is_current = false,
-    target.end_date = updates.new_effective_date;
+    target.end_date = src.new_effective_date;
 
 WITH incoming_accounts AS (
     SELECT 
@@ -242,12 +242,12 @@ updates_to_close AS (
     GROUP BY trade_id
 )
 MERGE INTO silver_trades AS target
-USING updates_to_close AS updates
-ON target.trade_id = updates.trade_id 
+USING updates_to_close AS src
+ON target.trade_id = src.trade_id 
    AND target.is_current = true
 WHEN MATCHED THEN UPDATE SET
     target.is_current = false,
-    target.end_date = updates.new_effective_date;
+    target.end_date = src.new_effective_date;
 
 WITH incoming_trades AS (
     SELECT 
@@ -356,12 +356,12 @@ updates_to_close AS (
     GROUP BY ct_key
 )
 MERGE INTO silver_cash_transaction AS target
-USING updates_to_close AS updates
-ON target.ct_key = updates.ct_key 
+USING updates_to_close AS src
+ON target.ct_key = src.ct_key 
    AND target.is_current = true
 WHEN MATCHED THEN UPDATE SET
     target.is_current = false,
-    target.end_date = updates.new_effective_date;
+    target.end_date = src.new_effective_date;
 
 WITH incoming_cash AS (
     SELECT 
@@ -422,12 +422,12 @@ updates_to_close AS (
     GROUP BY hh_h_t_id
 )
 MERGE INTO silver_holding_history AS target
-USING updates_to_close AS updates
-ON target.hh_h_t_id = updates.hh_h_t_id 
+USING updates_to_close AS src
+ON target.hh_h_t_id = src.hh_h_t_id 
    AND target.is_current = true
 WHEN MATCHED THEN UPDATE SET
     target.is_current = false,
-    target.end_date = updates.new_effective_date;
+    target.end_date = src.new_effective_date;
 
 WITH incoming_holdings AS (
     SELECT 
@@ -487,12 +487,12 @@ updates_to_close AS (
     GROUP BY wh_key
 )
 MERGE INTO silver_watch_history AS target
-USING updates_to_close AS updates
-ON target.wh_key = updates.wh_key 
+USING updates_to_close AS src
+ON target.wh_key = src.wh_key 
    AND target.is_current = true
 WHEN MATCHED THEN UPDATE SET
     target.is_current = false,
-    target.end_date = updates.new_effective_date;
+    target.end_date = src.new_effective_date;
 
 WITH incoming_watches AS (
     SELECT 
