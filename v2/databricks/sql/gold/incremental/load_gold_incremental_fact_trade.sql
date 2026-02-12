@@ -1,6 +1,6 @@
 -- TPC-DI v2: Gold incremental - gold_fact_trade (Batch 2+)
 -- Placeholders: __CATALOG__, __SCHEMA__, __BATCH_ID__
--- Requires: silver_trades has trade_id, trade_dts, account_id, symbol, trade_type_id, is_current, record_type; gold dims have sk_* and start_date/end_date for point-in-time joins.
+-- Requires: silver_trades has trade_id, trade_dts, account_id, symbol, trade_type_id, is_current, record_type. Gold dims have sk_* and start_date/end_date for point-in-time joins.
 
 INSERT INTO __CATALOG__.__SCHEMA__.gold_fact_trade
 SELECT 
