@@ -7,7 +7,7 @@ SELECT
     TRIM(substring(raw_line, 93, 2)) AS industry_id,
     TRIM(substring(raw_line, 95, 4)) AS sp_rating,
     TRIM(substring(raw_line, 89, 4)) AS status,
-    try_to_date(substring(raw_line, 99, 8), 'yyyyMMdd') AS founding_date,
+    to_date(substring(raw_line, 99, 8), 'yyyyMMdd') AS founding_date,
     TRIM(substring(raw_line, 348, 46)) AS ceo_name,
     TRIM(substring(raw_line, 107, 80)) AS address_line1,
     TRIM(substring(raw_line, 187, 80)) AS address_line2,
