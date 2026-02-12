@@ -21,15 +21,15 @@ USE SCHEMA __SCHEMA__;
 WITH incoming_customers AS (
     SELECT 
         monotonically_increasing_id() AS sk_customer_id,
-        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS customer_id,  -- Skip CDC_FLAG, CDC_DSN
+        try_cast(split_part(raw_line, '|', 3) AS BIGINT) AS customer_id,  -- Skip CDC_FLAG, CDC_DSN
         split_part(raw_line, '|', 4) AS tax_id,
         split_part(raw_line, '|', 5) AS status,
         split_part(raw_line, '|', 6) AS last_name,
         split_part(raw_line, '|', 7) AS first_name,
         split_part(raw_line, '|', 8) AS middle_name,
         split_part(raw_line, '|', 9) AS gender,
-        CAST(split_part(raw_line, '|', 10) AS INT) AS tier,
-        CAST(split_part(raw_line, '|', 11) AS DATE) AS dob,
+        try_cast(split_part(raw_line, '|', 10) AS INT) AS tier,
+        try_cast(split_part(raw_line, '|', 11) AS DATE) AS dob,
         split_part(raw_line, '|', 12) AS address_line1,
         split_part(raw_line, '|', 13) AS address_line2,
         split_part(raw_line, '|', 14) AS postal_code,
@@ -41,7 +41,7 @@ WITH incoming_customers AS (
         split_part(raw_line, '|', 20) AS local_tax_id,
         split_part(raw_line, '|', 21) AS national_tax_id,
         split_part(raw_line, '|', 1) AS cdc_flag,  -- I=Insert, U=Update, D=Delete
-        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,  -- Change timestamp
+        try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,  -- Change timestamp
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_customer
@@ -71,15 +71,15 @@ WHEN MATCHED THEN UPDATE SET
 WITH incoming_customers AS (
     SELECT 
         monotonically_increasing_id() AS sk_customer_id,
-        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS customer_id,
+        try_cast(split_part(raw_line, '|', 3) AS BIGINT) AS customer_id,
         split_part(raw_line, '|', 4) AS tax_id,
         split_part(raw_line, '|', 5) AS status,
         split_part(raw_line, '|', 6) AS last_name,
         split_part(raw_line, '|', 7) AS first_name,
         split_part(raw_line, '|', 8) AS middle_name,
         split_part(raw_line, '|', 9) AS gender,
-        CAST(split_part(raw_line, '|', 10) AS INT) AS tier,
-        CAST(split_part(raw_line, '|', 11) AS DATE) AS dob,
+        try_cast(split_part(raw_line, '|', 10) AS INT) AS tier,
+        try_cast(split_part(raw_line, '|', 11) AS DATE) AS dob,
         split_part(raw_line, '|', 12) AS address_line1,
         split_part(raw_line, '|', 13) AS address_line2,
         split_part(raw_line, '|', 14) AS postal_code,
@@ -91,7 +91,7 @@ WITH incoming_customers AS (
         split_part(raw_line, '|', 20) AS local_tax_id,
         split_part(raw_line, '|', 21) AS national_tax_id,
         split_part(raw_line, '|', 1) AS cdc_flag,
-        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
+        try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_customer
@@ -135,14 +135,14 @@ WHERE cdc_flag IN ('I', 'U');
 -- Format: CDC_FLAG|CDC_DSN|CA_ID|CA_B_ID|CA_C_ID|CA_NAME|CA_TAX_ST|CA_ST_ID
 WITH incoming_accounts AS (
     SELECT 
-        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS account_id,
-        CAST(split_part(raw_line, '|', 4) AS BIGINT) AS broker_id,
-        CAST(split_part(raw_line, '|', 5) AS BIGINT) AS customer_id,
+        try_cast(split_part(raw_line, '|', 3) AS BIGINT) AS account_id,
+        try_cast(split_part(raw_line, '|', 4) AS BIGINT) AS broker_id,
+        try_cast(split_part(raw_line, '|', 5) AS BIGINT) AS customer_id,
         split_part(raw_line, '|', 6) AS account_name,
-        CAST(split_part(raw_line, '|', 7) AS INT) AS tax_status,
+        try_cast(split_part(raw_line, '|', 7) AS INT) AS tax_status,
         split_part(raw_line, '|', 8) AS status_id,
         split_part(raw_line, '|', 1) AS cdc_flag,
-        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
+        try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_account
@@ -169,14 +169,14 @@ WHEN MATCHED THEN UPDATE SET
 
 WITH incoming_accounts AS (
     SELECT 
-        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS account_id,
-        CAST(split_part(raw_line, '|', 4) AS BIGINT) AS broker_id,
-        CAST(split_part(raw_line, '|', 5) AS BIGINT) AS customer_id,
+        try_cast(split_part(raw_line, '|', 3) AS BIGINT) AS account_id,
+        try_cast(split_part(raw_line, '|', 4) AS BIGINT) AS broker_id,
+        try_cast(split_part(raw_line, '|', 5) AS BIGINT) AS customer_id,
         split_part(raw_line, '|', 6) AS account_name,
-        CAST(split_part(raw_line, '|', 7) AS INT) AS tax_status,
+        try_cast(split_part(raw_line, '|', 7) AS INT) AS tax_status,
         split_part(raw_line, '|', 8) AS status_id,
         split_part(raw_line, '|', 1) AS cdc_flag,
-        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
+        try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_account
@@ -211,22 +211,22 @@ WHERE cdc_flag IN ('I', 'U');
 -- silver_trades: Parse Trade.txt (18 columns incremental: +CDC_FLAG, +CDC_DSN)
 WITH incoming_trades AS (
     SELECT 
-        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS trade_id,  -- Skip CDC_FLAG, CDC_DSN
-        CAST(split_part(raw_line, '|', 4) AS TIMESTAMP) AS trade_dts,
+        try_cast(split_part(raw_line, '|', 3) AS BIGINT) AS trade_id,  -- Skip CDC_FLAG, CDC_DSN
+        try_cast(split_part(raw_line, '|', 4) AS TIMESTAMP) AS trade_dts,
         split_part(raw_line, '|', 5) AS status_id,
         split_part(raw_line, '|', 6) AS trade_type_id,
-        CAST(split_part(raw_line, '|', 7) AS BOOLEAN) AS is_cash,
+        try_cast(split_part(raw_line, '|', 7) AS BOOLEAN) AS is_cash,
         split_part(raw_line, '|', 8) AS symbol,
-        CAST(split_part(raw_line, '|', 9) AS INT) AS quantity,
-        CAST(split_part(raw_line, '|', 10) AS DOUBLE) AS bid_price,
-        CAST(split_part(raw_line, '|', 11) AS BIGINT) AS account_id,
+        try_cast(split_part(raw_line, '|', 9) AS INT) AS quantity,
+        try_cast(split_part(raw_line, '|', 10) AS DOUBLE) AS bid_price,
+        try_cast(split_part(raw_line, '|', 11) AS BIGINT) AS account_id,
         split_part(raw_line, '|', 12) AS exec_name,
-        CAST(split_part(raw_line, '|', 13) AS DOUBLE) AS trade_price,
-        CAST(split_part(raw_line, '|', 14) AS DOUBLE) AS charge,
-        CAST(split_part(raw_line, '|', 15) AS DOUBLE) AS commission,
-        CAST(split_part(raw_line, '|', 16) AS DOUBLE) AS tax,
+        try_cast(split_part(raw_line, '|', 13) AS DOUBLE) AS trade_price,
+        try_cast(split_part(raw_line, '|', 14) AS DOUBLE) AS charge,
+        try_cast(split_part(raw_line, '|', 15) AS DOUBLE) AS commission,
+        try_cast(split_part(raw_line, '|', 16) AS DOUBLE) AS tax,
         split_part(raw_line, '|', 1) AS cdc_flag,
-        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
+        try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_trade
@@ -253,22 +253,22 @@ WHEN MATCHED THEN UPDATE SET
 
 WITH incoming_trades AS (
     SELECT 
-        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS trade_id,
-        CAST(split_part(raw_line, '|', 4) AS TIMESTAMP) AS trade_dts,
+        try_cast(split_part(raw_line, '|', 3) AS BIGINT) AS trade_id,
+        try_cast(split_part(raw_line, '|', 4) AS TIMESTAMP) AS trade_dts,
         split_part(raw_line, '|', 5) AS status_id,
         split_part(raw_line, '|', 6) AS trade_type_id,
-        CAST(split_part(raw_line, '|', 7) AS BOOLEAN) AS is_cash,
+        try_cast(split_part(raw_line, '|', 7) AS BOOLEAN) AS is_cash,
         split_part(raw_line, '|', 8) AS symbol,
-        CAST(split_part(raw_line, '|', 9) AS INT) AS quantity,
-        CAST(split_part(raw_line, '|', 10) AS DOUBLE) AS bid_price,
-        CAST(split_part(raw_line, '|', 11) AS BIGINT) AS account_id,
+        try_cast(split_part(raw_line, '|', 9) AS INT) AS quantity,
+        try_cast(split_part(raw_line, '|', 10) AS DOUBLE) AS bid_price,
+        try_cast(split_part(raw_line, '|', 11) AS BIGINT) AS account_id,
         split_part(raw_line, '|', 12) AS exec_name,
-        CAST(split_part(raw_line, '|', 13) AS DOUBLE) AS trade_price,
-        CAST(split_part(raw_line, '|', 14) AS DOUBLE) AS charge,
-        CAST(split_part(raw_line, '|', 15) AS DOUBLE) AS commission,
-        CAST(split_part(raw_line, '|', 16) AS DOUBLE) AS tax,
+        try_cast(split_part(raw_line, '|', 13) AS DOUBLE) AS trade_price,
+        try_cast(split_part(raw_line, '|', 14) AS DOUBLE) AS charge,
+        try_cast(split_part(raw_line, '|', 15) AS DOUBLE) AS commission,
+        try_cast(split_part(raw_line, '|', 16) AS DOUBLE) AS tax,
         split_part(raw_line, '|', 1) AS cdc_flag,
-        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
+        try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_trade
@@ -306,13 +306,13 @@ WHERE cdc_flag IN ('I', 'U');
 MERGE INTO silver_daily_market AS target
 USING (
     SELECT 
-        CONCAT(CAST(split_part(raw_line, '|', 3) AS DATE), '|', split_part(raw_line, '|', 4)) AS dm_key,
-        CAST(split_part(raw_line, '|', 3) AS DATE) AS dm_date,
+        CONCAT(try_cast(split_part(raw_line, '|', 3) AS DATE), '|', split_part(raw_line, '|', 4)) AS dm_key,
+        try_cast(split_part(raw_line, '|', 3) AS DATE) AS dm_date,
         split_part(raw_line, '|', 4) AS dm_s_symb,
-        CAST(split_part(raw_line, '|', 5) AS DOUBLE) AS dm_close,
-        CAST(split_part(raw_line, '|', 6) AS DOUBLE) AS dm_high,
-        CAST(split_part(raw_line, '|', 7) AS DOUBLE) AS dm_low,
-        CAST(split_part(raw_line, '|', 8) AS BIGINT) AS dm_vol,
+        try_cast(split_part(raw_line, '|', 5) AS DOUBLE) AS dm_close,
+        try_cast(split_part(raw_line, '|', 6) AS DOUBLE) AS dm_high,
+        try_cast(split_part(raw_line, '|', 7) AS DOUBLE) AS dm_low,
+        try_cast(split_part(raw_line, '|', 8) AS BIGINT) AS dm_vol,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_daily_market
@@ -334,13 +334,13 @@ WHEN NOT MATCHED THEN INSERT *;
 -- silver_cash_transaction: Parse CashTransaction.txt (6 columns incremental)
 WITH incoming_cash AS (
     SELECT 
-        CONCAT(CAST(split_part(raw_line, '|', 3) AS BIGINT), '|', CAST(split_part(raw_line, '|', 4) AS TIMESTAMP)) AS ct_key,
-        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS ct_ca_id,
-        CAST(split_part(raw_line, '|', 4) AS TIMESTAMP) AS ct_dts,
-        CAST(split_part(raw_line, '|', 5) AS DOUBLE) AS ct_amt,
+        CONCAT(try_cast(split_part(raw_line, '|', 3) AS BIGINT), '|', try_cast(split_part(raw_line, '|', 4) AS TIMESTAMP)) AS ct_key,
+        try_cast(split_part(raw_line, '|', 3) AS BIGINT) AS ct_ca_id,
+        try_cast(split_part(raw_line, '|', 4) AS TIMESTAMP) AS ct_dts,
+        try_cast(split_part(raw_line, '|', 5) AS DOUBLE) AS ct_amt,
         split_part(raw_line, '|', 6) AS ct_name,
         split_part(raw_line, '|', 1) AS cdc_flag,
-        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
+        try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_cash_transaction
@@ -367,13 +367,13 @@ WHEN MATCHED THEN UPDATE SET
 
 WITH incoming_cash AS (
     SELECT 
-        CONCAT(CAST(split_part(raw_line, '|', 3) AS BIGINT), '|', CAST(split_part(raw_line, '|', 4) AS TIMESTAMP)) AS ct_key,
-        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS ct_ca_id,
-        CAST(split_part(raw_line, '|', 4) AS TIMESTAMP) AS ct_dts,
-        CAST(split_part(raw_line, '|', 5) AS DOUBLE) AS ct_amt,
+        CONCAT(try_cast(split_part(raw_line, '|', 3) AS BIGINT), '|', try_cast(split_part(raw_line, '|', 4) AS TIMESTAMP)) AS ct_key,
+        try_cast(split_part(raw_line, '|', 3) AS BIGINT) AS ct_ca_id,
+        try_cast(split_part(raw_line, '|', 4) AS TIMESTAMP) AS ct_dts,
+        try_cast(split_part(raw_line, '|', 5) AS DOUBLE) AS ct_amt,
         split_part(raw_line, '|', 6) AS ct_name,
         split_part(raw_line, '|', 1) AS cdc_flag,
-        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
+        try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_cash_transaction
@@ -401,12 +401,12 @@ WHERE cdc_flag IN ('I', 'U');
 -- silver_holding_history: Parse HoldingHistory.txt (6 columns incremental)
 WITH incoming_holdings AS (
     SELECT 
-        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS hh_h_t_id,
-        CAST(split_part(raw_line, '|', 4) AS BIGINT) AS hh_t_id,
-        CAST(split_part(raw_line, '|', 5) AS INT) AS hh_before_qty,
-        CAST(split_part(raw_line, '|', 6) AS INT) AS hh_after_qty,
+        try_cast(split_part(raw_line, '|', 3) AS BIGINT) AS hh_h_t_id,
+        try_cast(split_part(raw_line, '|', 4) AS BIGINT) AS hh_t_id,
+        try_cast(split_part(raw_line, '|', 5) AS INT) AS hh_before_qty,
+        try_cast(split_part(raw_line, '|', 6) AS INT) AS hh_after_qty,
         split_part(raw_line, '|', 1) AS cdc_flag,
-        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
+        try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_holding_history
@@ -433,12 +433,12 @@ WHEN MATCHED THEN UPDATE SET
 
 WITH incoming_holdings AS (
     SELECT 
-        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS hh_h_t_id,
-        CAST(split_part(raw_line, '|', 4) AS BIGINT) AS hh_t_id,
-        CAST(split_part(raw_line, '|', 5) AS INT) AS hh_before_qty,
-        CAST(split_part(raw_line, '|', 6) AS INT) AS hh_after_qty,
+        try_cast(split_part(raw_line, '|', 3) AS BIGINT) AS hh_h_t_id,
+        try_cast(split_part(raw_line, '|', 4) AS BIGINT) AS hh_t_id,
+        try_cast(split_part(raw_line, '|', 5) AS INT) AS hh_before_qty,
+        try_cast(split_part(raw_line, '|', 6) AS INT) AS hh_after_qty,
         split_part(raw_line, '|', 1) AS cdc_flag,
-        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
+        try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_holding_history
@@ -465,13 +465,13 @@ WHERE cdc_flag IN ('I', 'U');
 -- silver_watch_history: Parse WatchHistory.txt (6 columns incremental)
 WITH incoming_watches AS (
     SELECT 
-        CONCAT(CAST(split_part(raw_line, '|', 3) AS BIGINT), '|', split_part(raw_line, '|', 4)) AS wh_key,
-        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS w_c_id,
+        CONCAT(try_cast(split_part(raw_line, '|', 3) AS BIGINT), '|', split_part(raw_line, '|', 4)) AS wh_key,
+        try_cast(split_part(raw_line, '|', 3) AS BIGINT) AS w_c_id,
         split_part(raw_line, '|', 4) AS w_s_symb,
-        CAST(split_part(raw_line, '|', 5) AS TIMESTAMP) AS w_dts,
+        try_cast(split_part(raw_line, '|', 5) AS TIMESTAMP) AS w_dts,
         split_part(raw_line, '|', 6) AS w_action,
         split_part(raw_line, '|', 1) AS cdc_flag,
-        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
+        try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_watch_history
@@ -498,13 +498,13 @@ WHEN MATCHED THEN UPDATE SET
 
 WITH incoming_watches AS (
     SELECT 
-        CONCAT(CAST(split_part(raw_line, '|', 3) AS BIGINT), '|', split_part(raw_line, '|', 4)) AS wh_key,
-        CAST(split_part(raw_line, '|', 3) AS BIGINT) AS w_c_id,
+        CONCAT(try_cast(split_part(raw_line, '|', 3) AS BIGINT), '|', split_part(raw_line, '|', 4)) AS wh_key,
+        try_cast(split_part(raw_line, '|', 3) AS BIGINT) AS w_c_id,
         split_part(raw_line, '|', 4) AS w_s_symb,
-        CAST(split_part(raw_line, '|', 5) AS TIMESTAMP) AS w_dts,
+        try_cast(split_part(raw_line, '|', 5) AS TIMESTAMP) AS w_dts,
         split_part(raw_line, '|', 6) AS w_action,
         split_part(raw_line, '|', 1) AS cdc_flag,
-        CAST(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
+        try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
         __BATCH_ID__ AS batch_id,
         current_timestamp() AS load_timestamp
     FROM bronze_watch_history
@@ -548,16 +548,16 @@ SELECT
     split_part(raw_line, ',', 10) AS state,
     split_part(raw_line, ',', 11) AS country,
     split_part(raw_line, ',', 12) AS phone,
-    CAST(split_part(raw_line, ',', 13) AS INT) AS income,
-    CAST(split_part(raw_line, ',', 14) AS INT) AS number_cars,
-    CAST(split_part(raw_line, ',', 15) AS INT) AS number_children,
+    try_cast(split_part(raw_line, ',', 13) AS INT) AS income,
+    try_cast(split_part(raw_line, ',', 14) AS INT) AS number_cars,
+    try_cast(split_part(raw_line, ',', 15) AS INT) AS number_children,
     split_part(raw_line, ',', 16) AS marital_status,
-    CAST(split_part(raw_line, ',', 17) AS INT) AS age,
-    CAST(split_part(raw_line, ',', 18) AS INT) AS credit_rating,
+    try_cast(split_part(raw_line, ',', 17) AS INT) AS age,
+    try_cast(split_part(raw_line, ',', 18) AS INT) AS credit_rating,
     split_part(raw_line, ',', 19) AS own_or_rent_flag,
     split_part(raw_line, ',', 20) AS employer,
-    CAST(split_part(raw_line, ',', 21) AS INT) AS number_credit_cards,
-    CAST(split_part(raw_line, ',', 22) AS INT) AS net_worth,
+    try_cast(split_part(raw_line, ',', 21) AS INT) AS number_credit_cards,
+    try_cast(split_part(raw_line, ',', 22) AS INT) AS net_worth,
     __BATCH_ID__ AS batch_id,
     current_timestamp() AS load_timestamp
 FROM bronze_prospect
