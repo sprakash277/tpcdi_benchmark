@@ -148,6 +148,7 @@ if is_incremental:
         "sql/gold/optimize/optimize_gold_dim_customer.sql",
         "sql/gold/optimize/optimize_gold_dim_security.sql",
         "sql/gold/optimize/optimize_gold_prospect.sql",
+        "sql/gold/optimize/optimize_gold_fact_trade.sql",
     ]
     print("Gold: OPTIMIZE ZORDER (before incremental load)")
     for f in gold_optimize_files:
