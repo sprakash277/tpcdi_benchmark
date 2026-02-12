@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __DATABASE__.bronze_cash_transaction AS
+DROP TABLE IF EXISTS __DATABASE__.bronze_cash_transaction;
+CREATE TABLE __DATABASE__.bronze_cash_transaction AS
 SELECT 
     value AS raw_line,
     __BATCH_ID__ AS _batch_id,

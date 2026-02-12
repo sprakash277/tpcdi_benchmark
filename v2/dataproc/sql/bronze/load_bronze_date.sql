@@ -1,5 +1,7 @@
 -- Dataproc: source is temp view _tmp_bronze_date (created by runner from Batch1/Date.txt)
-CREATE OR REPLACE TABLE __DATABASE__.bronze_date AS
+-- Delta + Hive catalog does not support CREATE OR REPLACE TABLE AS SELECT; use DROP + CREATE
+DROP TABLE IF EXISTS __DATABASE__.bronze_date;
+CREATE TABLE __DATABASE__.bronze_date AS
 SELECT 
     value AS raw_line,
     __BATCH_ID__ AS _batch_id,
