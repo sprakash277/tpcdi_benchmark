@@ -6,7 +6,7 @@
 -- ============================================================================
 
 -- Set variables
--- SET var.batch_id = 2;  -- Change for Batch 3, 4, etc.
+-- SET var.batch_id = 2 (change for Batch 3, 4, etc.)
 
 -- ============================================================================
 -- Brokerage Data: Parse Customer.txt and Account.txt (Batch 2+)
