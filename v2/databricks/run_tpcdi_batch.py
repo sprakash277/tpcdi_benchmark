@@ -154,6 +154,8 @@ if is_incremental:
     for f in gold_optimize_files:
         print(f"  {f}")
         run_sql(read_sql_file(f))
+    print("Gold: CREATE TABLE IF NOT EXISTS gold_dim_messages")
+    run_sql(read_sql_file("sql/gold/create_gold_dim_messages.sql"))
     for f in gold_incremental_files:
         print(f"Gold: {f}")
         run_sql_multi(read_sql_file(f))
