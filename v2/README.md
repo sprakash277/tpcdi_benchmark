@@ -1,21 +1,23 @@
 # TPC-DI v2: run_tpcdi_batch + sql/
 
-SQL-based TPC-DI pipeline on Databricks: one notebook (**run_tpcdi_batch**) runs Bronze → Silver → Gold using SQL under **sql/** and a few Python sub-notebooks.
+SQL-based TPC-DI pipeline: one runner (**run_tpcdi_batch**) runs Bronze → Silver → Gold using SQL under **sql/** and a few Python steps (CustomerMgmt/FinWire, silver customers/accounts). Same pattern on **Databricks** (notebook) and **Dataproc** (Delta, script).
 
 ## Structure
 
 ```
 v2/
-├── databricks/
-│   ├── create_v2_workflow_notebook.py   # Creates Databricks job → run_tpcdi_batch
-│   ├── run_tpcdi_batch.py               # Main notebook (Bronze → Silver → Gold)
-│   ├── tpcdi_metrics.py                 # Metrics/reporting
-│   └── sql/
-│       ├── bronze/                      # Bronze SQL + batch/ (customer_mgmt, finwire .py)
-│       ├── silver/                      # Silver SQL + batch/ (customers, accounts .py)
-│       └── gold/                        # Gold SQL (load, incremental, optimize)
-├── run_v2_databricks.py                 # Helper: print execution guide
-└── RUN_V2.md                            # Full run instructions
+├── databricks/              # Databricks (Unity Catalog, run_tpcdi_batch notebook)
+│   ├── create_v2_workflow_notebook.py
+│   ├── run_tpcdi_batch.py
+│   ├── tpcdi_metrics.py
+│   └── sql/                 # bronze/, silver/, gold/
+├── dataproc/                # Dataproc (Delta, Hive database, run_tpcdi_batch.py script)
+│   ├── run_tpcdi_batch.py
+│   ├── tpcdi_metrics.py
+│   ├── run_dataproc_job.sh
+│   └── sql/                 # bronze/ (FROM _tmp_*), silver/, gold/ (same logic, __DATABASE__)
+├── run_v2_databricks.py
+└── RUN_V2.md
 ```
 
 ## Usage (Databricks)
@@ -30,7 +32,12 @@ All SQL lives under **sql/bronze/**, **sql/silver/**, **sql/gold/**. Two Python 
 - **load_type = batch**: Full load (Batch 1); run_tpcdi_batch runs bronze/silver/gold load SQL and sub-notebooks.
 - **load_type = incremental**: Incremental (Batch 2+); run_tpcdi_batch runs sql/bronze/incremental/, sql/silver/incremental/, sql/gold/incremental/ and gold optimize.
 
+## Dataproc (Delta)
+
+Use **dataproc/run_tpcdi_batch.py** with `spark-submit` or `gcloud dataproc jobs submit pyspark`. Requires Delta Lake JAR and spark-xml JAR. See **dataproc/README.md** and **dataproc/run_dataproc_job.sh**.
+
 ## See also
 
-- **RUN_V2.md** – Step-by-step run guide
+- **RUN_V2.md** – Step-by-step run guide (Databricks)
 - **databricks/QUICK_START.md**, **databricks/WORKFLOW_README.md** – Workflow and quick start
+- **dataproc/README.md** – Dataproc (Delta) run guide

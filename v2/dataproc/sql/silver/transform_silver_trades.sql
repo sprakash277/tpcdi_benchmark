@@ -1,0 +1,29 @@
+CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_trades AS
+SELECT 
+    try_cast(split_part(raw_line, '|', 1) AS BIGINT) AS trade_id,
+    try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS trade_dts,
+    split_part(raw_line, '|', 3) AS status_id,
+    split_part(raw_line, '|', 4) AS trade_type_id,
+    -- TPC-DI uses 1/0 for Boolean in Trade.txt
+    CASE WHEN split_part(raw_line, '|', 5) = '1' THEN TRUE ELSE FALSE END AS is_cash,
+    split_part(raw_line, '|', 6) AS symbol,
+    try_cast(split_part(raw_line, '|', 7) AS INT) AS quantity,
+    try_cast(split_part(raw_line, '|', 8) AS DOUBLE) AS bid_price,
+    try_cast(split_part(raw_line, '|', 9) AS BIGINT) AS account_id,
+    split_part(raw_line, '|', 10) AS exec_name,
+    try_cast(split_part(raw_line, '|', 11) AS DOUBLE) AS trade_price,
+    try_cast(split_part(raw_line, '|', 12) AS DOUBLE) AS charge,
+    try_cast(split_part(raw_line, '|', 13) AS DOUBLE) AS commission,
+    try_cast(split_part(raw_line, '|', 14) AS DOUBLE) AS tax,
+    TRUE AS is_current,
+    try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS effective_date,
+    try_cast(NULL AS TIMESTAMP) AS end_date, -- Cast NULL to avoid VOID type
+    __BATCH_ID__ AS batch_id,
+    current_timestamp() AS load_timestamp,
+    'SBATCH' AS record_type -- helps distinguish historical from CDC
+FROM __CATALOG__.__SCHEMA__.bronze_trade
+WHERE _batch_id = __BATCH_ID__
+  AND raw_line IS NOT NULL
+  AND raw_line != ''
+  -- Size check; Batch 1 Trade.txt typically has 14 columns
+  AND size(split(raw_line, '|')) >= 14
