@@ -1,15 +1,19 @@
-# TPC-DI Data Generation for Databricks
+# TPC-DI Benchmark
 
-Generate [TPC-DI](https://www.tpc.org/tpcdi/) benchmark raw data using Python on **Databricks**, per the TPC-DI v1.1.0 specification. Uses the official **DIGen** (Java) data generator invoked via a Python wrapper.
+[TPC-DI](https://www.tpc.org/tpcdi/) benchmark implementations for Data Integration: generate raw data and run ETL to a data warehouse.
+
+## Project layout
+
+- **`v1/`** – Original implementation: Python ETL, unified runner for Databricks/Dataproc/local, data generation script, and workflow/notebook helpers. See [v1/README.md](v1/README.md).
+- **`v2/`** – SQL-based pipeline (Databricks): bronze/silver/gold SQL scripts, batch and incremental runs. See [v2/README.md](v2/README.md).
+- **`tools/datagen/`** – Shared TPC-DI data generator (DIGen); used by v1 and v2.
+- **`docs/`** – Schema and architecture notes.
 
 ## Overview
 
-- **TPC-DI** is a benchmark for Data Integration: it models extracting, transforming, and loading data from OLTP and other sources into a data warehouse.
-- This project provides:
-  - **`generate_tpcdi_data.py`** – CLI / library script that runs DIGen and uploads output to DBFS or a Unity Catalog Volume.
-  - **`databricks/generate_tpcdi_data_notebook.py`** – Databricks notebook with widgets for scale factor, output path, and Volume vs DBFS.
-
-Data generation runs on the **Databricks driver** (single node). Output can be written to **DBFS** or a **Unity Catalog Volume**.
+- **TPC-DI** models extracting, transforming, and loading data from OLTP and other sources into a data warehouse.
+- **v1** provides: data generation (`generate_tpcdi_data.py`), Python ETL (`benchmark/`), and runners for Databricks, Dataproc, and local.
+- **v2** provides: SQL-only ETL on Databricks with batch and incremental loads.
 
 ## Prerequisites
 
@@ -37,40 +41,31 @@ See `tools/datagen/README.txt` for more detail.
 
 ## Quick Start
 
-### 1. Run via Python (CLI)
+### Data generation (v1)
 
-From the project root (e.g. on a Databricks job or locally with Java + tools installed):
+From the project root (tools/datagen must contain DIGen; see Prerequisites):
 
 ```bash
 # Default: scale factor 10, output to dbfs:/mnt/tpcdi
-python generate_tpcdi_data.py
+python v1/generate_tpcdi_data.py
 
 # Custom scale factor and output
-python generate_tpcdi_data.py -s 100 -o dbfs:/mnt/tpcdi
+python v1/generate_tpcdi_data.py -s 100 -o dbfs:/mnt/tpcdi
 
 # Use a Unity Catalog Volume
-python generate_tpcdi_data.py -s 10 --use-volume --catalog tpcdi
-
-# Regenerate even if output exists
-python generate_tpcdi_data.py -s 10 -o dbfs:/mnt/tpcdi --no-skip-existing
+python v1/generate_tpcdi_data.py -s 10 --use-volume --catalog tpcdi
 ```
 
-### 2. Run via Databricks Notebook
+### v1 benchmark (Databricks / Dataproc / local)
 
-1. Clone or upload this repo into **Databricks Repos** (or place the files in a workspace folder).
-2. Open **`databricks/generate_tpcdi_data_notebook.py`** as a Databricks notebook.
-3. Ensure **`tools/datagen/`** (with DIGen.jar and pdgf/) is in the same repo/folder.
-4. Adjust widgets: **Scale factor**, **Output path**, **Use Unity Catalog Volume**, **Catalog**.
-5. Run all cells.
+```bash
+# From project root
+python v1/run_benchmark.py databricks --load-type batch --scale-factor 10 --target-catalog main ...
+python v1/run_benchmark.py dataproc --cluster my-cluster --load-type batch --scale-factor 10 ...
+python v1/run_benchmark.py local --load-type batch --scale-factor 10 ...
+```
 
-The notebook calls `generate_tpcdi_data()` and prints the output path.
-
-### 3. Run as a Databricks Job
-
-1. Create a Job with a **Python script** task.
-2. Set the **Source** to the repo path of **`generate_tpcdi_data.py`** (or upload the script).
-3. Set **Parameters** if needed, e.g. `-s 10 -o dbfs:/mnt/tpcdi --use-volume`.
-4. Use a **cluster** with a driver that has enough **local disk** for the chosen scale factor (see below).
+See [v1/README.md](v1/README.md) and [v2/README.md](v2/README.md) for full usage.
 
 ## Scale Factors
 
@@ -89,20 +84,30 @@ Generation runs on the **driver** only. For large scale factors (e.g. &gt; 1000)
 - **Unity Catalog Volume**: Use `--use-volume` and `--catalog`. The script creates `tpcdi_raw_data.tpcdi_volume` if missing and writes under `.../tpcdi_volume/sf=<scale_factor>/`.
 - **Local**: Pass a local path (e.g. `/tmp/tpcdi`) when not using DBFS/Volume. Output is under `.../sf=<scale_factor>/`.
 
-## Project Layout
+## Project layout (detailed)
 
 ```
 tpcdi_benchmark/
 ├── README.md
-├── generate_tpcdi_data.py          # Main script (CLI / library)
-├── databricks/
-│   └── generate_tpcdi_data_notebook.py  # Databricks notebook
+├── v1/                             # Original Python ETL + runners
+│   ├── README.md
+│   ├── run_benchmark.py            # Unified runner (databricks / dataproc / local)
+│   ├── run_benchmark_databricks.py
+│   ├── run_benchmark_dataproc.py
+│   ├── generate_tpcdi_data.py     # Data generation CLI
+│   ├── benchmark/                 # Python ETL (bronze/silver/gold)
+│   ├── databricks/                # v1 Databricks notebooks & workflow
+│   ├── dataproc/                  # v1 Dataproc scripts
+│   └── scripts/
+├── v2/                             # SQL-based Databricks pipeline
+│   └── ...
 ├── tools/
-│   └── datagen/
-│       ├── README.txt              # Setup instructions
+│   └── datagen/                   # DIGen (shared)
+│       ├── README.txt
 │       ├── DIGen.jar               # You add this
 │       └── pdgf/                   # You add this (lowercase)
-└── requirements.txt                # Optional
+├── docs/
+└── requirements.txt
 ```
 
 ## Requirements

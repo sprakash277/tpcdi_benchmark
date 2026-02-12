@@ -30,18 +30,17 @@ from typing import Dict, List, Optional
 
 
 def ensure_benchmark_zip():
-    """Create benchmark.zip if it doesn't exist."""
-    zip_path = Path("benchmark.zip")
+    """Create benchmark.zip if it doesn't exist (next to this script in v1/)."""
+    script_dir = Path(__file__).resolve().parent
+    zip_path = script_dir / "benchmark.zip"
     if zip_path.exists():
         return str(zip_path)
-    
-    benchmark_dir = Path("benchmark")
+    benchmark_dir = script_dir / "benchmark"
     if not benchmark_dir.exists():
-        print("ERROR: 'benchmark' directory not found. Run from project root.", file=sys.stderr)
+        print("ERROR: 'benchmark' directory not found. Run from project root or v1/.", file=sys.stderr)
         sys.exit(1)
-    
     print(f"Creating {zip_path}...")
-    shutil.make_archive("benchmark", "zip", ".", "benchmark")
+    shutil.make_archive(str(zip_path.with_suffix("")), "zip", script_dir, "benchmark")
     return str(zip_path)
 
 
@@ -197,10 +196,11 @@ def run_dataproc(args):
             print(f"\nOr create manually and ensure it matches the recommendations above.\n")
             sys.exit(1)
     
-    # Build gcloud command
+    # Build gcloud command (script and zip live in v1/)
+    script_path = Path(__file__).resolve().parent / "run_benchmark_dataproc.py"
     cmd = [
         "gcloud", "dataproc", "jobs", "submit", "pyspark",
-        "run_benchmark_dataproc.py",
+        str(script_path),
         f"--cluster={args.cluster}",
         f"--region={args.region}",
         f"--project={args.project_id}",
@@ -483,8 +483,9 @@ def create_databricks_job(host: str, token: str, args) -> int:
         print("\nTo upload notebooks:")
         print("  1. Use Databricks UI: Workspace → Right-click folder → Import → Upload .py files")
         print("  2. Use Databricks CLI:")
+        v1_dir = Path(__file__).resolve().parent
         for _, notebook_path in missing_notebooks:
-            local_file = Path("databricks") / Path(notebook_path).name
+            local_file = v1_dir / "databricks" / Path(notebook_path).name
             if local_file.exists():
                 print(f"     databricks workspace import {local_file} {notebook_path} -l PYTHON")
         print("  3. Use Databricks Repos: Clone this repo to Databricks Repos")

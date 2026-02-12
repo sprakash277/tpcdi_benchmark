@@ -163,18 +163,19 @@ def print_benchmark_report(
             cloud="GCP",
         )
         if cost:
-            cb = cost.get("cost_breakdown") or {}
-            total_cost = cost.get("total_cost_usd")
-            dbu_cost = cost.get("dbu_cost_usd")
             lines.append("Cost (estimated):")
-            if cb.get("compute_usd") is not None:
-                lines.append(f"  Compute: ${cb['compute_usd']:.2f}")
-            if cb.get("software_usd") is not None:
-                lines.append(f"  Software: ${cb['software_usd']:.2f}")
-            if total_cost is not None:
-                lines.append(f"  Total cost: ${total_cost:.2f}")
-            if dbu_cost is not None:
-                lines.append(f"  DBU cost: ${dbu_cost:.2f}")
+            compute_usd = cost.get("compute_usd")
+            software_usd = cost.get("software_usd")
+            total_usd = cost.get("total_usd")
+            dbu_usd = cost.get("dbu_usd")
+            if compute_usd is not None:
+                lines.append(f"  Compute: ${compute_usd:.2f}")
+            if software_usd is not None:
+                lines.append(f"  Software: ${software_usd:.2f}")
+            if total_usd is not None:
+                lines.append(f"  Total cost: ${total_usd:.2f}")
+            if dbu_usd is not None:
+                lines.append(f"  DBU cost: ${dbu_usd:.2f}")
             lines.append("")
     except Exception:
         lines.append("Cost (estimated): N/A (benchmark.cost not available)")
