@@ -418,54 +418,55 @@ FROM incoming_holdings
 WHERE cdc_flag IN ('I', 'U');
 
 -- silver_watch_history: Parse WatchHistory.txt (6 columns incremental)
+-- Step 1: Parse the new incoming CDC records
 WITH incoming_watches AS (
     SELECT 
-        CONCAT(try_cast(split_part(raw_line, '|', 3) AS BIGINT), '|', split_part(raw_line, '|', 4)) AS wh_key,
+        -- Composite Key: Index 3 (Customer) + Index 4 (Symbol)
+        concat(split_part(raw_line, '|', 3), '-', split_part(raw_line, '|', 4)) AS wh_key,
         try_cast(split_part(raw_line, '|', 3) AS BIGINT) AS w_c_id,
         split_part(raw_line, '|', 4) AS w_s_symb,
         try_cast(split_part(raw_line, '|', 5) AS TIMESTAMP) AS w_dts,
         split_part(raw_line, '|', 6) AS w_action,
         split_part(raw_line, '|', 1) AS cdc_flag,
         try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
-        __BATCH_ID__ AS batch_id,
-        current_timestamp() AS load_timestamp
+        __BATCH_ID__ AS batch_id
     FROM bronze_watch_history
     WHERE _batch_id = __BATCH_ID__
       AND raw_line IS NOT NULL
-      AND raw_line != ''
       AND size(split(raw_line, '|')) = 6
 ),
+-- Step 2: Identify existing 'current' records that need to be expired
 updates_to_close AS (
     SELECT 
         wh_key,
-        CAST(MIN(cdc_dsn) AS TIMESTAMP) AS new_effective_date
+        MIN(cdc_dsn) AS new_effective_date
     FROM incoming_watches
     WHERE cdc_flag IN ('U', 'D')
     GROUP BY wh_key
 )
+-- Step 3: Close the old records
 MERGE INTO silver_watch_history AS target
 USING updates_to_close AS src
 ON target.wh_key = src.wh_key 
    AND target.is_current = true
 WHEN MATCHED THEN UPDATE SET
     target.is_current = false,
-    target.end_date = CAST(src.new_effective_date AS TIMESTAMP);
+    target.end_date = src.new_effective_date;
 
+-- Step 4: Insert the new versions
 WITH incoming_watches AS (
     SELECT 
-        CONCAT(try_cast(split_part(raw_line, '|', 3) AS BIGINT), '|', split_part(raw_line, '|', 4)) AS wh_key,
+        concat(split_part(raw_line, '|', 3), '-', split_part(raw_line, '|', 4)) AS wh_key,
         try_cast(split_part(raw_line, '|', 3) AS BIGINT) AS w_c_id,
         split_part(raw_line, '|', 4) AS w_s_symb,
         try_cast(split_part(raw_line, '|', 5) AS TIMESTAMP) AS w_dts,
         split_part(raw_line, '|', 6) AS w_action,
         split_part(raw_line, '|', 1) AS cdc_flag,
         try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS cdc_dsn,
-        __BATCH_ID__ AS batch_id,
-        current_timestamp() AS load_timestamp
+        __BATCH_ID__ AS batch_id
     FROM bronze_watch_history
     WHERE _batch_id = __BATCH_ID__
       AND raw_line IS NOT NULL
-      AND raw_line != ''
       AND size(split(raw_line, '|')) = 6
 )
 INSERT INTO silver_watch_history
@@ -475,11 +476,12 @@ SELECT
     w_s_symb,
     w_dts,
     w_action,
+    -- If flag is 'D', it is immediately inactive
     CASE WHEN cdc_flag = 'D' THEN false ELSE true END AS is_current,
     cdc_dsn AS effective_date,
-    NULL AS end_date,
+    CAST(NULL AS TIMESTAMP) AS end_date,
     batch_id,
-    load_timestamp,
+    current_timestamp() AS load_timestamp,
     cdc_flag AS record_type
 FROM incoming_watches
 WHERE cdc_flag IN ('I', 'U');
