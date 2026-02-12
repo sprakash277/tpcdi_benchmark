@@ -4,7 +4,7 @@ SELECT
     sc.company_id,
     sc.company_name,
     sc.industry_id,
-    si.in_sc_id AS sector,
+    COALESCE(si.in_sc_id, 'Unknown') AS sector,
     sc.status,
     sc.address_line1,
     sc.address_line2,
@@ -15,7 +15,10 @@ SELECT
     sc.description,
     sc.founding_date,
     sc.ceo_name,
-    TRUE AS is_current,
+    true AS is_current,
+    COALESCE(sc.effective_date, sc.load_timestamp) AS start_date,
+    CAST('9999-12-31' AS DATE) AS end_date,
+    sc.batch_id,
     current_timestamp() AS etl_timestamp
 FROM __CATALOG__.__SCHEMA__.silver_companies sc
 LEFT JOIN __CATALOG__.__SCHEMA__.silver_industry si ON sc.industry_id = si.in_id

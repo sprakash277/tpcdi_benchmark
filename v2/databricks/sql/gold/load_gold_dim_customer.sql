@@ -20,6 +20,10 @@ SELECT
     email2,
     local_tax_id,
     national_tax_id,
+    true AS is_current,
+    COALESCE(effective_date, load_timestamp) AS start_date,
+    CAST('9999-12-31' AS DATE) AS end_date,
+    batch_id,
     current_timestamp() AS etl_timestamp
 FROM __CATALOG__.__SCHEMA__.silver_customers
 WHERE is_current = true
