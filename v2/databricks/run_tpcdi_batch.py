@@ -18,6 +18,7 @@ dbutils.widgets.text("sql_base_path", "", "SQL base path (optional; default = no
 # COMMAND ----------
 
 import os
+import sys
 import time
 
 catalog = dbutils.widgets.get("catalog")
@@ -40,6 +41,9 @@ else:
         base_dir = ""
     if not base_dir and "__file__" in dir():
         base_dir = os.path.dirname(os.path.abspath(__file__))
+if base_dir and base_dir not in sys.path:
+    sys.path.insert(0, base_dir)
+import tpcdi_metrics as metrics
 
 def _workspace_file_path(path):
     """Convert path to workspace file URI so dbutils.fs and Spark can read it."""
@@ -85,174 +89,35 @@ def run_sql_multi(sql_content, use_pipe_placeholder=False):
         if stmt and not all(line.strip().startswith("--") or not line.strip() for line in stmt.split("\n")):
             spark.sql(stmt)
 
-# --- Metrics (V1-style report)
-def _sql_file_to_table_name(rel_path):
-    """Map SQL file path to short table name (e.g. sql/bronze/load_bronze_date.sql -> bronze_date)."""
-    base = rel_path.replace("\\", "/").split("/")[-1].replace(".sql", "")
-    if base.startswith("load_bronze_"): return "bronze_" + base[len("load_bronze_"):]
-    if base.startswith("load_gold_incremental_"): return "gold_" + base[len("load_gold_incremental_"):]
-    if base.startswith("load_gold_"): return "gold_" + base[len("load_gold_"):]
-    if base.startswith("transform_silver_incremental_"): return "silver_" + base[len("transform_silver_incremental_"):]
-    if base.startswith("transform_silver_"): return "silver_" + base[len("transform_silver_"):]
-    if base.startswith("load_bronze_incremental_"): return "bronze_" + base[len("load_bronze_incremental_"):]
-    return None
-
-def _get_table_stats(table_short_name):
-    """Return (row_count, size_mb) for catalog.schema.table_short_name. Returns (0, 0) if table missing or error."""
-    full = f"{catalog}.{schema_name}.{table_short_name}"
-    try:
-        if not spark.catalog.tableExists(full):
-            return 0, 0.0
-        row_count = spark.sql(f"SELECT COUNT(*) AS cnt FROM {full}").collect()[0]["cnt"]
-        detail = spark.sql(f"DESCRIBE DETAIL {full}").collect()[0]
-        size_bytes = detail.get("sizeInBytes") or 0
-        size_mb = size_bytes / (1024 * 1024) if size_bytes else 0.0
-        return row_count, size_mb
-    except Exception:
-        return 0, 0.0
-
-def _record_table_load(table_key, duration_seconds, row_count, size_mb):
-    """Append one entry to table_details. table_key can be 'gold_dim_customer' or 'optimize:gold_dim_company'."""
-    full = f"{catalog}.{schema_name}.{table_key}" if ":" not in table_key else table_key
-    bytes_processed = int(size_mb * 1024 * 1024) if size_mb else 0
-    _table_details.append({
-        "table": full,
-        "duration_seconds": duration_seconds,
-        "row_count": row_count,
-        "bytes_processed": bytes_processed,
-    })
-
+# --- Timed runners call into tpcdi_metrics for stats
 def run_sql_timed(rel_path, use_pipe_placeholder=False):
     """Run single-statement SQL file and record duration + table stats."""
-    table_name = _sql_file_to_table_name(rel_path)
+    table_name = metrics.sql_file_to_table_name(rel_path)
     t0 = time.time()
     run_sql(read_sql_file(rel_path), use_pipe_placeholder=use_pipe_placeholder)
     duration = time.time() - t0
     if table_name:
-        row_count, size_mb = _get_table_stats(table_name)
-        _record_table_load(table_name, duration, row_count, size_mb)
+        row_count, size_mb = metrics.get_table_stats(spark, catalog, schema_name, table_name)
+        metrics.record_table_load(_table_details, table_name, duration, row_count, size_mb, catalog, schema_name)
     return duration
 
-def run_sql_multi_timed(rel_path, use_pipe_placeholder=False):
-    """Run multi-statement SQL file and record duration + table stats (from last/primary table in file)."""
-    table_name = _sql_file_to_table_name(rel_path)
+def run_sql_multi_timed(rel_path, use_pipe_placeholder=False, incremental=False):
+    """Run multi-statement SQL file and record duration + table stats.
+    Batch: stats = table count/size after load. Incremental: stats = delta (rows/size added this run)."""
+    table_name = metrics.sql_file_to_table_name(rel_path)
+    count_before, size_before_mb = metrics.get_table_stats(spark, catalog, schema_name, table_name) if table_name and incremental else (0, 0.0)
     t0 = time.time()
     run_sql_multi(read_sql_file(rel_path), use_pipe_placeholder=use_pipe_placeholder)
     duration = time.time() - t0
     if table_name:
-        row_count, size_mb = _get_table_stats(table_name)
-        _record_table_load(table_name, duration, row_count, size_mb)
+        count_after, size_after_mb = metrics.get_table_stats(spark, catalog, schema_name, table_name)
+        if incremental:
+            row_count = max(0, count_after - count_before)
+            size_mb = max(0.0, size_after_mb - size_before_mb)
+        else:
+            row_count, size_mb = count_after, size_after_mb
+        metrics.record_table_load(_table_details, table_name, duration, row_count, size_mb, catalog, schema_name)
     return duration
-
-def _print_benchmark_report():
-    """Print TPC-DI benchmark results in V1 format (steps, table-level stats, optional cost)."""
-    total_duration = (job_end_time - job_start_time) if job_end_time and job_start_time else 0
-    total_rows = sum(d["row_count"] for d in _table_details)
-    total_bytes = sum(d.get("bytes_processed") or 0 for d in _table_details)
-    total_mb = total_bytes / (1024 * 1024) if total_bytes else 0
-    rows_per_sec = total_rows / total_duration if total_duration > 0 else 0
-    mb_per_sec = total_mb / total_duration if total_duration > 0 else 0
-    completed = sum(1 for s in _steps if s.get("duration_seconds", 0) >= 0)
-    failed = 0
-
-    try:
-        worker_type = spark.conf.get("spark.databricks.clusterUsageTags.clusterNodeType", "N/A")
-        driver_type = spark.conf.get("spark.databricks.clusterUsageTags.clusterDriverNodeType", worker_type)
-        num_workers_str = spark.conf.get("spark.databricks.clusterUsageTags.clusterWorkers", "")
-        num_workers = int(num_workers_str) if num_workers_str else "N/A"
-    except Exception:
-        worker_type = driver_type = "N/A"
-        num_workers = "N/A"
-
-    sep = "=" * 80
-    lines = [
-        "",
-        sep,
-        "TPC-DI BENCHMARK RESULTS - DATABRICKS",
-        sep,
-        "Platform: databricks",
-        "Compute: classic",
-        f"Load Type: {load_type}",
-        f"Scale Factor: {sf}",
-        "",
-        "Cluster Configuration:",
-        f"  Worker Node Type: {worker_type}",
-        f"  Driver Node Type: {driver_type}",
-        f"  Number of Worker Nodes: {num_workers}",
-        "",
-        "Table Override: True",
-        "",
-        f"Total Duration: {total_duration:.2f} seconds",
-        "",
-        "Summary:",
-        f"  Total Steps: {len(_steps)}",
-        f"  Completed Steps: {completed}",
-        f"  Failed Steps: {failed}",
-        f"  Total Rows Processed: {total_rows:,}",
-        f"  Total Data Size: {total_mb:.2f} MB",
-        f"  Throughput: {rows_per_sec:.2f} rows/sec",
-        f"  Data Throughput: {mb_per_sec:.2f} MB/sec",
-        "",
-    ]
-
-    lines.append("DQ time per table (N/A for v2 SQL pipeline):")
-    lines.append("  (v2 does not run separate DQ step)")
-    lines.append("")
-
-    try:
-        from benchmark.cost import estimate_databricks_cost
-        cost = estimate_databricks_cost(
-            total_duration_seconds=total_duration,
-            cluster_worker_count=num_workers if isinstance(num_workers, int) else 4,
-            cluster_instance_type=worker_type if worker_type != "N/A" else None,
-            cluster_master_type=driver_type if driver_type != "N/A" else None,
-            databricks_compute_type="classic",
-            cloud="GCP",
-        )
-        if cost:
-            cb = cost.get("cost_breakdown") or {}
-            total_cost = cost.get("total_cost_usd")
-            dbu_cost = cost.get("dbu_cost_usd")
-            lines.append("Cost (estimated):")
-            if cb.get("compute_usd") is not None:
-                lines.append(f"  Compute: ${cb['compute_usd']:.2f}")
-            if cb.get("software_usd") is not None:
-                lines.append(f"  Software: ${cb['software_usd']:.2f}")
-            if total_cost is not None:
-                lines.append(f"  Total cost: ${total_cost:.2f}")
-            if dbu_cost is not None:
-                lines.append(f"  DBU cost: ${dbu_cost:.2f}")
-            lines.append("")
-    except Exception:
-        lines.append("Cost (estimated): N/A (benchmark.cost not available)")
-        lines.append("")
-
-    lines.append("Step Details:")
-    for s in _steps:
-        name = s.get("step_name", "?")
-        dur = s.get("duration_seconds", 0)
-        rows = s.get("rows_processed", 0)
-        icon = "✓"
-        lines.append(f"  {icon} {name}: {dur:.2f}s" + (f" ({rows:,} rows)" if rows else ""))
-    lines.append("")
-
-    lines.append("Table-level stats:")
-    lines.append(f"  Tables loaded:      {len(_table_details)}")
-    lines.append(f"  Total records:      {total_rows:,}")
-    lines.append(f"  Total data size:    {total_mb:.2f} MB")
-    lines.append(f"  Overall throughput: {rows_per_sec:,.1f} rows/s, {mb_per_sec:.2f} MB/s")
-    lines.append("  Per-table (duration, rows, size, throughput):")
-    for d in _table_details:
-        tbl = d.get("table", "?")
-        dur = d.get("duration_seconds") or 0
-        rows = d.get("row_count") or 0
-        b = d.get("bytes_processed") or 0
-        size_mb = b / (1024 * 1024) if b else 0
-        row_s = rows / dur if dur > 0 else 0
-        mb_s = size_mb / dur if dur > 0 else 0
-        lines.append(f"    - {tbl}: {dur:.2f}s, {rows:,} rows, {size_mb:.2f} MB, {row_s:,.1f} rows/s, {mb_s:.2f} MB/s")
-    lines.append(sep)
-    print("\n".join(lines))
 
 # COMMAND ----------
 
@@ -318,7 +183,7 @@ if is_incremental:
     _n_before = len(_table_details)
     for f in bronze_incremental_files:
         print(f"Bronze: {f}")
-        run_sql_multi_timed(f)
+        run_sql_multi_timed(f, incremental=True)
     _inc_bronze_rows = sum(d["row_count"] for d in _table_details[_n_before:])
     _steps.append({"step_name": "bronze_etl", "duration_seconds": time.time() - _inc_bronze_start, "rows_processed": _inc_bronze_rows})
 
@@ -326,7 +191,7 @@ if is_incremental:
     _n_before = len(_table_details)
     for f in silver_incremental_files:
         print(f"Silver: {f}")
-        run_sql_multi_timed(f)
+        run_sql_multi_timed(f, incremental=True)
     _inc_silver_rows = sum(d["row_count"] for d in _table_details[_n_before:])
     _steps.append({"step_name": "silver_etl", "duration_seconds": time.time() - _inc_silver_start, "rows_processed": _inc_silver_rows})
 
@@ -349,7 +214,7 @@ if is_incremental:
         run_sql(read_sql_file(f))
         base = f.replace("\\", "/").split("/")[-1].replace(".sql", "")
         opt_table = base.replace("optimize_", "") if base.startswith("optimize_") else base
-        _record_table_load("optimize:" + opt_table, time.time() - t0, 0, 0.0)
+        metrics.record_table_load(_table_details, "optimize:" + opt_table, time.time() - t0, 0, 0.0, catalog, schema_name)
     _steps.append({"step_name": "gold_optimize", "duration_seconds": time.time() - _opt_start, "rows_processed": 0})
 
     print("Gold: CREATE TABLE IF NOT EXISTS gold_dim_messages")
@@ -359,12 +224,12 @@ if is_incremental:
     _n_before = len(_table_details)
     for f in gold_incremental_files:
         print(f"Gold: {f}")
-        run_sql_multi_timed(f)
+        run_sql_multi_timed(f, incremental=True)
     _inc_gold_rows = sum(d["row_count"] for d in _table_details[_n_before:])
     _steps.append({"step_name": "gold_etl", "duration_seconds": time.time() - _inc_gold_start, "rows_processed": _inc_gold_rows})
 
     job_end_time = time.time()
-    _print_benchmark_report()
+    metrics.print_benchmark_report(spark, _steps, _table_details, job_start_time, job_end_time, catalog, schema_name, load_type, sf)
     dbutils.notebook.exit("Incremental load completed.")
 
 # COMMAND ----------
@@ -392,8 +257,8 @@ for nb_name, table_short in [("load_bronze_customer_mgmt", "bronze_customer_mgmt
     print(f"Bronze: {nb_name}")
     t0 = time.time()
     dbutils.notebook.run(bronze_notebook_dir + "/" + nb_name, timeout_seconds=600, arguments=params)
-    rc, sz = _get_table_stats(table_short)
-    _record_table_load(table_short, time.time() - t0, rc, sz)
+    rc, sz = metrics.get_table_stats(spark, catalog, schema_name, table_short)
+    metrics.record_table_load(_table_details, table_short, time.time() - t0, rc, sz, catalog, schema_name)
 
 bronze_sql_after_finwire = [
     "sql/bronze/load_bronze_trade.sql",
@@ -447,8 +312,8 @@ for nb_name, table_short in [("transform_silver_customers", "silver_customers"),
     print(f"Silver: {nb_name}")
     t0 = time.time()
     dbutils.notebook.run(silver_notebook_dir + "/" + nb_name, timeout_seconds=600, arguments=params)
-    rc, sz = _get_table_stats(table_short)
-    _record_table_load(table_short, time.time() - t0, rc, sz)
+    rc, sz = metrics.get_table_stats(spark, catalog, schema_name, table_short)
+    metrics.record_table_load(_table_details, table_short, time.time() - t0, rc, sz, catalog, schema_name)
 _silver_rows = sum(d["row_count"] for d in _table_details[_n_before_silver:])
 _steps.append({"step_name": "silver_etl", "duration_seconds": time.time() - _silver_start, "rows_processed": _silver_rows})
 
@@ -487,7 +352,7 @@ _gold_rows = sum(d["row_count"] for d in _table_details[_n_before_gold:])
 _steps.append({"step_name": "gold_etl", "duration_seconds": time.time() - _gold_start, "rows_processed": _gold_rows})
 
 job_end_time = time.time()
-_print_benchmark_report()
+metrics.print_benchmark_report(spark, _steps, _table_details, job_start_time, job_end_time, catalog, schema_name, load_type, sf)
 
 # COMMAND ----------
 
