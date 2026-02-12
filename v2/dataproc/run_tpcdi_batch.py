@@ -215,7 +215,7 @@ def main():
     job_start_time = time.time()
 
     def run_sql_timed(rel_path: str, use_pipe: bool = False):
-        global _total_refresh_seconds
+        nonlocal _total_refresh_seconds
         table_name = metrics.sql_file_to_table_name(rel_path)
         t0 = time.time()
         run_sql(read_sql_file(rel_path), use_pipe=use_pipe)
@@ -226,7 +226,7 @@ def main():
             metrics.record_table_load(_table_details, table_name, duration + refresh_sec, rc, sz, database)
 
     def run_sql_multi_timed(rel_path: str, use_pipe: bool = False):
-        global _total_refresh_seconds
+        nonlocal _total_refresh_seconds
         table_name = metrics.sql_file_to_table_name(rel_path)
         t0 = time.time()
         run_sql(read_sql_file(rel_path), use_pipe=use_pipe)
