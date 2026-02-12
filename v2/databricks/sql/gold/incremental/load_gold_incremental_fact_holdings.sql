@@ -8,10 +8,11 @@ WITH holdings_source AS (
         dd.sk_date_id,
         da.sk_account_id,
         ds.sk_security_id,
+        st.account_id,
+        st.symbol,
         shh.hh_after_qty AS quantity,
         st.trade_price AS purchase_price,
-        CAST(st.trade_dts AS DATE) AS purchase_date,
-        shh.batch_id
+        CAST(st.trade_dts AS DATE) AS purchase_date
     FROM __CATALOG__.__SCHEMA__.silver_holding_history shh
     INNER JOIN __CATALOG__.__SCHEMA__.silver_trades st
         ON shh.hh_t_id = st.trade_id
@@ -30,7 +31,7 @@ WITH holdings_source AS (
       AND st.is_current = true
 ),
 latest_holdings AS (
-    SELECT sk_date_id, sk_account_id, sk_security_id, quantity, purchase_price, purchase_date, batch_id
+    SELECT sk_date_id, sk_account_id, sk_security_id, account_id, symbol, quantity, purchase_price, purchase_date
     FROM holdings_source
     QUALIFY ROW_NUMBER() OVER (PARTITION BY sk_date_id, sk_account_id, sk_security_id ORDER BY purchase_date DESC, quantity DESC) = 1
 )
@@ -43,12 +44,11 @@ WHEN MATCHED THEN UPDATE SET
     target.quantity = source.quantity,
     target.purchase_price = source.purchase_price,
     target.purchase_date = source.purchase_date,
-    target.batch_id = source.batch_id,
     target.etl_timestamp = current_timestamp()
 WHEN NOT MATCHED THEN INSERT (
-    sk_date_id, sk_account_id, sk_security_id, quantity,
-    purchase_price, purchase_date, batch_id, etl_timestamp
+    sk_date_id, sk_account_id, sk_security_id, account_id, symbol, quantity,
+    purchase_price, purchase_date, etl_timestamp
 ) VALUES (
-    source.sk_date_id, source.sk_account_id, source.sk_security_id, source.quantity,
-    source.purchase_price, source.purchase_date, source.batch_id, current_timestamp()
+    source.sk_date_id, source.sk_account_id, source.sk_security_id, source.account_id, source.symbol, source.quantity,
+    source.purchase_price, source.purchase_date, current_timestamp()
 );
