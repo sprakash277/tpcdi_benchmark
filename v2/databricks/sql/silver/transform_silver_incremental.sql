@@ -193,8 +193,6 @@ SELECT
     account_name,
     tax_status,
     status_id,
-    NULL AS action_type,
-    cdc_dsn AS action_timestamp,
     CASE WHEN cdc_flag = 'D' THEN false ELSE true END AS is_current,
     cdc_dsn AS effective_date,
     NULL AS end_date,
@@ -556,8 +554,18 @@ SELECT
     try_cast(split_part(raw_line, ',', 18) AS INT) AS credit_rating,
     split_part(raw_line, ',', 19) AS own_or_rent_flag,
     split_part(raw_line, ',', 20) AS employer,
-    try_cast(split_part(raw_line, ',', 21) AS INT) AS number_credit_cards,
-    try_cast(split_part(raw_line, ',', 22) AS INT) AS net_worth,
+    try_cast(split_part(raw_line, ',', 21) AS BOOLEAN) AS is_customer,
+    try_cast(split_part(raw_line, ',', 22) AS BIGINT) AS net_worth,
+    array_join(
+        array_compact(
+            array(
+                CASE WHEN try_cast(split_part(raw_line, ',', 22) AS BIGINT) > 1000000 OR try_cast(split_part(raw_line, ',', 13) AS INT) > 200000 THEN 'HighValue' ELSE NULL END,
+                CASE WHEN try_cast(split_part(raw_line, ',', 17) AS INT) < 25 THEN 'YoungAdult' ELSE NULL END,
+                CASE WHEN try_cast(split_part(raw_line, ',', 18) AS INT) > 700 THEN 'HighCredit' ELSE NULL END
+            )
+        ),
+        ','
+    ) AS marketing_nameplate,
     __BATCH_ID__ AS batch_id,
     current_timestamp() AS load_timestamp
 FROM bronze_prospect
