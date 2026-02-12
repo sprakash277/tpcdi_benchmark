@@ -1,61 +1,36 @@
-# TPC-DI v2: SQL-Only Implementation
+# TPC-DI v2: run_tpcdi_batch + sql/
 
-This folder contains SQL-only implementations of the TPC-DI specification following the Medallion Architecture (Bronze → Silver → Gold).
+SQL-based TPC-DI pipeline on Databricks: one notebook (**run_tpcdi_batch**) runs Bronze → Silver → Gold using SQL under **sql/** and a few Python sub-notebooks.
 
 ## Structure
 
 ```
 v2/
-├── databricks/          # Databricks-specific SQL (Delta Lake, Unity Catalog)
-│   ├── bronze/          # Bronze layer DDL and DML
-│   ├── silver/          # Silver layer DDL and DML
-│   └── gold/            # Gold layer DDL and DML
-├── dataproc/            # Dataproc-specific SQL (Delta Lake on GCS)
-│   ├── bronze/          # Bronze layer DDL and DML
-│   ├── silver/          # Silver layer DDL and DML
-│   └── gold/            # Gold layer DDL and DML
-└── README.md            # This file
+├── databricks/
+│   ├── create_v2_workflow_notebook.py   # Creates Databricks job → run_tpcdi_batch
+│   ├── run_tpcdi_batch.py               # Main notebook (Bronze → Silver → Gold)
+│   ├── tpcdi_metrics.py                 # Metrics/reporting
+│   └── sql/
+│       ├── bronze/                      # Bronze SQL + batch/ (customer_mgmt, finwire .py)
+│       ├── silver/                      # Silver SQL + batch/ (customers, accounts .py)
+│       └── gold/                        # Gold SQL (load, incremental, optimize)
+├── run_v2_databricks.py                 # Helper: print execution guide
+└── RUN_V2.md                            # Full run instructions
 ```
 
-## Key Differences from v1
+## Usage (Databricks)
 
-- **SQL-only**: Pure SQL/DDL files, no Python ETL code
-- **Platform-specific**: Separate implementations for Databricks and Dataproc
-- **Spec-aligned**: Follows TPC-DI v1.1.0 specification exactly
-- **Medallion Architecture**: Clear separation of Bronze (raw), Silver (cleaned), Gold (business-ready)
+1. **Create job**: Open **databricks/create_v2_workflow_notebook.py**, set widgets, run → creates a job that runs **run_tpcdi_batch**.
+2. **Run pipeline**: Trigger the job (or open **run_tpcdi_batch** and run manually with widgets set).
 
-## Usage
+All SQL lives under **sql/bronze/**, **sql/silver/**, **sql/gold/**. Two Python steps use **sql/bronze/batch/** and **sql/silver/batch/** (CustomerMgmt/FinWire, customers/accounts).
 
-### Databricks
-Execute SQL files in order:
-1. `databricks/bronze/*.sql` - Create Bronze tables
-2. `databricks/silver/*.sql` - Create Silver tables and transformations
-3. `databricks/gold/*.sql` - Create Gold star schema tables
+## Batch vs incremental
 
-### Dataproc
-Execute SQL files in order:
-1. `dataproc/bronze/*.sql` - Create Bronze tables
-2. `dataproc/silver/*.sql` - Create Silver tables and transformations
-3. `dataproc/gold/*.sql` - Create Gold star schema tables
+- **load_type = batch**: Full load (Batch 1); run_tpcdi_batch runs bronze/silver/gold load SQL and sub-notebooks.
+- **load_type = incremental**: Incremental (Batch 2+); run_tpcdi_batch runs sql/bronze/incremental/, sql/silver/incremental/, sql/gold/incremental/ and gold optimize.
 
-## Batch vs Incremental
+## See also
 
-- **Batch 1 (Historical)**: Use `INSERT` statements
-- **Batch 2+ (Incremental)**: Use `MERGE` statements for SCD Type 2 dimensions
-
-## Schema Patterns
-
-### Bronze Layer
-- All columns as STRING (raw ingestion)
-- Metadata: `_batch_id`, `_load_timestamp`, `_source_file`
-
-### Silver Layer
-- Typed columns (parsed from Bronze)
-- SCD Type 2: `is_current`, `effective_date`, `end_date`
-- Business keys for MERGE operations
-
-### Gold Layer
-- Surrogate Keys (SK_*)
-- Star schema (dimensions + facts)
-- SCD Type 2 for dimensions (DimCustomer, DimAccount, DimSecurity)
-- Append-only facts (FactTrade, FactMarketHistory)
+- **RUN_V2.md** – Step-by-step run guide
+- **databricks/QUICK_START.md**, **databricks/WORKFLOW_README.md** – Workflow and quick start

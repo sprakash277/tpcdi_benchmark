@@ -261,7 +261,7 @@ for rel in bronze_sql_before_finwire:
     print(f"Bronze SQL: {rel}")
     run_sql_timed(rel)
 
-bronze_notebook_dir = (base_dir + "/bronze/batch") if base_dir else "bronze/batch"
+bronze_notebook_dir = (base_dir + "/sql/bronze/batch") if base_dir else "sql/bronze/batch"
 for nb_name, table_short in [("load_bronze_customer_mgmt", "bronze_customer_mgmt"), ("load_bronze_finwire", "bronze_finwire")]:
     print(f"Bronze: {nb_name}")
     t0 = time.time()
@@ -317,7 +317,7 @@ for rel in silver_sql_files:
 
 # COMMAND ----------
 
-silver_notebook_dir = base_dir + "/silver/batch" if base_dir else "silver/batch"
+silver_notebook_dir = (base_dir + "/sql/silver/batch") if base_dir else "sql/silver/batch"
 for nb_name, table_short in [("transform_silver_customers", "silver_customers"), ("transform_silver_accounts", "silver_accounts")]:
     print(f"Silver: {nb_name}")
     t0 = time.time()
