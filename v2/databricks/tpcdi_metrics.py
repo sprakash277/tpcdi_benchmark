@@ -32,7 +32,7 @@ def get_table_stats(
     use_refresh: bool = False,
 ) -> Tuple[int, float, float]:
     """Return (row_count, size_mb, refresh_seconds) for catalog.schema.table_short_name.
-    When use_refresh=True (batch), run REFRESH TABLE first so COUNT/DESCRIBE see current state; refresh_seconds is the time spent in refresh.
+    When use_refresh=True (batch), switch to catalog/schema and run REFRESH TABLE so COUNT/DESCRIBE see current state.
     When use_refresh=False (incremental), refresh_seconds is 0. Returns (0, 0.0, 0.0) if table missing or error."""
     full = f"{catalog}.{schema_name}.{table_short_name}"
     refresh_seconds = 0.0
@@ -42,8 +42,10 @@ def get_table_stats(
         if use_refresh:
             import time as _time
             t0 = _time.time()
+            spark.sql(f"USE CATALOG {catalog}")
+            spark.sql(f"USE SCHEMA {schema_name}")
             try:
-                spark.sql(f"REFRESH TABLE {full}")
+                spark.sql(f"REFRESH TABLE `{table_short_name}`")
             except Exception:
                 try:
                     spark.catalog.refreshTable(full)
