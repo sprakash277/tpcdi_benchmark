@@ -138,13 +138,16 @@ def main():
             f"sql/ not found under {base_dir}. When submitting to Dataproc: (1) use run_dataproc_job.sh from v2/dataproc (it creates sql.zip and passes --files=sql.zip), "
             "or (2) upload sql/ to GCS and pass --sql-base-path gs://bucket/path/to/v2/dataproc so the script reads SQL from GCS."
         )
-    # Configure GCS service account auth if provided (same as v1: fs.gs.auth.*; key file must be local)
+    # Configure GCS service account auth if provided. Key file path must exist on all nodes (driver + executors);
+    # a path that only exists on the driver (e.g. temp file from gs:// download) causes NPE on executors.
     service_account_email = (args.service_account_email or "").strip()
     service_account_key_file = (args.service_account_key_file or "").strip()
+    key_file_is_driver_only = False
     if service_account_email or service_account_key_file:
         key_file = service_account_key_file
         if key_file.startswith("gs://"):
-            # GCS connector expects a local key path; download from GCS to a temp file
+            # Download to temp on driver for any driver-side reads. Do NOT set keyfile in Hadoop config:
+            # executors do not have that temp path and GCS connector would NPE when opening it.
             import tempfile
             try:
                 content = spark.sparkContext.wholeTextFiles(key_file).collect()
@@ -153,10 +156,11 @@ def main():
                     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
                         f.write(json_str)
                         key_file = f.name
+                    key_file_is_driver_only = True
             except Exception as e:
                 print(f"WARN: Could not download key from {service_account_key_file}: {e}; using default GCS credentials")
                 key_file = ""
-        use_keyfile = service_account_email and key_file and os.path.isfile(key_file)
+        use_keyfile = service_account_email and key_file and os.path.isfile(key_file) and not key_file_is_driver_only
         try:
             hadoop_conf = spark.sparkContext._jsc.hadoopConfiguration()
             hadoop_conf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
@@ -168,7 +172,10 @@ def main():
                 print(f"Configured GCS access with service account key file: {service_account_email}")
             elif service_account_email:
                 hadoop_conf.set("fs.gs.auth.service.account.email", service_account_email)
-                print(f"Configured GCS access with service account email: {service_account_email}")
+                if key_file_is_driver_only:
+                    print(f"GCS: using service account email {service_account_email}; executors use default credentials (cluster SA must have bucket access)")
+                else:
+                    print(f"Configured GCS access with service account email: {service_account_email}")
         except Exception as e:
             print(f"WARN: Could not set GCS service account config: {e}")
 

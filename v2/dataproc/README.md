@@ -102,7 +102,9 @@ export SERVICE_ACCOUNT_KEY_FILE=gs://your-bucket/path/to/service_account.json
 ./run_dataproc_job.sh
 ```
 
-Or pass after `--` when calling `gcloud` directly: `--service-account-email ... --service-account-key-file ...`. Same behavior as v1: key file can be local or `gs://`; if `gs://`, the script downloads it so the GCS connector can use it.
+Or pass after `--` when calling `gcloud` directly: `--service-account-email ... --service-account-key-file ...`.
+
+**Executor GCS access:** The key file path is used only when it is a **local path that exists on every node** (e.g. copied by an init action). If you pass a `gs://` key path, the script downloads it on the driver but **does not** set it for the GCS connector (executors would NPE otherwise). In that case executors use the **cluster default credentials**; ensure the cluster service account has access to your GCS bucket.
 
 ## Silver customers/accounts
 
