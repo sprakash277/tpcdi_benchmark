@@ -11,6 +11,7 @@ dbutils.widgets.text("schema_name", "tpcdi_schema_sf10", "Schema Name")
 dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw Data Path")
 dbutils.widgets.text("sf", "10", "Scale Factor")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
+dbutils.widgets.dropdown("load_type", "batch", ["batch", "incremental"], "Load Type (batch = full load, incremental = batch 2+)")
 dbutils.widgets.text("xml_format", "com.databricks.spark.xml", "XML Format")
 dbutils.widgets.text("sql_base_path", "", "SQL base path (optional; default = notebook dir)")
 
@@ -23,6 +24,7 @@ schema_name = dbutils.widgets.get("schema_name")
 raw_data_path = dbutils.widgets.get("raw_data_path")
 sf = dbutils.widgets.get("sf")
 batch_id = dbutils.widgets.get("batch_id")
+load_type = dbutils.widgets.get("load_type") or "batch"
 xml_format = dbutils.widgets.get("xml_format") or "com.databricks.spark.xml"
 full_raw_data_path = f"{raw_data_path}/sf={sf}"
 sql_base_path = dbutils.widgets.get("sql_base_path") or ""
@@ -80,7 +82,31 @@ spark.sql(f"USE {catalog}.{schema_name}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Bronze
+# MAGIC ## Batch vs Incremental
+# MAGIC If load_type is "incremental", run incremental load (Bronze → Silver → Gold) and exit. Otherwise continue with batch load.
+
+# COMMAND ----------
+
+is_incremental = (load_type == "incremental")
+params = {"catalog": catalog, "schema_name": schema_name, "raw_data_path": raw_data_path, "sf": sf, "batch_id": batch_id, "xml_format": xml_format}
+
+if is_incremental:
+    bronze_incremental = (base_dir + "/bronze/03_load_bronze_incremental") if base_dir else "bronze/03_load_bronze_incremental"
+    silver_incremental = (base_dir + "/silver/03_transform_silver_incremental") if base_dir else "silver/03_transform_silver_incremental"
+    gold_incremental = (base_dir + "/gold/03_load_gold_incremental") if base_dir else "gold/03_load_gold_incremental"
+    print(f"Incremental load (batch_id={batch_id}): Bronze → Silver → Gold")
+    print(f"Running {bronze_incremental} ...")
+    dbutils.notebook.run(bronze_incremental, timeout_seconds=1200, arguments=params)
+    print(f"Running {silver_incremental} ...")
+    dbutils.notebook.run(silver_incremental, timeout_seconds=1200, arguments=params)
+    print(f"Running {gold_incremental} ...")
+    dbutils.notebook.run(gold_incremental, timeout_seconds=1200, arguments=params)
+    dbutils.notebook.exit("Incremental load completed.")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Bronze (Batch 1)
 
 # COMMAND ----------
 
@@ -96,7 +122,6 @@ for rel in bronze_sql_before_finwire:
     print(f"Bronze SQL: {rel}")
     run_sql(read_sql_file(rel))
 
-params = {"catalog": catalog, "schema_name": schema_name, "raw_data_path": raw_data_path, "sf": sf, "batch_id": batch_id, "xml_format": xml_format}
 bronze_notebook_dir = (base_dir + "/bronze/batch") if base_dir else "bronze/batch"
 print("Bronze: customer_mgmt")
 dbutils.notebook.run(bronze_notebook_dir + "/load_bronze_customer_mgmt", timeout_seconds=600, arguments=params)

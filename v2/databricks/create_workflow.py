@@ -18,6 +18,7 @@ dbutils.widgets.text("schema_name", "tpcdi_schema_sf10", "Schema name")
 dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw data path")
 dbutils.widgets.text("sf", "10", "Scale factor")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
+dbutils.widgets.dropdown("load_type", "batch", ["batch", "incremental"], "Load Type (batch = full load, incremental = batch 2+)")
 dbutils.widgets.text("xml_format", "com.databricks.spark.xml", "XML format")
 dbutils.widgets.text("sql_base_path", "", "SQL base path (optional)")
 
@@ -44,6 +45,7 @@ schema_name = dbutils.widgets.get("schema_name")
 raw_data_path = dbutils.widgets.get("raw_data_path")
 sf = dbutils.widgets.get("sf")
 batch_id = dbutils.widgets.get("batch_id")
+load_type = dbutils.widgets.get("load_type") or "batch"
 xml_format = dbutils.widgets.get("xml_format") or "com.databricks.spark.xml"
 sql_base_path = dbutils.widgets.get("sql_base_path")
 spark_version = dbutils.widgets.get("spark_version")
@@ -82,6 +84,7 @@ task = {
             "raw_data_path": raw_data_path,
             "sf": sf,
             "batch_id": batch_id,
+            "load_type": load_type,
             "xml_format": xml_format,
             "sql_base_path": sql_base_path or "",
         },
@@ -106,6 +109,7 @@ parameters = [
     {"name": "raw_data_path", "default": raw_data_path},
     {"name": "sf", "default": sf},
     {"name": "batch_id", "default": batch_id},
+    {"name": "load_type", "default": load_type},
     {"name": "xml_format", "default": xml_format},
     {"name": "sql_base_path", "default": sql_base_path or ""},
 ]
