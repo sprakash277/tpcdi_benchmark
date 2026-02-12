@@ -143,6 +143,16 @@ if is_incremental:
     for f in silver_incremental_files:
         print(f"Silver: {f}")
         run_sql_multi(read_sql_file(f))
+    gold_optimize_files = [
+        "sql/gold/optimize/optimize_gold_dim_company.sql",
+        "sql/gold/optimize/optimize_gold_dim_customer.sql",
+        "sql/gold/optimize/optimize_gold_dim_security.sql",
+        "sql/gold/optimize/optimize_gold_prospect.sql",
+    ]
+    print("Gold: OPTIMIZE ZORDER (before incremental load)")
+    for f in gold_optimize_files:
+        print(f"  {f}")
+        run_sql(read_sql_file(f))
     for f in gold_incremental_files:
         print(f"Gold: {f}")
         run_sql_multi(read_sql_file(f))

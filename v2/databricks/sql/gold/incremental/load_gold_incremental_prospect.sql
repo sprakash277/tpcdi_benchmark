@@ -1,9 +1,9 @@
 -- TPC-DI v2: Gold incremental - gold_prospect (Batch 2+)
--- SCD Type 1 (Upsert). Explicit INSERT for schema safety. is_customer and marketing_nameplate from Silver.
+-- SCD Type 1 (Upsert). Deduplicate source so one row per agency_id. Explicit INSERT for schema safety.
 -- Placeholders: __CATALOG__, __SCHEMA__, __BATCH_ID__
 
-MERGE INTO __CATALOG__.__SCHEMA__.gold_prospect AS target
-USING (
+-- Deduplicate source so only the LATEST record per agency_id updates the target
+WITH latest_silver_prospect AS (
     SELECT 
         agency_id,
         last_name,
@@ -31,7 +31,10 @@ USING (
         batch_id
     FROM __CATALOG__.__SCHEMA__.silver_prospect
     WHERE batch_id = __BATCH_ID__
-) AS source
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY agency_id ORDER BY load_timestamp DESC) = 1
+)
+MERGE INTO __CATALOG__.__SCHEMA__.gold_prospect AS target
+USING latest_silver_prospect AS source
 ON target.agency_id = source.agency_id
 WHEN MATCHED THEN UPDATE SET
     target.last_name = source.last_name,

@@ -1,9 +1,9 @@
 -- TPC-DI v2: Gold incremental - gold_financials (Batch 2+)
--- Join to gold_dim_company for sk_company_id (version active at posting_date). Explicit INSERT for schema safety.
+-- Join to gold_dim_company for sk_company_id. Deduplicate source so one row per (co_name_or_cik, year, quarter).
 -- Placeholders: __CATALOG__, __SCHEMA__, __BATCH_ID__
 
-MERGE INTO __CATALOG__.__SCHEMA__.gold_financials AS target
-USING (
+-- Deduplicate source so only the LATEST record per (co_name_or_cik, year, quarter) updates the target
+WITH latest_silver_financials AS (
     SELECT 
         COALESCE(dc.sk_company_id, -1) AS sk_company_id,
         sf.co_name_or_cik,
@@ -28,7 +28,10 @@ USING (
         AND sf.posting_date >= dc.start_date
         AND (dc.end_date IS NULL OR sf.posting_date < dc.end_date)
     WHERE sf.batch_id = __BATCH_ID__
-) AS source
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY sf.co_name_or_cik, sf.year, sf.quarter ORDER BY sf.posting_date DESC) = 1
+)
+MERGE INTO __CATALOG__.__SCHEMA__.gold_financials AS target
+USING latest_silver_financials AS source
 ON target.co_name_or_cik = source.co_name_or_cik
    AND target.year = source.year
    AND target.quarter = source.quarter

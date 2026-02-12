@@ -3,14 +3,15 @@
 -- Placeholders: __CATALOG__, __SCHEMA__, __BATCH_ID__
 -- Requires: gold_dim_security has is_current, start_date, end_date, sk_company_id. gold_dim_company has start_date, end_date.
 
--- Step 1: Expire old records in Gold (close current version when we have new data for this symbol)
-MERGE INTO __CATALOG__.__SCHEMA__.gold_dim_security AS target
-USING (
-    SELECT symbol, MIN(COALESCE(effective_date, load_timestamp)) AS effective_date
+-- Deduplicate source so only the LATEST record per symbol tries to CLOSE the existing Gold record
+WITH latest_silver_securities AS (
+    SELECT symbol, COALESCE(effective_date, load_timestamp) AS effective_date
     FROM __CATALOG__.__SCHEMA__.silver_securities
     WHERE batch_id = __BATCH_ID__
-    GROUP BY symbol
-) AS source
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY COALESCE(effective_date, load_timestamp) DESC) = 1
+)
+MERGE INTO __CATALOG__.__SCHEMA__.gold_dim_security AS target
+USING latest_silver_securities AS source
 ON target.symbol = source.symbol
    AND target.is_current = true
 WHEN MATCHED THEN UPDATE SET

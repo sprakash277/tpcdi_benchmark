@@ -3,15 +3,15 @@
 -- Placeholders: __CATALOG__, __SCHEMA__, __BATCH_ID__
 -- Requires: gold_dim_company has is_current, start_date, end_date. silver_companies has load_timestamp.
 
--- Step 1: Expire old records in Gold (close current version when we have new data for this company)
+-- Deduplicate source so only the LATEST record per company tries to CLOSE the existing Gold record
+WITH latest_silver_companies AS (
+    SELECT company_id, load_timestamp AS effective_date
+    FROM __CATALOG__.__SCHEMA__.silver_companies
+    WHERE batch_id = __BATCH_ID__
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY company_id ORDER BY load_timestamp DESC) = 1
+)
 MERGE INTO __CATALOG__.__SCHEMA__.gold_dim_company AS target
-USING (
-    SELECT
-        sc.company_id,
-        sc.load_timestamp AS effective_date
-    FROM __CATALOG__.__SCHEMA__.silver_companies sc
-    WHERE sc.batch_id = __BATCH_ID__
-) AS source
+USING latest_silver_companies AS source
 ON target.company_id = source.company_id
    AND target.is_current = true
 WHEN MATCHED THEN UPDATE SET

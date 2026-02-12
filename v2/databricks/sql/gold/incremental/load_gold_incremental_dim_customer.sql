@@ -2,14 +2,15 @@
 -- SCD Type 2: Close old versions then insert new versions (no overwrite of sk_customer_id).
 -- Placeholders: __CATALOG__, __SCHEMA__, __BATCH_ID__
 
--- Step 1: Expire old records in Gold (close current version when we have new data for this customer)
-MERGE INTO __CATALOG__.__SCHEMA__.gold_dim_customer AS target
-USING (
-    SELECT customer_id, MIN(COALESCE(effective_date, load_timestamp)) AS effective_date
+-- Deduplicate source so only the LATEST record per customer tries to CLOSE the existing Gold record
+WITH latest_silver_customers AS (
+    SELECT customer_id, COALESCE(effective_date, load_timestamp) AS effective_date
     FROM __CATALOG__.__SCHEMA__.silver_customers
     WHERE batch_id = __BATCH_ID__
-    GROUP BY customer_id
-) AS source
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY COALESCE(effective_date, load_timestamp) DESC) = 1
+)
+MERGE INTO __CATALOG__.__SCHEMA__.gold_dim_customer AS target
+USING latest_silver_customers AS source
 ON target.customer_id = source.customer_id
    AND target.is_current = true
 WHEN MATCHED THEN UPDATE SET
