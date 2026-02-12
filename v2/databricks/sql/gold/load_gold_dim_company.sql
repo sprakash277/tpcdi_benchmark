@@ -16,7 +16,7 @@ SELECT
     sc.founding_date,
     sc.ceo_name,
     true AS is_current,
-    COALESCE(sc.effective_date, sc.load_timestamp) AS start_date,
+    sc.load_timestamp AS start_date,
     CAST('9999-12-31' AS DATE) AS end_date,
     sc.batch_id,
     current_timestamp() AS etl_timestamp

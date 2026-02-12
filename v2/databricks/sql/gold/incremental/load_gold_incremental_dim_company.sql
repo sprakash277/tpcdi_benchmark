@@ -1,14 +1,14 @@
 -- TPC-DI v2: Gold incremental - gold_dim_company (Batch 2+)
 -- SCD Type 2: Close old versions then insert new versions (point-in-time reporting).
 -- Placeholders: __CATALOG__, __SCHEMA__, __BATCH_ID__
--- Requires: gold_dim_company has is_current, start_date, end_date; silver_companies has effective_date (or use load_timestamp).
+-- Requires: gold_dim_company has is_current, start_date, end_date; silver_companies has load_timestamp.
 
 -- Step 1: Expire old records in Gold (close current version when we have new data for this company)
 MERGE INTO __CATALOG__.__SCHEMA__.gold_dim_company AS target
 USING (
     SELECT
         sc.company_id,
-        COALESCE(sc.effective_date, sc.load_timestamp) AS effective_date
+        sc.load_timestamp AS effective_date
     FROM __CATALOG__.__SCHEMA__.silver_companies sc
     WHERE sc.batch_id = __BATCH_ID__
 ) AS source
@@ -19,7 +19,7 @@ WHEN MATCHED THEN UPDATE SET
     target.end_date = source.effective_date,
     target.etl_timestamp = current_timestamp();
 
--- Step 2: Insert the new version (use effective_date for start_date; sector NULLs handled via COALESCE)
+-- Step 2: Insert the new version (use load_timestamp for start_date; sector NULLs handled via COALESCE)
 INSERT INTO __CATALOG__.__SCHEMA__.gold_dim_company
 SELECT
     sc.sk_company_id,
@@ -38,7 +38,7 @@ SELECT
     sc.founding_date,
     sc.ceo_name,
     true AS is_current,
-    COALESCE(sc.effective_date, sc.load_timestamp) AS start_date,
+    sc.load_timestamp AS start_date,
     CAST('9999-12-31' AS DATE) AS end_date,
     __BATCH_ID__ AS batch_id,
     current_timestamp() AS etl_timestamp

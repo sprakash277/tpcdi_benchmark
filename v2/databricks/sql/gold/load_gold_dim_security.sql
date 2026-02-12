@@ -14,7 +14,7 @@ SELECT
     COALESCE(dc.sk_company_id, -1) AS sk_company_id,
     ss.co_name_or_cik AS company_id,
     true AS is_current,
-    COALESCE(ss.effective_date, ss.load_timestamp) AS start_date,
+    ss.load_timestamp AS start_date,
     CAST('9999-12-31' AS DATE) AS end_date,
     ss.batch_id,
     current_timestamp() AS etl_timestamp
@@ -22,6 +22,6 @@ FROM __CATALOG__.__SCHEMA__.silver_securities ss
 LEFT JOIN __CATALOG__.__SCHEMA__.gold_dim_company dc
     ON ss.co_name_or_cik = dc.company_id
    AND dc.is_current = true
-   AND COALESCE(ss.effective_date, ss.load_timestamp) >= dc.start_date
-   AND (dc.end_date IS NULL OR COALESCE(ss.effective_date, ss.load_timestamp) < dc.end_date)
+   AND ss.load_timestamp >= dc.start_date
+   AND (dc.end_date IS NULL OR ss.load_timestamp < dc.end_date)
 WHERE ss.batch_id = __BATCH_ID__
