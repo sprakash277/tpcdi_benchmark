@@ -92,6 +92,7 @@ def run_sql_multi(sql_content, use_pipe_placeholder=False):
 # --- Timed runners call into tpcdi_metrics for stats
 def run_sql_timed(rel_path, use_pipe_placeholder=False):
     """Run single-statement SQL file and record duration + table stats. Uses REFRESH for batch so stats see current state."""
+    global _total_refresh_seconds
     table_name = metrics.sql_file_to_table_name(rel_path)
     t0 = time.time()
     run_sql(read_sql_file(rel_path), use_pipe_placeholder=use_pipe_placeholder)
