@@ -22,11 +22,17 @@ SELECT
     FALSE AS late_arriving_flag,
     current_timestamp() AS etl_timestamp
 FROM __CATALOG__.__SCHEMA__.silver_trades st
-INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_date dd ON DATE(st.trade_dts) = dd.date_value
-LEFT JOIN __CATALOG__.__SCHEMA__.gold_dim_time dt ON HOUR(st.trade_dts) = dt.hour_id
-INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_account da ON st.account_id = da.account_id
-INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_customer dc ON da.customer_id = dc.customer_id
-INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_security ds ON st.symbol = ds.symbol
-INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_trade_type dtt ON st.trade_type_id = dtt.trade_type_id
+INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_date dd
+    ON CAST(st.trade_dts AS DATE) = dd.date_value
+INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_time dt
+    ON date_format(st.trade_dts, 'HH:mm:ss') = dt.time_value
+INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_account da
+    ON st.account_id = da.account_id
+INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_customer dc
+    ON da.customer_id = dc.customer_id
+INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_security ds
+    ON st.symbol = ds.symbol
+INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_trade_type dtt
+    ON st.trade_type_id = dtt.trade_type_id
 WHERE st.batch_id = __BATCH_ID__
   AND st.is_current = true
