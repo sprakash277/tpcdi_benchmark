@@ -27,8 +27,7 @@ WITH latest_silver_prospect AS (
         employer,
         is_customer,
         net_worth,
-        marketing_nameplate,
-        batch_id
+        marketing_nameplate
     FROM __CATALOG__.__SCHEMA__.silver_prospect
     WHERE batch_id = __BATCH_ID__
     QUALIFY ROW_NUMBER() OVER (PARTITION BY agency_id ORDER BY load_timestamp DESC) = 1
@@ -59,14 +58,13 @@ WHEN MATCHED THEN UPDATE SET
     target.is_customer = source.is_customer,
     target.net_worth = source.net_worth,
     target.marketing_nameplate = source.marketing_nameplate,
-    target.batch_id = source.batch_id,
     target.etl_timestamp = current_timestamp()
 WHEN NOT MATCHED THEN INSERT (
     agency_id, last_name, first_name, middle_initial, gender,
     address_line1, address_line2, postal_code, city, state, country,
     phone, income, number_cars, number_children, marital_status,
     age, credit_rating, own_or_rent_flag, employer, is_customer,
-    net_worth, marketing_nameplate, batch_id, etl_timestamp
+    net_worth, marketing_nameplate, etl_timestamp
 ) VALUES (
     source.agency_id, source.last_name, source.first_name, source.middle_initial,
     source.gender, source.address_line1, source.address_line2, source.postal_code,
@@ -74,5 +72,5 @@ WHEN NOT MATCHED THEN INSERT (
     source.number_cars, source.number_children, source.marital_status,
     source.age, source.credit_rating, source.own_or_rent_flag, source.employer,
     source.is_customer, source.net_worth, source.marketing_nameplate,
-    source.batch_id, current_timestamp()
+    current_timestamp()
 );
