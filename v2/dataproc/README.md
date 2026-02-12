@@ -89,6 +89,20 @@ spark-submit \
 | --load-type        | `batch` or `incremental` |
 | --sql-base-path    | Base dir for sql/ (default: script dir) |
 | --xml-format       | XML reader for CustomerMgmt (default: com.databricks.spark.xml) |
+| --service-account-email | Optional. Service account email for GCS access (same as v1). |
+| --service-account-key-file | Optional. Path to SA JSON key file (local or `gs://`). If `gs://`, the runner downloads it to a temp file for Spark. |
+
+## Service account (GCS)
+
+To use a specific service account for GCS (e.g. when the cluster default cannot access the bucket), set both:
+
+```bash
+export SERVICE_ACCOUNT_EMAIL=your-sa@project.iam.gserviceaccount.com
+export SERVICE_ACCOUNT_KEY_FILE=gs://your-bucket/path/to/service_account.json
+./run_dataproc_job.sh
+```
+
+Or pass after `--` when calling `gcloud` directly: `--service-account-email ... --service-account-key-file ...`. Same behavior as v1: key file can be local or `gs://`; if `gs://`, the script downloads it so the GCS connector can use it.
 
 ## Silver customers/accounts
 

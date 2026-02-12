@@ -14,6 +14,9 @@ DATABASE="${DATABASE:-tpcdi_dw}"
 SF="${SF:-10}"
 LOAD_TYPE="${LOAD_TYPE:-batch}"
 BATCH_ID="${BATCH_ID:-1}"
+# Optional: service account for GCS (same as v1)
+SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_EMAIL:-}"
+SERVICE_ACCOUNT_KEY_FILE="${SERVICE_ACCOUNT_KEY_FILE:-}"
 
 # JARs: Delta Lake (GCS or set DELTA_JAR); spark-xml from v2/dataproc/libs or set SPARK_XML_JAR
 DELTA_JAR="${DELTA_JAR:-gs://spark-lib/delta/delta-core_2.12-2.4.0.jar}"
@@ -40,4 +43,6 @@ gcloud dataproc jobs submit pyspark run_tpcdi_batch.py \
   --raw-data-path "$RAW_DATA_PATH" \
   --sf "$SF" \
   --load-type "$LOAD_TYPE" \
-  --batch-id "$BATCH_ID"
+  --batch-id "$BATCH_ID" \
+  $([ -n "$SERVICE_ACCOUNT_EMAIL" ] && echo "--service-account-email $SERVICE_ACCOUNT_EMAIL") \
+  $([ -n "$SERVICE_ACCOUNT_KEY_FILE" ] && echo "--service-account-key-file $SERVICE_ACCOUNT_KEY_FILE")

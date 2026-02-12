@@ -69,6 +69,8 @@ def main():
     parser.add_argument("--load-type", choices=["batch", "incremental"], default="batch")
     parser.add_argument("--sql-base-path", default="", help="Base dir for sql/ (default: script dir)")
     parser.add_argument("--xml-format", default="com.databricks.spark.xml", help="XML reader for CustomerMgmt")
+    parser.add_argument("--service-account-email", default="", help="Service account email for GCS (optional)")
+    parser.add_argument("--service-account-key-file", default="", help="Path to SA JSON key file (local or gs://); local required for Spark GCS auth")
     args = parser.parse_args()
 
     database = args.database
@@ -112,6 +114,40 @@ def main():
             f"sql/ not found under {base_dir}. When submitting to Dataproc, use run_dataproc_job.sh (it bundles sql.zip via --files) "
             "or upload sql/ to GCS and pass --sql-base-path gs://bucket/path/to/dataproc"
         )
+    # Configure GCS service account auth if provided (same as v1: fs.gs.auth.*; key file must be local)
+    service_account_email = (args.service_account_email or "").strip()
+    service_account_key_file = (args.service_account_key_file or "").strip()
+    if service_account_email or service_account_key_file:
+        key_file = service_account_key_file
+        if key_file.startswith("gs://"):
+            # GCS connector expects a local key path; download from GCS to a temp file
+            import tempfile
+            try:
+                content = spark.sparkContext.wholeTextFiles(key_file).collect()
+                if content:
+                    _, json_str = content[0]
+                    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+                        f.write(json_str)
+                        key_file = f.name
+            except Exception as e:
+                print(f"WARN: Could not download key from {service_account_key_file}: {e}; using default GCS credentials")
+                key_file = ""
+        use_keyfile = service_account_email and key_file and os.path.isfile(key_file)
+        try:
+            hadoop_conf = spark.sparkContext._jsc.hadoopConfiguration()
+            hadoop_conf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
+            hadoop_conf.set("fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
+            if use_keyfile:
+                hadoop_conf.set("fs.gs.auth.type", "SERVICE_ACCOUNT_JSON_KEYFILE")
+                hadoop_conf.set("fs.gs.auth.service.account.email", service_account_email)
+                hadoop_conf.set("fs.gs.auth.service.account.keyfile", key_file)
+                print(f"Configured GCS access with service account key file: {service_account_email}")
+            elif service_account_email:
+                hadoop_conf.set("fs.gs.auth.service.account.email", service_account_email)
+                print(f"Configured GCS access with service account email: {service_account_email}")
+        except Exception as e:
+            print(f"WARN: Could not set GCS service account config: {e}")
+
     # Create database with explicit GCS location so tables live in same bucket as raw data
     spark.sql(f"CREATE DATABASE IF NOT EXISTS {database} LOCATION '{database_location}'")
     spark.sql(f"USE {database}")
