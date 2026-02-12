@@ -27,7 +27,7 @@ BRONZE_BATCH_PATHS = {
     "bronze_cash_transaction": ("Batch1/CashTransaction.txt", "CashTransaction.txt"),
     "bronze_holding_history": ("Batch1/HoldingHistory.txt", "HoldingHistory.txt"),
     "bronze_watch_history": ("Batch1/WatchHistory.txt", "WatchHistory.txt"),
-    "bronze_hr": ("Batch1/HR.txt", "HR.txt"),
+    "bronze_hr": ("Batch1/HR.csv", "HR.csv"),
     "bronze_prospect": ("Batch1/Prospect.csv", "Prospect.csv"),
 }
 # Bronze incremental: table -> (path pattern with {batch_id}, source_file)
