@@ -26,5 +26,5 @@ FROM __CATALOG__.__SCHEMA__.bronze_trade
 WHERE _batch_id = __BATCH_ID__
   AND raw_line IS NOT NULL
   AND raw_line != ''
-  -- Size check; Batch 1 Trade.txt typically has 14 columns
+  -- Size check: Batch 1 Trade.txt typically has 14 columns
   AND size(split(raw_line, '|')) >= 14
