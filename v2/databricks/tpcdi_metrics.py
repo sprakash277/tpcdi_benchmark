@@ -38,6 +38,7 @@ def get_table_stats(
     refresh_seconds = 0.0
     try:
         if not spark.catalog.tableExists(full):
+            print(f"[get_table_stats] Table not found: {full}")
             return 0, 0.0, 0.0
         if use_refresh:
             import time as _time
@@ -57,7 +58,8 @@ def get_table_stats(
         size_bytes = detail.get("sizeInBytes") or 0
         size_mb = size_bytes / (1024 * 1024) if size_bytes else 0.0
         return row_count, size_mb, refresh_seconds
-    except Exception:
+    except Exception as e:
+        print(f"[get_table_stats] {full}: {type(e).__name__}: {e}")
         return 0, 0.0, 0.0
 
 
