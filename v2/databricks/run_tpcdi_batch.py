@@ -102,13 +102,50 @@ is_incremental = (load_type == "incremental")
 params = {"catalog": catalog, "schema_name": schema_name, "raw_data_path": raw_data_path, "sf": sf, "batch_id": batch_id, "xml_format": xml_format}
 
 if is_incremental:
-    print(f"Incremental load (batch_id={batch_id}): Bronze → Silver → Gold (SQL pattern)")
-    print("Bronze: load_bronze_incremental.sql")
-    run_sql_multi(read_sql_file("sql/bronze/load_bronze_incremental.sql"))
-    print("Silver: transform_silver_incremental.sql")
-    run_sql_multi(read_sql_file("sql/silver/transform_silver_incremental.sql"))
-    print("Gold: load_gold_incremental.sql")
-    run_sql_multi(read_sql_file("sql/gold/load_gold_incremental.sql"))
+    print(f"Incremental load (batch_id={batch_id}): Bronze → Silver → Gold (per-table SQL)")
+    bronze_incremental_files = [
+        "sql/bronze/incremental/load_bronze_incremental_customer.sql",
+        "sql/bronze/incremental/load_bronze_incremental_account.sql",
+        "sql/bronze/incremental/load_bronze_incremental_trade.sql",
+        "sql/bronze/incremental/load_bronze_incremental_daily_market.sql",
+        "sql/bronze/incremental/load_bronze_incremental_cash_transaction.sql",
+        "sql/bronze/incremental/load_bronze_incremental_holding_history.sql",
+        "sql/bronze/incremental/load_bronze_incremental_watch_history.sql",
+        "sql/bronze/incremental/load_bronze_incremental_prospect.sql",
+    ]
+    silver_incremental_files = [
+        "sql/silver/incremental/transform_silver_incremental_customers.sql",
+        "sql/silver/incremental/transform_silver_incremental_accounts.sql",
+        "sql/silver/incremental/transform_silver_incremental_trades.sql",
+        "sql/silver/incremental/transform_silver_incremental_daily_market.sql",
+        "sql/silver/incremental/transform_silver_incremental_cash_transaction.sql",
+        "sql/silver/incremental/transform_silver_incremental_holding_history.sql",
+        "sql/silver/incremental/transform_silver_incremental_watch_history.sql",
+        "sql/silver/incremental/transform_silver_incremental_prospect.sql",
+    ]
+    gold_incremental_files = [
+        "sql/gold/incremental/load_gold_incremental_dim_customer.sql",
+        "sql/gold/incremental/load_gold_incremental_dim_account.sql",
+        "sql/gold/incremental/load_gold_incremental_dim_security.sql",
+        "sql/gold/incremental/load_gold_incremental_dim_company.sql",
+        "sql/gold/incremental/load_gold_incremental_financials.sql",
+        "sql/gold/incremental/load_gold_incremental_fact_trade.sql",
+        "sql/gold/incremental/load_gold_incremental_dim_messages.sql",
+        "sql/gold/incremental/load_gold_incremental_fact_market_history.sql",
+        "sql/gold/incremental/load_gold_incremental_fact_cash_balances.sql",
+        "sql/gold/incremental/load_gold_incremental_fact_holdings.sql",
+        "sql/gold/incremental/load_gold_incremental_fact_watches.sql",
+        "sql/gold/incremental/load_gold_incremental_prospect.sql",
+    ]
+    for f in bronze_incremental_files:
+        print(f"Bronze: {f}")
+        run_sql_multi(read_sql_file(f))
+    for f in silver_incremental_files:
+        print(f"Silver: {f}")
+        run_sql_multi(read_sql_file(f))
+    for f in gold_incremental_files:
+        print(f"Gold: {f}")
+        run_sql_multi(read_sql_file(f))
     dbutils.notebook.exit("Incremental load completed.")
 
 # COMMAND ----------
