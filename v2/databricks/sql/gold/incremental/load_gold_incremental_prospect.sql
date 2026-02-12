@@ -1,5 +1,5 @@
 -- TPC-DI v2: Gold incremental - gold_prospect (Batch 2+)
--- SCD Type 1 (Upsert). Explicit INSERT for schema safety; is_customer and marketing_nameplate from Silver.
+-- SCD Type 1 (Upsert). Explicit INSERT for schema safety. is_customer and marketing_nameplate from Silver.
 -- Placeholders: __CATALOG__, __SCHEMA__, __BATCH_ID__
 
 MERGE INTO __CATALOG__.__SCHEMA__.gold_prospect AS target

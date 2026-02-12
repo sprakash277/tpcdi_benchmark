@@ -1,7 +1,7 @@
 -- TPC-DI v2: Gold incremental - gold_dim_company (Batch 2+)
 -- SCD Type 2: Close old versions then insert new versions (point-in-time reporting).
 -- Placeholders: __CATALOG__, __SCHEMA__, __BATCH_ID__
--- Requires: gold_dim_company has is_current, start_date, end_date; silver_companies has load_timestamp.
+-- Requires: gold_dim_company has is_current, start_date, end_date. silver_companies has load_timestamp.
 
 -- Step 1: Expire old records in Gold (close current version when we have new data for this company)
 MERGE INTO __CATALOG__.__SCHEMA__.gold_dim_company AS target
@@ -19,7 +19,7 @@ WHEN MATCHED THEN UPDATE SET
     target.end_date = source.effective_date,
     target.etl_timestamp = current_timestamp();
 
--- Step 2: Insert the new version (use load_timestamp for start_date; sector NULLs handled via COALESCE)
+-- Step 2: Insert the new version (use load_timestamp for start_date, sector NULLs handled via COALESCE)
 INSERT INTO __CATALOG__.__SCHEMA__.gold_dim_company
 SELECT
     sc.sk_company_id,
@@ -47,4 +47,4 @@ LEFT JOIN __CATALOG__.__SCHEMA__.silver_industry si ON sc.industry_id = si.in_id
 WHERE sc.batch_id = __BATCH_ID__;
 
 -- Optional: Z-Order by company_id for join performance when gold_dim_company is large
--- OPTIMIZE __CATALOG__.__SCHEMA__.gold_dim_company ZORDER BY (company_id);
+-- OPTIMIZE __CATALOG__.__SCHEMA__.gold_dim_company ZORDER BY (company_id)

@@ -1,7 +1,7 @@
 -- TPC-DI v2: Gold incremental - gold_dim_account (Batch 2+)
 -- SCD Type 2: Close old versions then insert new versions with sk_customer_id from gold_dim_customer.
 -- Placeholders: __CATALOG__, __SCHEMA__, __BATCH_ID__
--- Requires: gold_dim_account has is_current, start_date, end_date, sk_customer_id; gold_dim_customer has start_date, end_date.
+-- Requires: gold_dim_account has is_current, start_date, end_date, sk_customer_id. gold_dim_customer has start_date, end_date.
 
 -- Step 1: Expire old versions in Gold (close records that were updated or deleted in this batch)
 MERGE INTO __CATALOG__.__SCHEMA__.gold_dim_account AS target

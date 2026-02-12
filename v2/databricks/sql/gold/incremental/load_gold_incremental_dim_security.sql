@@ -1,7 +1,7 @@
 -- TPC-DI v2: Gold incremental - gold_dim_security (Batch 2+)
 -- SCD Type 2: Close old versions then insert new versions with sk_company_id from gold_dim_company.
 -- Placeholders: __CATALOG__, __SCHEMA__, __BATCH_ID__
--- Requires: gold_dim_security has is_current, start_date, end_date, sk_company_id; gold_dim_company has start_date, end_date.
+-- Requires: gold_dim_security has is_current, start_date, end_date, sk_company_id. gold_dim_company has start_date, end_date.
 
 -- Step 1: Expire old records in Gold (close current version when we have new data for this symbol)
 MERGE INTO __CATALOG__.__SCHEMA__.gold_dim_security AS target
