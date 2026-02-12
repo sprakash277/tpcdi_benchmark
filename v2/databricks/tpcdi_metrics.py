@@ -55,7 +55,12 @@ def get_table_stats(
             refresh_seconds = _time.time() - t0
         row_count = spark.sql(f"SELECT COUNT(*) AS cnt FROM {full}").collect()[0]["cnt"]
         detail = spark.sql(f"DESCRIBE DETAIL {full}").collect()[0]
-        size_bytes = detail.get("sizeInBytes") or 0
+        size_bytes = 0
+        try:
+            size_bytes = detail["sizeInBytes"]
+        except (KeyError, TypeError, AttributeError):
+            size_bytes = getattr(detail, "sizeInBytes", 0)
+        size_bytes = size_bytes or 0
         size_mb = size_bytes / (1024 * 1024) if size_bytes else 0.0
         return row_count, size_mb, refresh_seconds
     except Exception as e:
