@@ -73,6 +73,17 @@ def run_sql(sql_content, use_pipe_placeholder=False):
         s = s.replace("__PIPE__", "\\|")
     spark.sql(s)
 
+def run_sql_multi(sql_content, use_pipe_placeholder=False):
+    """Replace placeholders and run each statement (split by semicolon)."""
+    s = sql_content.replace("__CATALOG__", catalog).replace("__SCHEMA__", schema_name)
+    s = s.replace("__RAW_DATA_PATH__", full_raw_data_path).replace("__BATCH_ID__", str(batch_id))
+    if use_pipe_placeholder:
+        s = s.replace("__PIPE__", "\\|")
+    for stmt in s.split(";"):
+        stmt = stmt.strip()
+        if stmt and not all(line.strip().startswith("--") or not line.strip() for line in stmt.split("\n")):
+            spark.sql(stmt)
+
 # COMMAND ----------
 
 spark.sql(f"USE CATALOG {catalog}")
@@ -91,16 +102,13 @@ is_incremental = (load_type == "incremental")
 params = {"catalog": catalog, "schema_name": schema_name, "raw_data_path": raw_data_path, "sf": sf, "batch_id": batch_id, "xml_format": xml_format}
 
 if is_incremental:
-    bronze_incremental = (base_dir + "/bronze/03_load_bronze_incremental") if base_dir else "bronze/03_load_bronze_incremental"
-    silver_incremental = (base_dir + "/silver/03_transform_silver_incremental") if base_dir else "silver/03_transform_silver_incremental"
-    gold_incremental = (base_dir + "/gold/03_load_gold_incremental") if base_dir else "gold/03_load_gold_incremental"
-    print(f"Incremental load (batch_id={batch_id}): Bronze → Silver → Gold")
-    print(f"Running {bronze_incremental} ...")
-    dbutils.notebook.run(bronze_incremental, timeout_seconds=1200, arguments=params)
-    print(f"Running {silver_incremental} ...")
-    dbutils.notebook.run(silver_incremental, timeout_seconds=1200, arguments=params)
-    print(f"Running {gold_incremental} ...")
-    dbutils.notebook.run(gold_incremental, timeout_seconds=1200, arguments=params)
+    print(f"Incremental load (batch_id={batch_id}): Bronze → Silver → Gold (SQL pattern)")
+    print("Bronze: load_bronze_incremental.sql")
+    run_sql_multi(read_sql_file("sql/bronze/load_bronze_incremental.sql"))
+    print("Silver: transform_silver_incremental.sql")
+    run_sql_multi(read_sql_file("sql/silver/transform_silver_incremental.sql"), use_pipe_placeholder=True)
+    print("Gold: load_gold_incremental.sql")
+    run_sql_multi(read_sql_file("sql/gold/load_gold_incremental.sql"))
     dbutils.notebook.exit("Incremental load completed.")
 
 # COMMAND ----------
