@@ -51,10 +51,12 @@ When using multi-line commands, ensure each line ends with `\` with no space aft
 ```bash
 cd v2/dataproc
 zip -q tpcdi_metrics.zip tpcdi_metrics.py
+zip -q sql.zip sql/
 
 gcloud dataproc jobs submit pyspark run_tpcdi_batch.py \
   --cluster=my-cluster --region=us-central1 --project=my-project \
   --py-files=tpcdi_metrics.zip \
+  --files=sql.zip \
   --jars=gs://spark-lib/delta/delta-core_2.12-2.4.0.jar,libs/spark-xml_2.12-0.18.0.jar \
   --properties=spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension,spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
   -- \

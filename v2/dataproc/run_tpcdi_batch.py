@@ -11,6 +11,7 @@ import os
 import re
 import sys
 import time
+import zipfile
 from pathlib import Path
 
 # Bronze batch: table short name -> (path_suffix under raw_path/sf=X/, source_file label)
@@ -80,12 +81,14 @@ def main():
     warehouse_dir = f"{raw_data_path}/warehouse"
     database_location = f"{warehouse_dir}/{database}.db"
 
-    base_dir = args.sql_base_path or str(Path(__file__).resolve().parent)
+    script_dir = Path(__file__).resolve().parent
+    base_dir = args.sql_base_path or str(script_dir)
     if base_dir not in sys.path:
         sys.path.insert(0, base_dir)
     import tpcdi_metrics as metrics
 
     from pyspark.sql import SparkSession
+    from pyspark import SparkFiles
     spark = (
         SparkSession.builder.appName("TPC-DI-v2-Dataproc")
         .config("spark.sql.warehouse.dir", warehouse_dir)
@@ -93,6 +96,22 @@ def main():
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
         .getOrCreate()
     )
+    # On Dataproc only the main script and --py-files are uploaded; sql/ is missing. Unzip sql.zip from --files if present.
+    if not (Path(base_dir) / "sql").exists():
+        zip_path = None
+        try:
+            zip_path = SparkFiles.get("sql.zip")
+        except Exception:
+            pass
+        if zip_path and Path(zip_path).exists():
+            with zipfile.ZipFile(zip_path, "r") as z:
+                z.extractall(script_dir)
+            base_dir = str(script_dir)
+    if not (Path(base_dir) / "sql").exists():
+        raise FileNotFoundError(
+            f"sql/ not found under {base_dir}. When submitting to Dataproc, use run_dataproc_job.sh (it bundles sql.zip via --files) "
+            "or upload sql/ to GCS and pass --sql-base-path gs://bucket/path/to/dataproc"
+        )
     # Create database with explicit GCS location so tables live in same bucket as raw data
     spark.sql(f"CREATE DATABASE IF NOT EXISTS {database} LOCATION '{database_location}'")
     spark.sql(f"USE {database}")

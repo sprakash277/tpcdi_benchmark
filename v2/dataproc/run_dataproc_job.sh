@@ -23,14 +23,16 @@ if [ ! -f "$SPARK_XML_JAR" ]; then
 fi
 JARS="$DELTA_JAR,$SPARK_XML_JAR"
 
-# Package metrics so runner can import it
+# Package metrics and sql/ so runner can read SQL files on the cluster (only main script + py-files are uploaded by default)
 zip -q -r tpcdi_metrics.zip tpcdi_metrics.py 2>/dev/null || true
+zip -q -r sql.zip sql/ 2>/dev/null || true
 
 gcloud dataproc jobs submit pyspark run_tpcdi_batch.py \
   --cluster="$CLUSTER" \
   --region="$REGION" \
   --project="$PROJECT" \
   --py-files=tpcdi_metrics.zip \
+  --files=sql.zip \
   --jars="$JARS" \
   --properties=spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension,spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
   -- \
