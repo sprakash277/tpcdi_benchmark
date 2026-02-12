@@ -28,7 +28,15 @@ JARS="$DELTA_JAR,$SPARK_XML_JAR"
 
 # Package metrics and sql/ so runner can read SQL files on the cluster (only main script + py-files are uploaded by default)
 zip -q -r tpcdi_metrics.zip tpcdi_metrics.py 2>/dev/null || true
+if [ ! -d "sql" ]; then
+  echo "ERROR: sql/ directory not found in $SCRIPT_DIR. Run this script from v2/dataproc."
+  exit 1
+fi
 zip -q -r sql.zip sql/ 2>/dev/null || true
+if [ ! -f "sql.zip" ]; then
+  echo "ERROR: failed to create sql.zip in $SCRIPT_DIR"
+  exit 1
+fi
 
 gcloud dataproc jobs submit pyspark run_tpcdi_batch.py \
   --cluster="$CLUSTER" \

@@ -98,21 +98,45 @@ def main():
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
         .getOrCreate()
     )
-    # On Dataproc only the main script and --py-files are uploaded; sql/ is missing. Unzip sql.zip from --files if present.
+    # On Dataproc only the main script and --py-files are uploaded; sql/ is missing. Unzip sql.zip if found.
     if not (Path(base_dir) / "sql").exists():
         zip_path = None
+        # Try SparkFiles (--files sql.zip), then root dir, then script dir, then cwd
         try:
             zip_path = SparkFiles.get("sql.zip")
         except Exception:
             pass
+        if not zip_path or not Path(zip_path).exists():
+            try:
+                root = SparkFiles.getRootDirectory()
+                if root:
+                    for name in ("sql.zip",):
+                        p = Path(root) / name
+                        if p.exists():
+                            zip_path = str(p)
+                            break
+                    if not zip_path and Path(root).exists():
+                        for f in Path(root).iterdir():
+                            if f.name == "sql.zip" or f.name.endswith("sql.zip"):
+                                zip_path = str(f)
+                                break
+            except Exception:
+                pass
+        if not zip_path or not Path(zip_path).exists():
+            for d in (script_dir, Path(os.getcwd())):
+                p = d / "sql.zip" if isinstance(d, Path) else Path(d) / "sql.zip"
+                if p.exists():
+                    zip_path = str(p)
+                    break
         if zip_path and Path(zip_path).exists():
             with zipfile.ZipFile(zip_path, "r") as z:
                 z.extractall(script_dir)
             base_dir = str(script_dir)
-    if not (Path(base_dir) / "sql").exists():
+    sql_from_gcs = base_dir.startswith("gs://")
+    if not sql_from_gcs and not (Path(base_dir) / "sql").exists():
         raise FileNotFoundError(
-            f"sql/ not found under {base_dir}. When submitting to Dataproc, use run_dataproc_job.sh (it bundles sql.zip via --files) "
-            "or upload sql/ to GCS and pass --sql-base-path gs://bucket/path/to/dataproc"
+            f"sql/ not found under {base_dir}. When submitting to Dataproc: (1) use run_dataproc_job.sh from v2/dataproc (it creates sql.zip and passes --files=sql.zip), "
+            "or (2) upload sql/ to GCS and pass --sql-base-path gs://bucket/path/to/v2/dataproc so the script reads SQL from GCS."
         )
     # Configure GCS service account auth if provided (same as v1: fs.gs.auth.*; key file must be local)
     service_account_email = (args.service_account_email or "").strip()
@@ -153,7 +177,19 @@ def main():
     spark.sql(f"USE {database}")
 
     def read_sql_file(rel_path: str) -> str:
-        path = os.path.join(base_dir, rel_path) if base_dir else rel_path
+        if base_dir and base_dir.startswith("gs://"):
+            path = base_dir.rstrip("/") + "/" + rel_path.replace("\\", "/")
+        else:
+            path = os.path.join(base_dir, rel_path) if base_dir else rel_path
+        if path.startswith("gs://"):
+            # Read SQL from GCS (e.g. when --sql-base-path gs://bucket/v2/dataproc)
+            try:
+                parts = spark.sparkContext.wholeTextFiles(path).collect()
+                if parts:
+                    return parts[0][1]
+            except Exception as e:
+                raise FileNotFoundError(f"Could not read {path}: {e}") from e
+            raise FileNotFoundError(f"Empty or missing: {path}")
         with open(path, "r") as f:
             return f.read()
 
