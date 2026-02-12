@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_securities AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.silver_securities;
+CREATE TABLE __CATALOG__.__SCHEMA__.silver_securities AS
 SELECT 
     TRIM(substring(raw_line, 19, 15)) AS symbol,
     TRIM(substring(raw_line, 34, 6)) AS issue_type,

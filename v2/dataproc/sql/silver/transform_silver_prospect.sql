@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_prospect AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.silver_prospect;
+CREATE TABLE __CATALOG__.__SCHEMA__.silver_prospect AS
 SELECT
   split_part(raw_line, ',', 1) AS agency_id,
   split_part(raw_line, ',', 2) AS last_name,

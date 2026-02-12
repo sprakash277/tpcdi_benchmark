@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_trades AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.silver_trades;
+CREATE TABLE __CATALOG__.__SCHEMA__.silver_trades AS
 SELECT 
     try_cast(split_part(raw_line, '|', 1) AS BIGINT) AS trade_id,
     try_cast(split_part(raw_line, '|', 2) AS TIMESTAMP) AS trade_dts,

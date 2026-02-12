@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_financials AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.silver_financials;
+CREATE TABLE __CATALOG__.__SCHEMA__.silver_financials AS
 SELECT 
     TRIM(substring(raw_line, 187, 60)) AS co_name_or_cik,
     CAST(TRIM(substring(raw_line, 19, 4)) AS INT) AS year,

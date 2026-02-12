@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_status_type AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.silver_status_type;
+CREATE TABLE __CATALOG__.__SCHEMA__.silver_status_type AS
 SELECT 
     split_part(raw_line, '|', 1) AS st_id,
     split_part(raw_line, '|', 2) AS st_name,

@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.gold_prospect AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.gold_prospect;
+CREATE TABLE __CATALOG__.__SCHEMA__.gold_prospect AS
 SELECT 
     agency_id,
     last_name,

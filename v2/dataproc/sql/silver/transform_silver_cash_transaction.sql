@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_cash_transaction AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.silver_cash_transaction;
+CREATE TABLE __CATALOG__.__SCHEMA__.silver_cash_transaction AS
 SELECT 
     -- Composite Key: Account ID + Transaction Timestamp
     CONCAT(CAST(split_part(raw_line, '|', 1) AS STRING), '|', split_part(raw_line, '|', 2)) AS ct_key,

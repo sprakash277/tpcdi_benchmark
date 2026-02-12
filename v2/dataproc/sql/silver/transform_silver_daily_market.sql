@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_daily_market AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.silver_daily_market;
+CREATE TABLE __CATALOG__.__SCHEMA__.silver_daily_market AS
 SELECT 
     -- Composite Key: Date + Symbol (Used for Upserts in Incremental Batches)
     CONCAT(CAST(split_part(raw_line, '|', 1) AS STRING), '|', split_part(raw_line, '|', 2)) AS dm_key,

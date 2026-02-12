@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_time AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.silver_time;
+CREATE TABLE __CATALOG__.__SCHEMA__.silver_time AS
 SELECT 
     CAST(split_part(raw_line, '|', 1) AS INT) AS sk_time_id,
     split_part(raw_line, '|', 2) AS time_value,

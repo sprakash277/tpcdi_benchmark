@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_companies AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.silver_companies;
+CREATE TABLE __CATALOG__.__SCHEMA__.silver_companies AS
 SELECT 
     monotonically_increasing_id() AS sk_company_id,
     TRIM(substring(raw_line, 79, 10)) AS company_id,

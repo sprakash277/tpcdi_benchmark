@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_watch_history AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.silver_watch_history;
+CREATE TABLE __CATALOG__.__SCHEMA__.silver_watch_history AS
 SELECT 
     -- Composite Key: Essential for Batch 2/3 MERGE operations
     concat(split_part(raw_line, '|', 1), '-', split_part(raw_line, '|', 2)) AS wh_key,

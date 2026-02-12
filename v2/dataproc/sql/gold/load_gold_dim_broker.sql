@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.gold_dim_broker AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.gold_dim_broker;
+CREATE TABLE __CATALOG__.__SCHEMA__.gold_dim_broker AS
 SELECT 
     monotonically_increasing_id() AS sk_broker_id,
     CAST(employee_id AS BIGINT) AS broker_id,

@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.gold_dim_security AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.gold_dim_security;
+CREATE TABLE __CATALOG__.__SCHEMA__.gold_dim_security AS
 SELECT 
     monotonically_increasing_id() AS sk_security_id,
     ss.symbol AS security_id,

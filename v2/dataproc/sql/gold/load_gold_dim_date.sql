@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.gold_dim_date AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.gold_dim_date;
+CREATE TABLE __CATALOG__.__SCHEMA__.gold_dim_date AS
 SELECT 
     sk_date_id AS sk_date_id,
     sk_date_id AS date_id,

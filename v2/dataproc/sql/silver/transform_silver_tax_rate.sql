@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_tax_rate AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.silver_tax_rate;
+CREATE TABLE __CATALOG__.__SCHEMA__.silver_tax_rate AS
 SELECT 
     split_part(raw_line, '|', 1) AS tx_id,
     split_part(raw_line, '|', 2) AS tx_name,

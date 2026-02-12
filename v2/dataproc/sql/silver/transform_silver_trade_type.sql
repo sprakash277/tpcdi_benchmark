@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_trade_type AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.silver_trade_type;
+CREATE TABLE __CATALOG__.__SCHEMA__.silver_trade_type AS
 SELECT 
     split_part(raw_line, '|', 1) AS tt_id,
     split_part(raw_line, '|', 2) AS tt_name,

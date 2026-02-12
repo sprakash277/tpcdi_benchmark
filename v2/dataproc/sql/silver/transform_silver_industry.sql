@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_industry AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.silver_industry;
+CREATE TABLE __CATALOG__.__SCHEMA__.silver_industry AS
 SELECT 
     split_part(raw_line, '|', 1) AS in_id,
     split_part(raw_line, '|', 2) AS in_name,

@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_holding_history AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.silver_holding_history;
+CREATE TABLE __CATALOG__.__SCHEMA__.silver_holding_history AS
 SELECT 
     CAST(split_part(raw_line, '|', 1) AS BIGINT) AS hh_h_t_id,
     CAST(split_part(raw_line, '|', 2) AS BIGINT) AS hh_t_id,

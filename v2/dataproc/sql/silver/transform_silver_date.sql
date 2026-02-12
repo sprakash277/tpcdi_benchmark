@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.silver_date AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.silver_date;
+CREATE TABLE __CATALOG__.__SCHEMA__.silver_date AS
 SELECT 
     CAST(split_part(raw_line, '|', 1) AS INT) AS sk_date_id,
     try_cast(split_part(raw_line, '|', 2) AS DATE) AS date_value,
