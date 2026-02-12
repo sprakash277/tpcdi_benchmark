@@ -10,6 +10,9 @@ import re
 def sql_file_to_table_name(rel_path: str) -> Optional[str]:
     """Map SQL file path to short table name (e.g. sql/bronze/load_bronze_date.sql -> bronze_date)."""
     base = rel_path.replace("\\", "/").split("/")[-1].replace(".sql", "")
+    # More specific patterns first (incremental) so they are not matched by generic load_bronze_ / load_gold_ / transform_silver_
+    if base.startswith("load_bronze_incremental_"):
+        return "bronze_" + base[len("load_bronze_incremental_"):]
     if base.startswith("load_bronze_"):
         return "bronze_" + base[len("load_bronze_"):]
     if base.startswith("load_gold_incremental_"):
@@ -20,8 +23,6 @@ def sql_file_to_table_name(rel_path: str) -> Optional[str]:
         return "silver_" + base[len("transform_silver_incremental_"):]
     if base.startswith("transform_silver_"):
         return "silver_" + base[len("transform_silver_"):]
-    if base.startswith("load_bronze_incremental_"):
-        return "bronze_" + base[len("load_bronze_incremental_"):]
     return None
 
 
