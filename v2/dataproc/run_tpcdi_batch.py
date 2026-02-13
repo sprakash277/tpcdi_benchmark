@@ -345,6 +345,17 @@ def main():
         for f in gold_optimize:
             run_sql(read_sql_file(f).replace("__CATALOG__.__SCHEMA__", database))
         run_sql(read_sql_file("sql/gold/create_gold_dim_messages.sql").replace("__CATALOG__.__SCHEMA__", database))
+        dq_files_incr = [
+            "sql/dq/dq_silver_date.sql", "sql/dq/dq_silver_status_type.sql", "sql/dq/dq_silver_trade_type.sql", "sql/dq/dq_silver_industry.sql",
+            "sql/dq/dq_silver_companies.sql", "sql/dq/dq_silver_securities.sql", "sql/dq/dq_silver_financials.sql",
+            "sql/dq/dq_silver_customers.sql", "sql/dq/dq_silver_accounts.sql", "sql/dq/dq_silver_trades.sql", "sql/dq/dq_silver_daily_market.sql",
+            "sql/dq/dq_silver_cash_transaction.sql", "sql/dq/dq_silver_holding_history.sql", "sql/dq/dq_silver_watch_history.sql", "sql/dq/dq_silver_prospect.sql",
+        ]
+        for rel in dq_files_incr:
+            try:
+                run_sql(read_sql_file(rel))
+            except Exception as e:
+                print(f"DQ {rel} warning: {e}")
         _n = len(_table_details)
         t0 = time.time()
         for f in gold_incr:
@@ -440,6 +451,21 @@ def main():
             rc, sz, _ = metrics.get_table_stats(spark, database, table_short, use_refresh=True)
             metrics.record_table_load(_table_details, table_short, time.time() - t0, rc, sz, database)
     _steps.append({"step_name": "silver_etl", "duration_seconds": time.time() - _silver_start, "rows_processed": sum(d["row_count"] for d in _table_details[_n_silver:])})
+
+    run_sql(read_sql_file("sql/gold/create_gold_dim_messages.sql").replace("__CATALOG__.__SCHEMA__", database))
+    dq_files = [
+        "sql/dq/dq_silver_date.sql", "sql/dq/dq_silver_status_type.sql", "sql/dq/dq_silver_trade_type.sql", "sql/dq/dq_silver_industry.sql",
+        "sql/dq/dq_silver_companies.sql", "sql/dq/dq_silver_securities.sql", "sql/dq/dq_silver_financials.sql",
+        "sql/dq/dq_silver_customers.sql", "sql/dq/dq_silver_accounts.sql", "sql/dq/dq_silver_trades.sql", "sql/dq/dq_silver_daily_market.sql",
+        "sql/dq/dq_silver_cash_transaction.sql", "sql/dq/dq_silver_holding_history.sql", "sql/dq/dq_silver_watch_history.sql", "sql/dq/dq_silver_prospect.sql",
+    ]
+    _dq_start = time.time()
+    for rel in dq_files:
+        try:
+            run_sql(read_sql_file(rel))
+        except Exception as e:
+            print(f"DQ {rel} warning: {e}")
+    _steps.append({"step_name": "silver_dq", "duration_seconds": time.time() - _dq_start, "rows_processed": 0})
 
     _gold_start = time.time()
     _n_gold = len(_table_details)
