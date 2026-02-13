@@ -8,13 +8,23 @@ SELECT
     st.symbol,
     shh.hh_after_qty AS quantity,
     st.trade_price AS purchase_price,
-    DATE(st.trade_dts) AS purchase_date,
+    CAST(st.trade_dts AS DATE) AS purchase_date,
     current_timestamp() AS etl_timestamp
 FROM __CATALOG__.__SCHEMA__.silver_holding_history shh
-INNER JOIN __CATALOG__.__SCHEMA__.silver_trades st ON shh.hh_t_id = st.trade_id
-INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_date dd ON DATE(st.trade_dts) = dd.date_value
-INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_account da ON TRIM(CAST(st.account_id AS STRING)) = TRIM(CAST(da.account_id AS STRING))
-INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_security ds ON TRIM(CAST(st.symbol AS STRING)) = TRIM(CAST(ds.symbol AS STRING))
+INNER JOIN __CATALOG__.__SCHEMA__.silver_trades st 
+    ON shh.hh_t_id = st.trade_id
+INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_date dd 
+    ON CAST(st.trade_dts AS DATE) = CAST(dd.date_value AS DATE)
+-- JOIN to Account: Use native types and date range
+INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_account da 
+    ON st.account_id = da.account_id
+    AND st.trade_dts >= da.start_date 
+    AND st.trade_dts < da.end_date
+-- JOIN to Security: Use native types and date range
+INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_security ds 
+    ON st.symbol = ds.symbol
+    AND st.trade_dts >= ds.start_date 
+    AND st.trade_dts < ds.end_date
 WHERE shh.batch_id = __BATCH_ID__
   AND shh.is_current = true
   AND st.is_current = true
