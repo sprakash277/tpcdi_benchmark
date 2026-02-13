@@ -1,6 +1,5 @@
 """
 Databricks platform adapter for TPC-DI benchmark.
-Handles DBFS and Unity Catalog Volume paths.
 """
 
 import logging
@@ -12,9 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class DatabricksPlatform:
-    """Platform adapter for Databricks. Reads raw data from DBFS or Unity Catalog Volume.
-    Load type is inferred from path: dbfs:/... -> DBFS, /Volumes/... -> Volume.
-    """
+    """Platform adapter for Databricks. Reads raw data from configured raw_data_path."""
 
     def __init__(self, spark: SparkSession, raw_data_path: str):
         """
@@ -22,24 +19,15 @@ class DatabricksPlatform:
 
         Args:
             spark: SparkSession (should already be configured)
-            raw_data_path: Base path to raw TPC-DI data including sf=X
-                          (e.g. dbfs:/mnt/tpcdi/sf=10 or /Volumes/cat/schema/vol/sf=10)
+            raw_data_path: Base path to raw TPC-DI data including sf=X (e.g. dbfs:/mnt/tpcdi/sf=10 or gs://bucket/tpcdi/sf=10)
         """
         self.spark = spark
-        normalized = raw_data_path.rstrip("/")
-        if normalized.startswith("dbfs:/Volumes/"):
-            normalized = normalized[5:]  # Remove "dbfs:" prefix
-        self.raw_data_path = normalized
-        self.use_volume = normalized.startswith("/Volumes/")
-        logger.info(f"DatabricksPlatform: raw_data_path='{self.raw_data_path}', use_volume={self.use_volume}")
+        self.raw_data_path = raw_data_path.rstrip("/")
 
     def _resolve_path(self, relative_path: str) -> str:
         full = f"{self.raw_data_path}/{relative_path}".replace("//", "/")
-        # .replace("//", "/") also mangles gs:// to gs:/ — restore the scheme
         if full.startswith("gs:/") and not full.startswith("gs://"):
             full = "gs://" + full[4:]
-        if full.startswith("dbfs:/Volumes/"):
-            full = full[5:]
         return full
 
     def read_raw_file(self, file_path: str, schema: Optional[StructType] = None,
@@ -317,8 +305,6 @@ class DatabricksPlatform:
         """Sum file sizes under raw_data_path/Batch{batch_id}/ for throughput metrics."""
         try:
             batch_path = f"{self.raw_data_path}/Batch{batch_id}"
-            if self.raw_data_path.startswith("/Volumes/") and not batch_path.startswith("dbfs:"):
-                batch_path = "dbfs:" + batch_path
             jvm = self.spark.sparkContext._jvm
             path = jvm.org.apache.hadoop.fs.Path(batch_path)
             fs = path.getFileSystem(self.spark.sparkContext._jsc.hadoopConfiguration())

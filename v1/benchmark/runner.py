@@ -120,20 +120,7 @@ def create_platform_adapter(config: BenchmarkConfig, spark: SparkSession):
         Platform adapter instance
     """
     if config.platform == Platform.DATABRICKS:
-        # Use output_path as raw data input when provided (DBFS or Volume or GCS)
-        logger.info(f"[DEBUG create_platform_adapter] config.output_path='{config.output_path}'")
-        logger.info(f"[DEBUG create_platform_adapter] config.raw_data_path='{config.raw_data_path}'")
-
         base = (config.output_path or config.raw_data_path).rstrip("/")
-        logger.info(f"[DEBUG create_platform_adapter] base (before normalization)='{base}'")
-
-        # Remove dbfs: prefix from Volume paths if accidentally added
-        original_base = base
-        if base.startswith("dbfs:/Volumes/"):
-            base = base[5:]  # Remove "dbfs:" prefix
-            logger.warning(f"[DEBUG create_platform_adapter] Removed 'dbfs:' prefix from Volume path: {original_base} -> {base}")
-
-        # Infer load type from path: dbfs -> DBFS, /Volumes/ -> Volume, gs:// -> GCS (handled by platform)
         raw_root = f"{base}/sf={config.scale_factor}"
 
         # When reading from GCS on Databricks (classic), set bucket so connector does not throw "No bucket specified in GCS URI: null".
@@ -158,10 +145,6 @@ def create_platform_adapter(config: BenchmarkConfig, spark: SparkSession):
                             f"Could not set spark.hadoop.fs.gs.bucket: {e}. "
                             "GCS access may still work via Unity Catalog external locations or default connector."
                         )
-
-        logger.info(f"[DEBUG create_platform_adapter] Final values:")
-        logger.info(f"  base='{base}'")
-        logger.info(f"  raw_root='{raw_root}'")
 
         return DatabricksPlatform(spark, raw_root)
     elif config.platform == Platform.DATAPROC:
@@ -423,7 +406,6 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             bronze_etl = BronzeETL(platform)
             bronze_etl.run_bronze_batch_load(
                 1, db_or_catalog, effective_schema,
-                use_udtf_customer_mgmt=config.use_udtf_customer_mgmt,
                 customer_mgmt_xml_format=getattr(config, "customer_mgmt_xml_format", None),
             )
             
@@ -491,7 +473,6 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             bronze_etl = BronzeETL(platform)
             bronze_etl.run_bronze_batch_load(
                 config.batch_id, db_or_catalog, effective_schema,
-                use_udtf_customer_mgmt=config.use_udtf_customer_mgmt,
                 customer_mgmt_xml_format=getattr(config, "customer_mgmt_xml_format", None),
             )
             inc_batch_bytes = getattr(platform, "get_raw_input_size_bytes", lambda bid: 0)(config.batch_id)
@@ -577,19 +558,15 @@ if __name__ == "__main__":
     parser.add_argument("--metrics-output", help="Path to save metrics JSON")
     parser.add_argument("--log-detailed-stats", action="store_true",
                         help="Log per-table timing and records; default is only job start/end/total duration")
-    parser.add_argument("--use-udtf-customer-mgmt", choices=["auto", "true", "false"], default="false",
-                        help="CustomerMgmt.xml: auto=UDTF on Databricks, true=UDTF, false=spark-xml")
     
     args = parser.parse_args()
     
-    # Databricks: use output_path as raw data input when set; else raw_data_path
     raw_base = args.output_path or args.raw_data_path
     if not raw_base and args.platform == "dataproc":
         raw_base = args.raw_data_path
     if not raw_base:
         raise ValueError("Provide --raw-data-path or --output-path (Databricks)")
     
-    use_udtf = {"auto": None, "true": True, "false": False}[args.use_udtf_customer_mgmt]
     config = BenchmarkConfig(
         platform=Platform(args.platform),
         load_type=LoadType(args.load_type),
@@ -606,7 +583,6 @@ if __name__ == "__main__":
         spark_master=args.spark_master,
         metrics_output_path=args.metrics_output,
         log_detailed_stats=args.log_detailed_stats,
-        use_udtf_customer_mgmt=use_udtf,
     )
     
     result = run_benchmark(config)

@@ -101,7 +101,6 @@ class BronzeETL:
         batch_id: int,
         target_database: str,
         target_schema: str,
-        use_udtf_customer_mgmt: Optional[bool] = None,
         customer_mgmt_xml_format: Optional[str] = None,
     ):
         """
@@ -111,8 +110,6 @@ class BronzeETL:
             batch_id: Batch number (1 for historical, 2+ for incremental)
             target_database: Target database/catalog name
             target_schema: Target schema name
-            use_udtf_customer_mgmt: If True use UDTF for CustomerMgmt.xml; if False use spark-xml;
-                if None (auto) use UDTF only when platform is Databricks.
             customer_mgmt_xml_format: Spark XML format: "org.apache.spark.sql.execution.datasources.xml" (Databricks native), or "xml"/"com.databricks.spark.xml" (spark-xml JAR). None = "xml".
         """
         prefix = ".".join(p for p in (target_database, target_schema) if p)
@@ -141,15 +138,9 @@ class BronzeETL:
         # Batch 2+: Customer.txt and Account.txt (pipe-delimited state snapshots)
         if batch_id == 1:
             table_timing_start(f"{prefix}.bronze_customer_mgmt")
-            if use_udtf_customer_mgmt is not None:
-                use_udtf = use_udtf_customer_mgmt
-            else:
-                # Default to False (spark-xml) when None/auto
-                use_udtf = False
             xml_fmt = (customer_mgmt_xml_format or "xml").strip() or "xml"
             self.customer_mgmt.load(
                 batch_id, f"{prefix}.bronze_customer_mgmt",
-                use_udtf=use_udtf,
                 xml_format=xml_fmt,
             )
         else:

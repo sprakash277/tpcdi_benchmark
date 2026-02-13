@@ -2,9 +2,8 @@
 Bronze layer loader for CustomerMgmt.xml.
 
 Ingests raw XML structure from CustomerMgmt.xml with no field extraction.
-- On Databricks (Spark 3.5+): can use a Python UDTF to parallelize parsing (see use_udtf).
-- Otherwise: uses spark-xml (native Spark DataFrameReader). No pandas UDF.
-- Schema: Uses schema definition from customer_mgmt_schema_definition.py (preferred).
+Uses spark-xml (Spark DataFrameReader).
+Schema: Uses schema definition from customer_mgmt_schema_definition.py (preferred).
   Falls back to customer_mgmt_schema.json if definition import fails.
   Falls back to inference if both fail (prints and saves schema for next run).
 """
@@ -121,8 +120,6 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
         self,
         batch_id: int,
         target_table: str,
-        use_udtf: bool = False,
-        udtf_num_chunks: int = 64,
         xml_format: Optional[str] = None,
     ) -> DataFrame:
         """
@@ -131,9 +128,7 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
         Args:
             batch_id: Batch number (1 for historical, 2+ for incremental)
             target_table: Full target table name
-            use_udtf: If True and on Databricks (Spark 3.5+), use UDTF to parallelize parsing.
-            udtf_num_chunks: Number of chunks for UDTF path (more chunks = more parallelism).
-            xml_format: Spark data source format for XML. Only used when not using UDTF.
+            xml_format: Spark data source format for XML.
                 - "org.apache.spark.sql.execution.datasources.xml": Databricks native XML reader (no custom JAR).
                 - "xml" or "com.databricks.spark.xml": spark-xml library (use when attaching custom JAR).
                 None = "xml".
@@ -145,33 +140,7 @@ class BronzeCustomerMgmt(BronzeLoaderBase):
             RuntimeError: If XML cannot be read
         """
         logger.info(f"Loading bronze_customer_mgmt from Batch{batch_id}")
-        
         file_path = f"Batch{batch_id}/CustomerMgmt.xml"
-        full_path = self.platform._resolve_path(file_path)
-        
-        # Optional: try UDTF path on Databricks (Spark 3.5+) to parallelize parsing
-        if use_udtf:
-            try:
-                from benchmark.etl.bronze import customer_mgmt_udtf
-                # Derive catalog and schema from target_table so UDTF is registered there (avoids ROUTINE_NOT_FOUND).
-                parts = target_table.split(".")
-                udtf_catalog = parts[0] if len(parts) >= 3 else None
-                udtf_schema = parts[1] if len(parts) >= 3 else (parts[0] if len(parts) == 2 else None)
-                df = customer_mgmt_udtf.read_customer_mgmt_with_udtf(
-                    self.spark,
-                    full_path,
-                    num_chunks=udtf_num_chunks,
-                    row_tag="TPCDI:Action",
-                    root_tag="TPCDI:Actions",
-                    catalog=udtf_catalog,
-                    schema=udtf_schema,
-                )
-                if df is not None:
-                    logger.info("Successfully read CustomerMgmt.xml via UDTF (parallel parsing)")
-                    _print_customer_mgmt_schema(df)
-                    return self._write_bronze_table(df, target_table, batch_id, "CustomerMgmt.xml")
-            except Exception as e:
-                logger.warning(f"UDTF path failed, falling back to spark-xml: {e}")
         
         # Read XML with spark-xml. Use schema definition/JSON if available (skips inference); else infer, print, and save.
         fmt = (xml_format or "xml").strip() or "xml"
