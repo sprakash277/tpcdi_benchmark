@@ -37,18 +37,21 @@ class BronzeFinwire(BronzeLoaderBase):
         """
         logger.info(f"Loading bronze_finwire from Batch{batch_id}")
         
-        # FINWIRE files are named FINWIRE<year>Q<quarter>, e.g. FINWIRE1967Q1
-        file_pattern = f"Batch{batch_id}/FINWIRE*"
+        # Path/skip logic aligned with v2: exclude .csv (v2 uses listStatus and not endswith(".csv"))
+        # Try FINWIRE*.txt first (only .txt; excludes .csv); fallback to FINWIRE* if no .txt files
+        file_pattern_txt = f"Batch{batch_id}/FINWIRE*.txt"
+        file_pattern_any = f"Batch{batch_id}/FINWIRE*"
         
         try:
-            # Read as text (each line = one row with column 'value')
-            df = self.platform.read_raw_file(file_pattern, format="text")
-            
-            # Rename to raw_line for clarity
-            bronze_df = df.withColumnRenamed("value", "raw_line")
-            
-            return self._write_bronze_table(bronze_df, target_table, batch_id, "FINWIRE*")
-            
-        except Exception as e:
-            logger.warning(f"No FINWIRE files found for Batch{batch_id}: {e}")
-            return None
+            df = self.platform.read_raw_file(file_pattern_txt, format="text")
+        except Exception:
+            try:
+                df = self.platform.read_raw_file(file_pattern_any, format="text")
+            except Exception as e2:
+                logger.warning(f"No FINWIRE files found for Batch{batch_id}: {e2}")
+                return None
+        bronze_df = df.withColumnRenamed("value", "raw_line")
+        # v2 also filters: raw_line isNotNull, length >= 18
+        from pyspark.sql.functions import col, length
+        bronze_df = bronze_df.filter(col("raw_line").isNotNull()).filter(length(col("raw_line")) >= 18)
+        return self._write_bronze_table(bronze_df, target_table, batch_id, "FINWIRE*")

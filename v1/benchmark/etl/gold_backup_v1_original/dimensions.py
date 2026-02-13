@@ -7,7 +7,6 @@ Dimensions from Silver tables, ready for star schema joins.
 import logging
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, lit, current_timestamp
-from pyspark.sql.types import StructType, StructField, LongType, StringType, DateType, TimestampType, DoubleType
 
 # Placeholder IDs for late-arriving dimension (TPC-DI: trade arrives before account/customer)
 PLACEHOLDER_CUSTOMER_ID = -1
@@ -124,42 +123,22 @@ class GoldDimCompany(GoldLoaderBase):
     def load(self, silver_table: str, target_table: str) -> DataFrame:
         """
         Create DimCompany from silver_companies.
-        If silver_companies does not exist (e.g. FinWire not loaded), create empty gold_dim_company.
+        
+        Args:
+            silver_table: silver_companies table name
+            target_table: gold.DimCompany table name
         """
         logger.info(f"Loading gold.DimCompany from {silver_table}")
-        try:
-            silver_df = self.spark.table(silver_table)
-        except Exception as e:
-            err_msg = str(e).lower()
-            if "table_or_view_not_found" in err_msg or "cannot be found" in err_msg:
-                logger.warning(f"Silver table {silver_table} not found; creating empty {target_table}: {e}")
-                schema = StructType([
-                    StructField("sk_company_id", LongType()),
-                    StructField("company_id", StringType()),
-                    StructField("company_name", StringType()),
-                    StructField("industry_id", StringType()),
-                    StructField("sector", StringType()),
-                    StructField("status", StringType()),
-                    StructField("address_line1", StringType()),
-                    StructField("address_line2", StringType()),
-                    StructField("postal_code", StringType()),
-                    StructField("city", StringType()),
-                    StructField("state_prov", StringType()),
-                    StructField("country", StringType()),
-                    StructField("description", StringType()),
-                    StructField("founding_date", DateType()),
-                    StructField("ceo_name", StringType()),
-                    StructField("etl_timestamp", TimestampType()),
-                ])
-                gold_df = self.spark.createDataFrame([], schema)
-                return self._write_gold_table(gold_df, target_table, mode="overwrite")
-            raise
+        
+        silver_df = self.spark.table(silver_table)
+        
+        # Companies don't have SCD2, so all records are current
         gold_df = silver_df.select(
             col("sk_company_id"),
             col("company_id"),
             col("company_name"),
             col("industry_id"),
-            col("sp_rating").alias("sector"),
+            col("sp_rating").alias("sector"),  # Using sp_rating as sector placeholder
             col("status"),
             col("address_line1"),
             col("address_line2"),
@@ -172,6 +151,7 @@ class GoldDimCompany(GoldLoaderBase):
             col("ceo_name"),
             current_timestamp().alias("etl_timestamp"),
         )
+        
         return self._write_gold_table(gold_df, target_table, mode="overwrite")
 
 
@@ -181,35 +161,19 @@ class GoldDimSecurity(GoldLoaderBase):
     def load(self, silver_table: str, target_table: str) -> DataFrame:
         """
         Create DimSecurity from silver_securities.
-        If silver_securities does not exist (e.g. FinWire not loaded), create empty gold_dim_security.
+        
+        Args:
+            silver_table: silver_securities table name
+            target_table: gold.DimSecurity table name
         """
         logger.info(f"Loading gold.DimSecurity from {silver_table}")
-        try:
-            silver_df = self.spark.table(silver_table)
-        except Exception as e:
-            err_msg = str(e).lower()
-            if "table_or_view_not_found" in err_msg or "cannot be found" in err_msg:
-                logger.warning(f"Silver table {silver_table} not found; creating empty {target_table}: {e}")
-                schema = StructType([
-                    StructField("sk_security_id", StringType()),
-                    StructField("security_id", StringType()),
-                    StructField("symbol", StringType()),
-                    StructField("issue_type", StringType()),
-                    StructField("status", StringType()),
-                    StructField("name", StringType()),
-                    StructField("exchange_id", StringType()),
-                    StructField("shares_outstanding", LongType()),
-                    StructField("first_trade_date", DateType()),
-                    StructField("first_trade_exchange", StringType()),
-                    StructField("dividend", DoubleType()),
-                    StructField("company_id", StringType()),
-                    StructField("etl_timestamp", TimestampType()),
-                ])
-                gold_df = self.spark.createDataFrame([], schema)
-                return self._write_gold_table(gold_df, target_table, mode="overwrite")
-            raise
+        
+        silver_df = self.spark.table(silver_table)
+        
+        # Securities don't have SCD2, so all records are current
         gold_df = silver_df.select(
-            col("symbol").alias("sk_security_id"),
+            # Create surrogate key from symbol (or use row_number if needed)
+            col("symbol").alias("sk_security_id"),  # Using symbol as SK for now
             col("symbol").alias("security_id"),
             col("symbol"),
             col("issue_type"),
@@ -220,9 +184,10 @@ class GoldDimSecurity(GoldLoaderBase):
             col("first_trade_date"),
             col("first_trade_exchg").alias("first_trade_exchange"),
             col("dividend"),
-            col("co_name_or_cik").alias("company_id"),
+            col("co_name_or_cik").alias("company_id"),  # Reference to company
             current_timestamp().alias("etl_timestamp"),
         )
+        
         return self._write_gold_table(gold_df, target_table, mode="overwrite")
 
 
