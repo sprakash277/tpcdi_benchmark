@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run TPC-DI v2 on Dataproc (Delta tables). Same pattern as v2/databricks/run_tpcdi_batch.
-# Requires: Delta Lake JAR, spark-xml JAR (for CustomerMgmt.xml). JARs: use libs/ or GCS (see libs/README.md).
+# Requires: Delta Lake (from Dataproc image), spark-xml JAR (for CustomerMgmt.xml). See libs/README.md.
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,13 +20,12 @@ SERVICE_ACCOUNT_KEY_FILE="${SERVICE_ACCOUNT_KEY_FILE:-}"
 # Metrics JSON output path (GCS or local); default gs://sumit_prakash_gcs/tpcdi/metrics
 METRICS_OUTPUT="${METRICS_OUTPUT:-gs://sumit_prakash_gcs/tpcdi/metrics}"
 
-# JARs: Delta Lake (GCS or set DELTA_JAR); spark-xml from v2/dataproc/libs or set SPARK_XML_JAR
-DELTA_JAR="${DELTA_JAR:-gs://spark-lib/delta/delta-core_2.12-2.4.0.jar}"
+# JARs: spark-xml from v2/dataproc/libs or set SPARK_XML_JAR (Delta is provided by Dataproc image)
 SPARK_XML_JAR="${SPARK_XML_JAR:-$SCRIPT_DIR/libs/spark-xml_2.12-0.18.0.jar}"
 if [ ! -f "$SPARK_XML_JAR" ]; then
   echo "WARN: spark-xml JAR not found at $SPARK_XML_JAR; CustomerMgmt.xml load may fail. See libs/README.md."
 fi
-JARS="$DELTA_JAR,$SPARK_XML_JAR"
+JARS="$SPARK_XML_JAR"
 
 # Package metrics, cost, and sql/ so runner can read SQL files on the cluster (only main script + py-files are uploaded by default)
 zip -q -r tpcdi_metrics.zip tpcdi_metrics.py cost.py 2>/dev/null || true
@@ -47,7 +46,6 @@ gcloud dataproc jobs submit pyspark run_tpcdi_batch.py \
   --py-files=tpcdi_metrics.zip \
   --files=sql.zip \
   --jars="$JARS" \
-  --properties=spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension,spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog,spark.delta.logStore.gs.impl=io.delta.storage.GCSLogStore,spark.sql.defaultSerializer=org.apache.spark.serializer.KryoSerializer \
   -- \
   --database "$DATABASE" \
   --raw-data-path "$RAW_DATA_PATH" \
