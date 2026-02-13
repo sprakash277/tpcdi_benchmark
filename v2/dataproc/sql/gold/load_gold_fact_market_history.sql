@@ -14,6 +14,6 @@ SELECT
     current_timestamp() AS etl_timestamp
 FROM __CATALOG__.__SCHEMA__.silver_daily_market sdm
 INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_date dd ON sdm.dm_date = dd.date_value
-INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_security ds ON sdm.dm_s_symb = ds.symbol
-LEFT JOIN __CATALOG__.__SCHEMA__.gold_dim_company dc ON ds.company_id = dc.company_id
+INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_security ds ON TRIM(CAST(sdm.dm_s_symb AS STRING)) = TRIM(CAST(ds.symbol AS STRING))
+LEFT JOIN __CATALOG__.__SCHEMA__.gold_dim_company dc ON CAST(ds.company_id AS STRING) = CAST(dc.company_id AS STRING)
 WHERE sdm.batch_id = __BATCH_ID__
