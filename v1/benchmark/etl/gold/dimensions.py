@@ -135,7 +135,7 @@ class GoldDimCompany(GoldLoaderBase):
         # Companies don't have SCD2, so all records are current
         gold_df = silver_df.select(
             col("sk_company_id"),
-            col("cik").alias("company_id"),
+            col("company_id"),
             col("company_name"),
             col("industry_id"),
             col("sp_rating").alias("sector"),  # Using sp_rating as sector placeholder

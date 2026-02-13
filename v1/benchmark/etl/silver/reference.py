@@ -27,25 +27,26 @@ class SilverDate(SilverLoaderBase):
         bronze_df = self.spark.table(bronze_table)
         parsed_df = self._parse_pipe_delimited(bronze_df, 18)
         
+        # v2-style parsing: same column order; try_cast for date_value and holiday_flag
         silver_df = parsed_df.select(
-            col("_c0").cast(IntegerType()).alias("sk_date_id"),
-            to_date(col("_c1")).alias("date_value"),
+            expr("CAST(TRIM(_c0) AS INT)").alias("sk_date_id"),
+            expr("try_cast(TRIM(_c1) AS DATE)").alias("date_value"),
             col("_c2").alias("date_desc"),
-            col("_c3").cast(IntegerType()).alias("calendar_year_id"),
+            expr("CAST(TRIM(_c3) AS INT)").alias("calendar_year_id"),
             col("_c4").alias("calendar_year_desc"),
-            col("_c5").cast(IntegerType()).alias("calendar_qtr_id"),
+            expr("CAST(TRIM(_c5) AS INT)").alias("calendar_qtr_id"),
             col("_c6").alias("calendar_qtr_desc"),
-            col("_c7").cast(IntegerType()).alias("calendar_month_id"),
+            expr("CAST(TRIM(_c7) AS INT)").alias("calendar_month_id"),
             col("_c8").alias("calendar_month_desc"),
-            col("_c9").cast(IntegerType()).alias("calendar_week_id"),
+            expr("CAST(TRIM(_c9) AS INT)").alias("calendar_week_id"),
             col("_c10").alias("calendar_week_desc"),
-            col("_c11").cast(IntegerType()).alias("day_of_week_num"),
+            expr("CAST(TRIM(_c11) AS INT)").alias("day_of_week_num"),
             col("_c12").alias("day_of_week_desc"),
-            col("_c13").cast(IntegerType()).alias("fiscal_year_id"),
+            expr("CAST(TRIM(_c13) AS INT)").alias("fiscal_year_id"),
             col("_c14").alias("fiscal_year_desc"),
-            col("_c15").cast(IntegerType()).alias("fiscal_qtr_id"),
+            expr("CAST(TRIM(_c15) AS INT)").alias("fiscal_qtr_id"),
             col("_c16").alias("fiscal_qtr_desc"),
-            when(col("_c17") == "true", lit(True)).otherwise(lit(False)).alias("holiday_flag"),
+            expr("try_cast(TRIM(_c17) AS BOOLEAN)").alias("holiday_flag"),
             col("_batch_id").alias("batch_id"),
         )
         
