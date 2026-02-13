@@ -299,7 +299,12 @@ def save_metrics_output(
     json_content = json.dumps(payload, indent=2)
 
     if path.startswith("gs://"):
-        full_gcs_path = f"{path}/{filename}"
+        base = path.rstrip("/")
+        full_gcs_path = f"{base}/{filename}"
+        # v1 order: try Spark GCS first (Databricks often has GCS connector; gsutil may be missing or unauthenticated)
+        if _write_string_to_gcs_via_spark(spark, full_gcs_path, json_content):
+            print(f"Metrics saved to {full_gcs_path} (via Spark GCS)")
+            return full_gcs_path
         gsutil_cmd = shutil.which("gsutil")
         if gsutil_cmd:
             try:
@@ -313,16 +318,23 @@ def save_metrics_output(
                     pass
                 print(f"Metrics saved to {full_gcs_path}")
                 return full_gcs_path
-            except (subprocess.CalledProcessError, FileNotFoundError) as e:
-                print(f"gsutil upload failed: {e}, trying Spark GCS write")
-        if _write_string_to_gcs_via_spark(spark, full_gcs_path, json_content):
-            print(f"Metrics saved to {full_gcs_path} (via Spark GCS)")
-            return full_gcs_path
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass
+        # Fallback: write to temp and to dbfs so user can retrieve (v1: suggest dbfs:/ or /Volumes/)
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             f.write(json_content)
             tmp_path = f.name
-        print(f"WARN: Could not upload to GCS. Metrics written to {tmp_path}")
-        return tmp_path
+        dbfs_fallback = "/dbfs/FileStore/tpcdi_metrics"
+        try:
+            Path(dbfs_fallback).mkdir(parents=True, exist_ok=True)
+            dbfs_file = Path(dbfs_fallback) / filename
+            with open(dbfs_file, "w") as f:
+                f.write(json_content)
+            print(f"WARN: Could not upload to GCS. Metrics written to {dbfs_file} (and {tmp_path}). On Databricks, use dbfs:/ or /Volumes/ for metrics_output_path if GCS is not configured.")
+            return str(dbfs_file)
+        except Exception:
+            print(f"WARN: Could not upload to GCS. Metrics written to {tmp_path}. On Databricks, use dbfs:/ or /Volumes/ for metrics_output_path if GCS is not configured.")
+            return tmp_path
 
     # dbfs:/ or local path
     if path.startswith("dbfs:/"):
