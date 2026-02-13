@@ -128,6 +128,7 @@ def main():
     parser.add_argument("--cluster-instance-type", default="", help="Worker node type for metrics (e.g. n2d-standard-16); auto-detected from GCP metadata if not set")
     parser.add_argument("--cluster-worker-count", type=int, default=None, help="Number of worker nodes for metrics; auto-detected from Spark/metadata if not set")
     parser.add_argument("--cluster-master-type", default="", help="Driver node type for metrics; auto-detected from GCP metadata if not set")
+    parser.add_argument("--debug-gold", action="store_true", help="When a gold fact table has 0 rows, run diagnostic queries and log counts to find why joins drop all rows")
     args = parser.parse_args()
 
     database = args.database
@@ -573,9 +574,43 @@ def main():
         "sql/gold/load_gold_fact_holdings.sql", "sql/gold/load_gold_fact_market_history.sql", "sql/gold/load_gold_fact_watches.sql",
         "sql/gold/load_gold_financials.sql", "sql/gold/load_gold_prospect.sql",
     ]
+    _gold_fact_tables = {"gold_fact_trade", "gold_fact_cash_balances", "gold_fact_holdings", "gold_fact_market_history", "gold_fact_watches"}
+
+    def _log_gold_fact_zero_rows_diagnostics(tab: str):
+        """Run diagnostic queries when a gold fact has 0 rows; print counts to find where joins drop rows."""
+        try:
+            if tab == "gold_fact_watches":
+                n_silver = spark.sql(f"SELECT COUNT(*) AS c FROM {database}.silver_watch_history WHERE batch_id = {batch_id} AND is_current = true").collect()[0][0]
+                n_after_cust = spark.sql(f"""
+                    SELECT COUNT(*) AS c FROM {database}.silver_watch_history swh
+                    INNER JOIN {database}.gold_dim_customer dc ON TRIM(CAST(swh.w_c_id AS STRING)) = TRIM(CAST(dc.customer_id AS STRING))
+                    WHERE swh.batch_id = {batch_id} AND swh.is_current = true
+                """).collect()[0][0]
+                n_after_sec = spark.sql(f"""
+                    SELECT COUNT(*) AS c FROM {database}.silver_watch_history swh
+                    INNER JOIN {database}.gold_dim_security ds ON TRIM(CAST(swh.w_s_symb AS STRING)) = TRIM(CAST(ds.symbol AS STRING))
+                    WHERE swh.batch_id = {batch_id} AND swh.is_current = true
+                """).collect()[0][0]
+                print(f"[DEBUG-GOLD] {tab}: silver_watch_history (batch_id={batch_id}, is_current) = {n_silver}; after join dim_customer = {n_after_cust}; after join dim_security = {n_after_sec}")
+            elif tab == "gold_fact_trade":
+                n_silver = spark.sql(f"SELECT COUNT(*) AS c FROM {database}.silver_trades WHERE batch_id = {batch_id} AND is_current = true").collect()[0][0]
+                n_dim_acc = spark.sql(f"SELECT COUNT(*) AS c FROM {database}.gold_dim_account").collect()[0][0]
+                n_dim_sec = spark.sql(f"SELECT COUNT(*) AS c FROM {database}.gold_dim_security").collect()[0][0]
+                print(f"[DEBUG-GOLD] {tab}: silver_trades (batch_id={batch_id}, is_current) = {n_silver}; gold_dim_account = {n_dim_acc}; gold_dim_security = {n_dim_sec}")
+            elif tab in ("gold_fact_cash_balances", "gold_fact_holdings", "gold_fact_market_history"):
+                print(f"[DEBUG-GOLD] {tab}: 0 rows; check silver source and dim joins (customer_id, account_id, symbol) for type/whitespace mismatch.")
+        except Exception as e:
+            print(f"[DEBUG-GOLD] {tab} diagnostic failed: {e}")
+
     for rel in gold_sql:
         print(f"Gold SQL: {rel}")
         run_sql_timed(rel)
+        if getattr(args, "debug_gold", False):
+            table_name = metrics.sql_file_to_table_name(rel)
+            if table_name and table_name in _gold_fact_tables:
+                last = _table_details[-1] if _table_details else {}
+                if last.get("row_count", 0) == 0:
+                    _log_gold_fact_zero_rows_diagnostics(table_name)
     _gold_rows = sum(d["row_count"] for d in _table_details[_n_gold:] if d.get("table", "").split(".")[-1] in GOLD_LOAD_TABLE_NAMES)
     _steps.append({"step_name": "gold_etl", "duration_seconds": time.time() - _gold_start, "rows_processed": _gold_rows})
 
