@@ -129,22 +129,13 @@ class SilverETL:
             table_timing_start(f"{prefix}.silver_tax_rate")
             self.tax_rate.load(f"{prefix}.bronze_tax_rate", f"{prefix}.silver_tax_rate")
 
-            # FINWIRE parsing (Batch1 only) - each loader in its own try so one failure doesn't block others
-            try:
-                table_timing_start(f"{prefix}.silver_companies")
-                self.companies.load(f"{prefix}.bronze_finwire", f"{prefix}.silver_companies")
-            except Exception as e:
-                logger.warning(f"silver_companies skipped: {e}")
-            try:
-                table_timing_start(f"{prefix}.silver_securities")
-                self.securities.load(f"{prefix}.bronze_finwire", f"{prefix}.silver_securities")
-            except Exception as e:
-                logger.warning(f"silver_securities skipped: {e}")
-            try:
-                table_timing_start(f"{prefix}.silver_financials")
-                self.financials.load(f"{prefix}.bronze_finwire", f"{prefix}.silver_financials")
-            except Exception as e:
-                logger.warning(f"silver_financials skipped: {e}")
+            # FINWIRE parsing (Batch1 only) - exceptions propagate and fail the run
+            table_timing_start(f"{prefix}.silver_companies")
+            self.companies.load(f"{prefix}.bronze_finwire", f"{prefix}.silver_companies")
+            table_timing_start(f"{prefix}.silver_securities")
+            self.securities.load(f"{prefix}.bronze_finwire", f"{prefix}.silver_securities")
+            table_timing_start(f"{prefix}.silver_financials")
+            self.financials.load(f"{prefix}.bronze_finwire", f"{prefix}.silver_financials")
         
         # Customer and Account data: Different sources for Batch 1 vs Batch 2+
         # Batch 1: bronze_customer_mgmt (XML)
@@ -160,70 +151,47 @@ class SilverETL:
             table_timing_start(f"{prefix}.silver_accounts")
             self.accounts.load(f"{prefix}.bronze_account", f"{prefix}.silver_accounts", batch_id)
         
-        # Trade and Market data (all batches)
-        try:
-            table_timing_start(f"{prefix}.silver_trades")
-            self.trades.load(f"{prefix}.bronze_trade", f"{prefix}.silver_trades", batch_id)
-        except Exception as e:
-            logger.warning(f"Trade data skipped: {e}")
-        
-        try:
-            table_timing_start(f"{prefix}.silver_daily_market")
-            self.daily_market.load(f"{prefix}.bronze_daily_market", f"{prefix}.silver_daily_market", batch_id)
-        except Exception as e:
-            logger.warning(f"Daily market data skipped: {e}")
+        # Trade and Market data (all batches) - exceptions propagate and fail the run
+        table_timing_start(f"{prefix}.silver_trades")
+        self.trades.load(f"{prefix}.bronze_trade", f"{prefix}.silver_trades", batch_id)
 
-        try:
-            table_timing_start(f"{prefix}.silver_prospect")
-            self.prospect.load(f"{prefix}.bronze_prospect", f"{prefix}.silver_prospect", batch_id)
-        except Exception as e:
-            logger.warning(f"Prospect data skipped: {e}")
+        table_timing_start(f"{prefix}.silver_daily_market")
+        self.daily_market.load(f"{prefix}.bronze_daily_market", f"{prefix}.silver_daily_market", batch_id)
 
-        try:
-            table_timing_start(f"{prefix}.silver_cash_transaction")
-            self.cash_transaction.load(
-                f"{prefix}.bronze_cash_transaction",
-                f"{prefix}.silver_cash_transaction",
-                batch_id,
-            )
-        except Exception as e:
-            logger.warning(f"Cash transaction data skipped: {e}")
+        table_timing_start(f"{prefix}.silver_prospect")
+        self.prospect.load(f"{prefix}.bronze_prospect", f"{prefix}.silver_prospect", batch_id)
 
-        try:
-            table_timing_start(f"{prefix}.silver_watch_history")
-            self.watch_history.load(
-                f"{prefix}.bronze_watch_history",
-                f"{prefix}.silver_watch_history",
-                batch_id=batch_id,
-            )
-        except Exception as e:
-            logger.warning(f"Watch history data skipped: {e}")
+        table_timing_start(f"{prefix}.silver_cash_transaction")
+        self.cash_transaction.load(
+            f"{prefix}.bronze_cash_transaction",
+            f"{prefix}.silver_cash_transaction",
+            batch_id,
+        )
 
-        try:
-            table_timing_start(f"{prefix}.silver_holding_history")
-            self.holding_history.load(
-                f"{prefix}.bronze_holding_history",
-                f"{prefix}.silver_holding_history",
-                silver_trades_table=f"{prefix}.silver_trades",
-                batch_id=batch_id,
-            )
-        except Exception as e:
-            logger.warning(f"Holding history data skipped: {e}")
+        table_timing_start(f"{prefix}.silver_watch_history")
+        self.watch_history.load(
+            f"{prefix}.bronze_watch_history",
+            f"{prefix}.silver_watch_history",
+            batch_id=batch_id,
+        )
 
-        # Silver DQ: run TPC-DI validation rules and log to gold_dim_messages
+        table_timing_start(f"{prefix}.silver_holding_history")
+        self.holding_history.load(
+            f"{prefix}.bronze_holding_history",
+            f"{prefix}.silver_holding_history",
+            silver_trades_table=f"{prefix}.silver_trades",
+            batch_id=batch_id,
+        )
+
+        # Silver DQ: run TPC-DI validation rules and log to gold_dim_messages - exceptions propagate
         from benchmark.etl.table_timing import end_table as table_timing_end
         dq_table_name = f"{prefix}.silver_dq_validation"
         table_timing_start(dq_table_name)
-        dq_message_count = 0
-        try:
-            dq = SilverDQRunner(self.platform)
-            result = dq.run_silver_dq(batch_id, prefix, dim_messages_table=f"{prefix}.gold_dim_messages")
-            dq_timings, dq_message_count = (result[0], result[1]) if isinstance(result, tuple) and len(result) == 2 else (result, 0)
-            if metrics is not None and dq_timings is not None:
-                metrics.metrics.dq_table_timings = dq_timings
-        except Exception as e:
-            logger.warning(f"Silver DQ run failed: {e}")
-        finally:
-            table_timing_end(dq_table_name, row_count=dq_message_count)
+        dq = SilverDQRunner(self.platform)
+        result = dq.run_silver_dq(batch_id, prefix, dim_messages_table=f"{prefix}.gold_dim_messages")
+        dq_timings, dq_message_count = (result[0], result[1]) if isinstance(result, tuple) and len(result) == 2 else (result, 0)
+        if metrics is not None and dq_timings is not None:
+            metrics.metrics.dq_table_timings = dq_timings
+        table_timing_end(dq_table_name, dq_message_count)
 
         logger.info(f"Silver layer load completed for Batch{batch_id}")
