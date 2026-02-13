@@ -14,7 +14,7 @@ See docs/DATA_QUALITY.md for examples.
 import logging
 import time
 from datetime import datetime
-from typing import Callable, List, Optional, Dict, Any
+from typing import Callable, List, Optional, Dict, Any, Tuple
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, count, current_date, current_timestamp, length, lit, trim
 
@@ -39,13 +39,14 @@ class SilverDQRunner:
         prefix: str,
         dim_messages_table: Optional[str] = None,
         custom_rules: Optional[List[Callable[..., None]]] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> Tuple[List[Dict[str, Any]], int]:
         """
         Run all Silver DQ rules for the given batch and prefix.
         Logs failures to gold_dim_messages (or dim_messages_table if provided).
 
         Returns:
-            List of {"table": str, "duration_seconds": float} for each validated table (for benchmark results).
+            Tuple of (dq_table_timings, message_count): timings per validated table, and number of
+            DQ messages written to gold_dim_messages (for table_timing row count).
         """
         start_time = time.time()
         start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -56,6 +57,7 @@ class SilverDQRunner:
         ensure_dim_messages_exists(self.spark, messages_table, self.platform)
 
         dq_table_timings: List[Dict[str, Any]] = []
+        message_count: List[int] = [0]  # mutable so log() can increment
 
         def log(component: str, message: str, severity: str = "Alert", source: str = ""):
             log_message(
@@ -63,6 +65,7 @@ class SilverDQRunner:
                 batch_id=batch_id, component_name=component,
                 message_text=message, severity=severity, source_table=source,
             )
+            message_count[0] += 1
 
         def _timed(table_name: str, fn):
             t0 = time.time()
@@ -185,8 +188,8 @@ class SilverDQRunner:
             logger.info(f"[TIMING] Completed Silver DQ validation for batch {batch_id} at {end_datetime}")
             logger.info(f"[TIMING] Silver DQ - Start: {start_datetime}, End: {end_datetime}, Duration: {duration:.2f}s")
         
-        logger.info(f"Silver DQ completed for batch_id={batch_id}, prefix={prefix} in {duration:.2f}s")
-        return dq_table_timings
+        logger.info(f"Silver DQ completed for batch_id={batch_id}, prefix={prefix} in {duration:.2f}s ({message_count[0]} messages)")
+        return dq_table_timings, message_count[0]
 
     def _run_customer_rules(self, prefix: str, batch_id: int, log, messages_table: str) -> None:
         source = f"{prefix}.silver_customers"

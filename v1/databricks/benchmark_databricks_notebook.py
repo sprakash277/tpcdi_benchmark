@@ -93,14 +93,41 @@ logging.basicConfig(
     force=True  # Override any existing configuration
 )
 
-# Add project root to path (notebook in databricks/ → repo root = parent; else notebook dir)
-notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-workspace_path = Path(notebook_path).parent
-project_root = workspace_path.parent if (workspace_path.parent / "benchmark").is_dir() else workspace_path
-sys.path.insert(0, str(project_root.resolve()))
+# Add project root to path so "benchmark" package is importable (v1/benchmark/)
+# Notebook may live at .../v1/databricks/ or .../repo/v1/databricks/; walk up to find directory containing benchmark/.
+try:
+    notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+    workspace_path = Path(notebook_path).parent.resolve()
+except Exception:
+    workspace_path = Path(os.getcwd()).resolve()
+project_root = None
+candidate = workspace_path
+for _ in range(5):  # walk up at most 5 levels
+    if (candidate / "benchmark").is_dir():
+        if (candidate / "benchmark" / "config.py").exists() or (candidate / "benchmark" / "__init__.py").exists():
+            project_root = candidate
+            break
+        project_root = project_root or candidate
+    if candidate.parent == candidate:
+        break
+    candidate = candidate.parent
+if project_root is None:
+    project_root = workspace_path
+project_root = Path(project_root).resolve()
+sys.path.insert(0, str(project_root))
+# If notebook is under repo/v1/databricks/ but project_root ended up as repo (no benchmark at repo root), add v1
+v1_dir = project_root.parent / "v1" if project_root.name != "v1" else project_root
+if (v1_dir / "benchmark").is_dir() and str(v1_dir) not in sys.path:
+    sys.path.insert(0, str(v1_dir))
 
-from benchmark.config import BenchmarkConfig, Platform, LoadType
-from benchmark.runner import run_benchmark
+try:
+    from benchmark.config import BenchmarkConfig, Platform, LoadType
+    from benchmark.runner import run_benchmark
+except ModuleNotFoundError as e:
+    raise ModuleNotFoundError(
+        f"{e}. Ensure the notebook runs from a Repos checkout where 'benchmark' exists (e.g. .../v1/benchmark/). "
+        f"Current sys.path[0]={project_root}"
+    ) from e
 
 # Ensure benchmark modules also use DEBUG level
 logging.getLogger('benchmark').setLevel(logging.DEBUG)

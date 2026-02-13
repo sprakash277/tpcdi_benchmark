@@ -214,14 +214,16 @@ class SilverETL:
         from benchmark.etl.table_timing import end_table as table_timing_end
         dq_table_name = f"{prefix}.silver_dq_validation"
         table_timing_start(dq_table_name)
+        dq_message_count = 0
         try:
             dq = SilverDQRunner(self.platform)
-            dq_timings = dq.run_silver_dq(batch_id, prefix, dim_messages_table=f"{prefix}.gold_dim_messages")
+            result = dq.run_silver_dq(batch_id, prefix, dim_messages_table=f"{prefix}.gold_dim_messages")
+            dq_timings, dq_message_count = (result[0], result[1]) if isinstance(result, tuple) and len(result) == 2 else (result, 0)
             if metrics is not None and dq_timings is not None:
                 metrics.metrics.dq_table_timings = dq_timings
         except Exception as e:
             logger.warning(f"Silver DQ run failed: {e}")
         finally:
-            table_timing_end(dq_table_name, row_count=0)  # always record so "Tables loaded" count is 44 on both platforms
+            table_timing_end(dq_table_name, row_count=dq_message_count)
 
         logger.info(f"Silver layer load completed for Batch{batch_id}")
