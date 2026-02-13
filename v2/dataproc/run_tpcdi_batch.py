@@ -62,7 +62,7 @@ def adapt_sql(content: str, database: str, batch_id: int, raw_path: str, use_pip
 
 def main():
     parser = argparse.ArgumentParser(description="TPC-DI v2 Dataproc: run_tpcdi_batch (Delta)")
-    parser.add_argument("--database", default="tpcdi_dw", help="Hive database (all tables in one DB)")
+    parser.add_argument("--database", default="tpcdi_dw", help="Hive database base name (sf appended as _sf{N}, e.g. tpcdi_dw_sf10)")
     parser.add_argument("--raw-data-path", required=True, help="Base path to TPC-DI data (e.g. gs://bucket/tpcdi)")
     parser.add_argument("--sf", type=int, default=10, help="Scale factor")
     parser.add_argument("--batch-id", type=int, default=1, help="Batch ID (1=batch, 2+=incremental)")
@@ -75,6 +75,9 @@ def main():
     args = parser.parse_args()
 
     database = args.database
+    # Include sf in database name so different scale factors use different DBs (e.g. tpcdi_dw_sf10)
+    if not database.endswith(f"_sf{args.sf}"):
+        database = f"{database}_sf{args.sf}"
     raw_data_path = args.raw_data_path.rstrip("/")
     full_raw_path = f"{raw_data_path}/sf={args.sf}"
     batch_id = args.batch_id
