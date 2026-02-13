@@ -16,7 +16,7 @@ SELECT
     current_timestamp() AS etl_timestamp
 FROM __CATALOG__.__SCHEMA__.silver_accounts sa
 INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_customer dc
-    ON sa.customer_id = dc.customer_id
+    ON TRIM(CAST(sa.customer_id AS STRING)) = TRIM(CAST(dc.customer_id AS STRING))
    AND dc.is_current = true
    AND COALESCE(sa.effective_date, sa.load_timestamp) >= dc.start_date
    AND (dc.end_date IS NULL OR COALESCE(sa.effective_date, sa.load_timestamp) < dc.end_date)

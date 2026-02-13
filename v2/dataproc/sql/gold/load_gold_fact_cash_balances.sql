@@ -10,8 +10,8 @@ SELECT
     current_timestamp() AS etl_timestamp
 FROM __CATALOG__.__SCHEMA__.silver_cash_transaction sct
 INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_date dd ON DATE(sct.ct_dts) = dd.date_value
-INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_account da ON CAST(sct.ct_ca_id AS STRING) = CAST(da.account_id AS STRING)
-INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_customer dc ON CAST(da.customer_id AS STRING) = CAST(dc.customer_id AS STRING)
+INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_account da ON TRIM(CAST(sct.ct_ca_id AS STRING)) = TRIM(CAST(da.account_id AS STRING))
+INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_customer dc ON TRIM(CAST(da.customer_id AS STRING)) = TRIM(CAST(dc.customer_id AS STRING))
 WHERE sct.batch_id = __BATCH_ID__
   AND sct.is_current = true
 GROUP BY dd.sk_date_id, da.sk_account_id, dc.sk_customer_id, sct.ct_ca_id

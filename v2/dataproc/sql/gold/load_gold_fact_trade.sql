@@ -28,12 +28,12 @@ INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_date dd
 INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_time dt
     ON date_format(st.trade_dts, 'HH:mm:ss') = dt.time_value
 INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_account da
-    ON CAST(st.account_id AS STRING) = CAST(da.account_id AS STRING)
+    ON TRIM(CAST(st.account_id AS STRING)) = TRIM(CAST(da.account_id AS STRING))
 INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_customer dc
-    ON CAST(da.customer_id AS STRING) = CAST(dc.customer_id AS STRING)
+    ON TRIM(CAST(da.customer_id AS STRING)) = TRIM(CAST(dc.customer_id AS STRING))
 INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_security ds
     ON TRIM(CAST(st.symbol AS STRING)) = TRIM(CAST(ds.symbol AS STRING))
 INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_trade_type dtt
-    ON CAST(st.trade_type_id AS STRING) = CAST(dtt.trade_type_id AS STRING)
+    ON TRIM(CAST(st.trade_type_id AS STRING)) = TRIM(CAST(dtt.trade_type_id AS STRING))
 WHERE st.batch_id = __BATCH_ID__
   AND st.is_current = true

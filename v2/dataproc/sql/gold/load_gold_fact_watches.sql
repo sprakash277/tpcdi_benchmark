@@ -9,7 +9,7 @@ SELECT
     swh.w_action AS watch_action,
     current_timestamp() AS etl_timestamp
 FROM __CATALOG__.__SCHEMA__.silver_watch_history swh
-INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_customer dc ON CAST(swh.w_c_id AS STRING) = CAST(dc.customer_id AS STRING)
+INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_customer dc ON TRIM(CAST(swh.w_c_id AS STRING)) = TRIM(CAST(dc.customer_id AS STRING))
 INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_security ds ON TRIM(CAST(swh.w_s_symb AS STRING)) = TRIM(CAST(ds.symbol AS STRING))
 WHERE swh.batch_id = __BATCH_ID__
   AND swh.is_current = true
