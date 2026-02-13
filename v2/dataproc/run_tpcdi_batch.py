@@ -594,10 +594,68 @@ def main():
                 print(f"[DEBUG-GOLD] {tab}: silver_watch_history (batch_id={batch_id}, is_current) = {n_silver}; after join dim_customer = {n_after_cust}; after join dim_security = {n_after_sec}")
             elif tab == "gold_fact_trade":
                 n_silver = spark.sql(f"SELECT COUNT(*) AS c FROM {database}.silver_trades WHERE batch_id = {batch_id} AND is_current = true").collect()[0][0]
-                n_dim_acc = spark.sql(f"SELECT COUNT(*) AS c FROM {database}.gold_dim_account").collect()[0][0]
-                n_dim_sec = spark.sql(f"SELECT COUNT(*) AS c FROM {database}.gold_dim_security").collect()[0][0]
-                print(f"[DEBUG-GOLD] {tab}: silver_trades (batch_id={batch_id}, is_current) = {n_silver}; gold_dim_account = {n_dim_acc}; gold_dim_security = {n_dim_sec}")
-            elif tab in ("gold_fact_cash_balances", "gold_fact_holdings", "gold_fact_market_history"):
+                n_after_date = spark.sql(f"""
+                    SELECT COUNT(*) AS c FROM {database}.silver_trades st
+                    INNER JOIN {database}.gold_dim_date dd ON CAST(st.trade_dts AS DATE) = dd.date_value
+                    WHERE st.batch_id = {batch_id} AND st.is_current = true
+                """).collect()[0][0]
+                n_after_time = spark.sql(f"""
+                    SELECT COUNT(*) AS c FROM {database}.silver_trades st
+                    INNER JOIN {database}.gold_dim_date dd ON CAST(st.trade_dts AS DATE) = dd.date_value
+                    INNER JOIN {database}.gold_dim_time dt ON date_format(st.trade_dts, 'HH:mm:ss') = dt.time_value
+                    WHERE st.batch_id = {batch_id} AND st.is_current = true
+                """).collect()[0][0]
+                n_after_acc = spark.sql(f"""
+                    SELECT COUNT(*) AS c FROM {database}.silver_trades st
+                    INNER JOIN {database}.gold_dim_date dd ON CAST(st.trade_dts AS DATE) = dd.date_value
+                    INNER JOIN {database}.gold_dim_time dt ON date_format(st.trade_dts, 'HH:mm:ss') = dt.time_value
+                    INNER JOIN {database}.gold_dim_account da ON TRIM(CAST(st.account_id AS STRING)) = TRIM(CAST(da.account_id AS STRING))
+                    WHERE st.batch_id = {batch_id} AND st.is_current = true
+                """).collect()[0][0]
+                n_after_cust = spark.sql(f"""
+                    SELECT COUNT(*) AS c FROM {database}.silver_trades st
+                    INNER JOIN {database}.gold_dim_account da ON TRIM(CAST(st.account_id AS STRING)) = TRIM(CAST(da.account_id AS STRING))
+                    INNER JOIN {database}.gold_dim_customer dc ON TRIM(CAST(da.customer_id AS STRING)) = TRIM(CAST(dc.customer_id AS STRING))
+                    WHERE st.batch_id = {batch_id} AND st.is_current = true
+                """).collect()[0][0]
+                n_after_sec = spark.sql(f"""
+                    SELECT COUNT(*) AS c FROM {database}.silver_trades st
+                    INNER JOIN {database}.gold_dim_security ds ON TRIM(CAST(st.symbol AS STRING)) = TRIM(CAST(ds.symbol AS STRING))
+                    WHERE st.batch_id = {batch_id} AND st.is_current = true
+                """).collect()[0][0]
+                n_after_tt = spark.sql(f"""
+                    SELECT COUNT(*) AS c FROM {database}.silver_trades st
+                    INNER JOIN {database}.gold_dim_trade_type dtt ON TRIM(CAST(st.trade_type_id AS STRING)) = TRIM(CAST(dtt.trade_type_id AS STRING))
+                    WHERE st.batch_id = {batch_id} AND st.is_current = true
+                """).collect()[0][0]
+                print(f"[DEBUG-GOLD] {tab}: silver_trades = {n_silver}; after dim_date = {n_after_date}; after dim_time = {n_after_time}; after dim_account = {n_after_acc}; after dim_customer = {n_after_cust}; after dim_security = {n_after_sec}; after dim_trade_type = {n_after_tt}")
+            elif tab == "gold_fact_holdings":
+                n_shh = spark.sql(f"SELECT COUNT(*) AS c FROM {database}.silver_holding_history WHERE batch_id = {batch_id} AND is_current = true").collect()[0][0]
+                n_shh_st = spark.sql(f"""
+                    SELECT COUNT(*) AS c FROM {database}.silver_holding_history shh
+                    INNER JOIN {database}.silver_trades st ON shh.hh_t_id = st.trade_id AND st.batch_id = {batch_id} AND st.is_current = true
+                    WHERE shh.batch_id = {batch_id} AND shh.is_current = true
+                """).collect()[0][0]
+                n_after_date = spark.sql(f"""
+                    SELECT COUNT(*) AS c FROM {database}.silver_holding_history shh
+                    INNER JOIN {database}.silver_trades st ON shh.hh_t_id = st.trade_id AND st.batch_id = {batch_id} AND st.is_current = true
+                    INNER JOIN {database}.gold_dim_date dd ON DATE(st.trade_dts) = dd.date_value
+                    WHERE shh.batch_id = {batch_id} AND shh.is_current = true
+                """).collect()[0][0]
+                n_after_acc = spark.sql(f"""
+                    SELECT COUNT(*) AS c FROM {database}.silver_holding_history shh
+                    INNER JOIN {database}.silver_trades st ON shh.hh_t_id = st.trade_id AND st.batch_id = {batch_id} AND st.is_current = true
+                    INNER JOIN {database}.gold_dim_account da ON TRIM(CAST(st.account_id AS STRING)) = TRIM(CAST(da.account_id AS STRING))
+                    WHERE shh.batch_id = {batch_id} AND shh.is_current = true
+                """).collect()[0][0]
+                n_after_sec = spark.sql(f"""
+                    SELECT COUNT(*) AS c FROM {database}.silver_holding_history shh
+                    INNER JOIN {database}.silver_trades st ON shh.hh_t_id = st.trade_id AND st.batch_id = {batch_id} AND st.is_current = true
+                    INNER JOIN {database}.gold_dim_security ds ON TRIM(CAST(st.symbol AS STRING)) = TRIM(CAST(ds.symbol AS STRING))
+                    WHERE shh.batch_id = {batch_id} AND shh.is_current = true
+                """).collect()[0][0]
+                print(f"[DEBUG-GOLD] {tab}: silver_holding_history = {n_shh}; after join silver_trades = {n_shh_st}; after dim_date = {n_after_date}; after dim_account = {n_after_acc}; after dim_security = {n_after_sec}")
+            elif tab in ("gold_fact_cash_balances", "gold_fact_market_history"):
                 print(f"[DEBUG-GOLD] {tab}: 0 rows; check silver source and dim joins (customer_id, account_id, symbol) for type/whitespace mismatch.")
         except Exception as e:
             print(f"[DEBUG-GOLD] {tab} diagnostic failed: {e}")

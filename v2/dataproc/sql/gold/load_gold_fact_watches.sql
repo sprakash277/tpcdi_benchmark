@@ -14,10 +14,8 @@ INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_customer dc
     ON CAST(swh.w_c_id AS BIGINT) = CAST(dc.customer_id AS BIGINT)
     AND swh.w_dts >= dc.start_date 
     AND swh.w_dts < dc.end_date
--- 2. JOIN TO SECURITY: Use UPPER() for symbol and Point-in-Time logic
+-- 2. JOIN TO SECURITY: Use UPPER() for symbol (no point-in-time: dim_security is current snapshot, start_date=load_timestamp would exclude historical w_dts)
 INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_security ds 
     ON UPPER(TRIM(swh.w_s_symb)) = UPPER(TRIM(ds.symbol))
-    AND swh.w_dts >= ds.start_date 
-    AND swh.w_dts < ds.end_date
 WHERE swh.batch_id = __BATCH_ID__
   AND swh.is_current = true
