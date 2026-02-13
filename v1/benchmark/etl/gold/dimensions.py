@@ -6,7 +6,7 @@ Dimensions from Silver tables, ready for star schema joins.
 
 import logging
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, lit, current_timestamp, monotonically_increasing_id, concat_ws, split, element_at, size, lower
+from pyspark.sql.functions import col, lit, current_timestamp, monotonically_increasing_id, concat_ws, split, element_at, size, lower, trim
 from pyspark.sql.types import StructType, StructField, LongType, StringType, DateType, TimestampType, DoubleType
 
 # Placeholder IDs for late-arriving dimension (TPC-DI: trade arrives before account/customer)
@@ -251,20 +251,25 @@ class GoldDimTime(GoldLoaderBase):
 
 
 class GoldDimBroker(GoldLoaderBase):
-    """Gold dimension table: DimBroker (from bronze_hr, job_code LIKE '%BROKER%')."""
+    """Gold dimension table: DimBroker (from bronze_hr, job_code LIKE '%BROKER%' or JobCode = 1)."""
+
+    # TPC-DI pdgf outputs numeric JobCode (BROKER_JOB_ID); string "BROKER" is used in some specs.
+    BROKER_JOB_ID_STR = "1"
 
     def load(self, bronze_hr_table: str, target_table: str, batch_id: int = 1) -> DataFrame:
-        """Create DimBroker from bronze_hr: distinct brokers (job_code contains BROKER).
+        """Create DimBroker from bronze_hr: distinct brokers (job_code contains BROKER or equals broker job ID).
         HR.csv spec: 1=EmployeeID, 2=ManagerID, 3=FirstName, 4=LastName, 5=MI, 6=JobCode, 7=Branch, 8=Office, 9=Phone.
-        Case-insensitive match on column 6.
+        Accepts either string (e.g. 'BROKER') or numeric JobCode (e.g. '1' from TPC-DI pdgf).
         """
         logger.info("Loading gold.DimBroker from %s", bronze_hr_table)
         bronze_df = self.spark.table(bronze_hr_table).filter(col("_batch_id") == batch_id)
         arr = split(col("raw_line"), ",")
+        job_code = trim(element_at(arr, 6))
+        is_broker = lower(job_code).like("%broker%") | (job_code == lit(self.BROKER_JOB_ID_STR))
         brokers_df = bronze_df.filter(
             col("raw_line").isNotNull() & (size(arr) >= 9)
         ).filter(
-            lower(element_at(arr, 6)).like("%broker%")
+            is_broker
         ).select(
             element_at(arr, 1).alias("employee_id"),
             element_at(arr, 3).alias("first_name"),
