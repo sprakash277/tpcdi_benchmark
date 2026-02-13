@@ -128,7 +128,7 @@ def main():
     parser.add_argument("--cluster-instance-type", default="", help="Worker node type for metrics (e.g. n2d-standard-16); auto-detected from GCP metadata if not set")
     parser.add_argument("--cluster-worker-count", type=int, default=None, help="Number of worker nodes for metrics; auto-detected from Spark/metadata if not set")
     parser.add_argument("--cluster-master-type", default="", help="Driver node type for metrics; auto-detected from GCP metadata if not set")
-    parser.add_argument("--debug-gold", action="store_true", help="When a gold fact table has 0 rows, run diagnostic queries and log counts to find why joins drop all rows")
+    parser.add_argument("--debug-gold", action="store_true", default=True, help="When a gold fact table has 0 rows, run diagnostic queries and log counts (default: True)")
     args = parser.parse_args()
 
     database = args.database
