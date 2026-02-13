@@ -9,7 +9,7 @@ import logging
 import time
 from datetime import datetime
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, length, trim, substring, expr, to_date
+from pyspark.sql.functions import col, length, trim, substring, expr, try_to_date
 
 from benchmark.etl.silver.base import SilverLoaderBase, _get_table_size_bytes
 from benchmark.etl.table_timing import end_table as table_timing_end, is_detailed as table_timing_is_detailed
@@ -36,8 +36,8 @@ class SilverFinancials(SilverLoaderBase):
             trim(substring(col("raw_line"), 187, 60)).alias("co_name_or_cik"),
             expr("CAST(TRIM(substring(raw_line, 19, 4)) AS INT)").alias("year"),
             expr("CAST(TRIM(substring(raw_line, 23, 1)) AS INT)").alias("quarter"),
-            to_date(substring(col("raw_line"), 24, 8), "yyyyMMdd").alias("qtr_start_date"),
-            to_date(substring(col("raw_line"), 32, 8), "yyyyMMdd").alias("posting_date"),
+            try_to_date(substring(col("raw_line"), 24, 8), "yyyyMMdd").alias("qtr_start_date"),
+            try_to_date(substring(col("raw_line"), 32, 8), "yyyyMMdd").alias("posting_date"),
             expr("CAST(TRIM(substring(raw_line, 40, 17)) AS DOUBLE)").alias("revenue"),
             expr("CAST(TRIM(substring(raw_line, 57, 17)) AS DOUBLE)").alias("earnings"),
             expr("CAST(TRIM(substring(raw_line, 74, 12)) AS DOUBLE)").alias("eps"),

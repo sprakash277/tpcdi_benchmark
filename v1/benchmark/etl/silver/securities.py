@@ -9,7 +9,7 @@ import logging
 import time
 from datetime import datetime
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, length, trim, substring, expr, to_date
+from pyspark.sql.functions import col, length, trim, substring, expr, try_to_date
 
 from benchmark.etl.silver.base import SilverLoaderBase, _get_table_size_bytes
 from benchmark.etl.table_timing import end_table as table_timing_end, is_detailed as table_timing_is_detailed
@@ -39,7 +39,7 @@ class SilverSecurities(SilverLoaderBase):
             trim(substring(col("raw_line"), 44, 70)).alias("name"),
             trim(substring(col("raw_line"), 114, 6)).alias("ex_id"),
             expr("CAST(TRIM(substring(raw_line, 120, 13)) AS BIGINT)").alias("sh_out"),
-            to_date(substring(col("raw_line"), 133, 8), "yyyyMMdd").alias("first_trade_date"),
+            try_to_date(substring(col("raw_line"), 133, 8), "yyyyMMdd").alias("first_trade_date"),
             trim(substring(col("raw_line"), 141, 8)).alias("first_trade_exchg"),
             expr("CAST(TRIM(substring(raw_line, 149, 12)) AS DOUBLE)").alias("dividend"),
             trim(substring(col("raw_line"), 161, 60)).alias("co_name_or_cik"),

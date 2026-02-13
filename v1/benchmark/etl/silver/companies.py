@@ -9,7 +9,7 @@ import logging
 import time
 from datetime import datetime
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, length, trim, substring, monotonically_increasing_id
+from pyspark.sql.functions import col, length, trim, substring, monotonically_increasing_id, try_to_date
 
 from benchmark.etl.silver.base import SilverLoaderBase, _get_table_size_bytes
 from benchmark.etl.table_timing import end_table as table_timing_end, is_detailed as table_timing_is_detailed
@@ -43,7 +43,6 @@ class SilverCompanies(SilverLoaderBase):
             col("_batch_id"),
             col("_load_timestamp"),
         )
-        from pyspark.sql.functions import to_date
         silver_df = silver_df.select(
             col("sk_company_id"),
             col("company_id"),
@@ -51,7 +50,7 @@ class SilverCompanies(SilverLoaderBase):
             col("industry_id"),
             col("sp_rating"),
             col("status"),
-            to_date(substring(col("raw_line"), 99, 8), "yyyyMMdd").alias("founding_date"),
+            try_to_date(substring(col("raw_line"), 99, 8), "yyyyMMdd").alias("founding_date"),
             trim(substring(col("raw_line"), 348, 46)).alias("ceo_name"),
             trim(substring(col("raw_line"), 107, 80)).alias("address_line1"),
             trim(substring(col("raw_line"), 187, 80)).alias("address_line2"),
