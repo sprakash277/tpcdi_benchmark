@@ -1,5 +1,5 @@
 DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.gold_dim_trade_type;
-CREATE TABLE __CATALOG__.__SCHEMA__.gold_dim_trade_type AS
+CREATE TABLE __CATALOG__.__SCHEMA__.gold_dim_trade_type USING DELTA AS
 SELECT 
     tt_id AS sk_trade_type_id,
     tt_id AS trade_type_id,

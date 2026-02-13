@@ -271,6 +271,9 @@ def main():
             ):
                 spark.sql(stmt)
 
+    # Create gold_dim_messages early so DQ scripts can INSERT into it (avoids DELTA_TABLE_NOT_FOUND)
+    run_sql(read_sql_file("sql/gold/create_gold_dim_messages.sql"))
+
     _table_details = []
     _steps = []
     _total_refresh_seconds = 0.0
@@ -538,7 +541,7 @@ def main():
             metrics.record_table_load(_table_details, table_short, time.time() - t0, rc, sz, database)
     _steps.append({"step_name": "silver_etl", "duration_seconds": time.time() - _silver_start, "rows_processed": sum(d["row_count"] for d in _table_details[_n_silver:])})
 
-    run_sql(read_sql_file("sql/gold/create_gold_dim_messages.sql").replace("__CATALOG__.__SCHEMA__", database))
+    # gold_dim_messages already created at job start so DQ can INSERT
     dq_files = [
         "sql/dq/dq_silver_date.sql", "sql/dq/dq_silver_status_type.sql", "sql/dq/dq_silver_trade_type.sql", "sql/dq/dq_silver_industry.sql",
         "sql/dq/dq_silver_companies.sql", "sql/dq/dq_silver_securities.sql", "sql/dq/dq_silver_financials.sql",

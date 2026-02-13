@@ -1,5 +1,5 @@
 DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.gold_dim_customer;
-CREATE TABLE __CATALOG__.__SCHEMA__.gold_dim_customer AS
+CREATE TABLE __CATALOG__.__SCHEMA__.gold_dim_customer USING DELTA AS
 SELECT 
     sk_customer_id,
     customer_id,

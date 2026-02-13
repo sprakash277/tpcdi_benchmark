@@ -1,5 +1,5 @@
 DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.gold_dim_account;
-CREATE TABLE __CATALOG__.__SCHEMA__.gold_dim_account AS
+CREATE TABLE __CATALOG__.__SCHEMA__.gold_dim_account USING DELTA AS
 SELECT 
     monotonically_increasing_id() AS sk_account_id,
     sa.account_id,

@@ -1,5 +1,5 @@
 DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.gold_prospect;
-CREATE TABLE __CATALOG__.__SCHEMA__.gold_prospect AS
+CREATE TABLE __CATALOG__.__SCHEMA__.gold_prospect USING DELTA AS
 SELECT 
     agency_id,
     last_name,
