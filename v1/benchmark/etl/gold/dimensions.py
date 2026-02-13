@@ -6,7 +6,7 @@ Dimensions from Silver tables, ready for star schema joins.
 
 import logging
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, lit, current_timestamp, monotonically_increasing_id, concat_ws, split, element_at, size
+from pyspark.sql.functions import col, lit, current_timestamp, monotonically_increasing_id, concat_ws, split, element_at, size, lower
 from pyspark.sql.types import StructType, StructField, LongType, StringType, DateType, TimestampType, DoubleType
 
 # Placeholder IDs for late-arriving dimension (TPC-DI: trade arrives before account/customer)
@@ -256,20 +256,22 @@ class GoldDimBroker(GoldLoaderBase):
     def load(self, bronze_hr_table: str, target_table: str, batch_id: int = 1) -> DataFrame:
         """Create DimBroker from bronze_hr: distinct brokers (job_code contains BROKER).
         HR.csv spec: 1=EmployeeID, 2=ManagerID, 3=FirstName, 4=LastName, 5=MI, 6=JobCode, 7=Branch, 8=Office, 9=Phone.
+        Case-insensitive match on column 6.
         """
         logger.info("Loading gold.DimBroker from %s", bronze_hr_table)
         bronze_df = self.spark.table(bronze_hr_table).filter(col("_batch_id") == batch_id)
+        arr = split(col("raw_line"), ",")
         brokers_df = bronze_df.filter(
-            col("raw_line").isNotNull() & (size(split(col("raw_line"), ",")) >= 9)
+            col("raw_line").isNotNull() & (size(arr) >= 9)
         ).filter(
-            element_at(split(col("raw_line"), ","), 6).like("%BROKER%")  # EmployeeJobCode = col 6
+            lower(element_at(arr, 6)).like("%broker%")
         ).select(
-            element_at(split(col("raw_line"), ","), 1).alias("employee_id"),
-            element_at(split(col("raw_line"), ","), 3).alias("first_name"),
-            element_at(split(col("raw_line"), ","), 4).alias("last_name"),
-            element_at(split(col("raw_line"), ","), 7).alias("branch"),   # EmployeeBranch = col 7
-            element_at(split(col("raw_line"), ","), 8).alias("office"),   # EmployeeOffice = col 8
-            element_at(split(col("raw_line"), ","), 9).alias("phone"),    # EmployeePhone = col 9
+            element_at(arr, 1).alias("employee_id"),
+            element_at(arr, 3).alias("first_name"),
+            element_at(arr, 4).alias("last_name"),
+            element_at(arr, 7).alias("branch"),
+            element_at(arr, 8).alias("office"),
+            element_at(arr, 9).alias("phone"),
         ).distinct()
         gold_df = brokers_df.select(
             monotonically_increasing_id().alias("sk_broker_id"),
