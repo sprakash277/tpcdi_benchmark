@@ -254,20 +254,22 @@ class GoldDimBroker(GoldLoaderBase):
     """Gold dimension table: DimBroker (from bronze_hr, job_code LIKE '%BROKER%')."""
 
     def load(self, bronze_hr_table: str, target_table: str, batch_id: int = 1) -> DataFrame:
-        """Create DimBroker from bronze_hr: distinct brokers (job_code contains BROKER)."""
+        """Create DimBroker from bronze_hr: distinct brokers (job_code contains BROKER).
+        HR.csv spec: 1=EmployeeID, 2=ManagerID, 3=FirstName, 4=LastName, 5=MI, 6=JobCode, 7=Branch, 8=Office, 9=Phone.
+        """
         logger.info("Loading gold.DimBroker from %s", bronze_hr_table)
         bronze_df = self.spark.table(bronze_hr_table).filter(col("_batch_id") == batch_id)
         brokers_df = bronze_df.filter(
-            col("raw_line").isNotNull() & (size(split(col("raw_line"), ",")) >= 8)
+            col("raw_line").isNotNull() & (size(split(col("raw_line"), ",")) >= 9)
         ).filter(
-            element_at(split(col("raw_line"), ","), 8).like("%BROKER%")
+            element_at(split(col("raw_line"), ","), 6).like("%BROKER%")  # EmployeeJobCode = col 6
         ).select(
             element_at(split(col("raw_line"), ","), 1).alias("employee_id"),
             element_at(split(col("raw_line"), ","), 3).alias("first_name"),
             element_at(split(col("raw_line"), ","), 4).alias("last_name"),
-            element_at(split(col("raw_line"), ","), 5).alias("branch"),
-            element_at(split(col("raw_line"), ","), 6).alias("office"),
-            element_at(split(col("raw_line"), ","), 7).alias("phone"),
+            element_at(split(col("raw_line"), ","), 7).alias("branch"),   # EmployeeBranch = col 7
+            element_at(split(col("raw_line"), ","), 8).alias("office"),   # EmployeeOffice = col 8
+            element_at(split(col("raw_line"), ","), 9).alias("phone"),    # EmployeePhone = col 9
         ).distinct()
         gold_df = brokers_df.select(
             monotonically_increasing_id().alias("sk_broker_id"),
