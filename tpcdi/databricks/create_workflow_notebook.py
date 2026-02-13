@@ -201,7 +201,6 @@ benchmark_task = {
             "batch_id": "",
             "metrics_output": "dbfs:/mnt/tpcdi/metrics",
             "log_detailed_stats": "false",
-            "use_udtf_customer_mgmt": "false",
             "customer_mgmt_xml_format": "com.databricks.spark.xml"
         },
         "source": "WORKSPACE"
@@ -239,7 +238,6 @@ elif workflow_type == "benchmark":
         {"name": "batch_id", "default": "", "description": "Batch ID for incremental (empty for batch)"},
         {"name": "metrics_output", "default": "dbfs:/mnt/tpcdi/metrics", "description": "Path to save metrics JSON"},
         {"name": "log_detailed_stats", "default": "false", "description": "Log per-table timing/records"},
-        {"name": "use_udtf_customer_mgmt", "default": "auto", "description": "CustomerMgmt.xml: auto/UDTF/spark-xml"},
         {"name": "customer_mgmt_xml_format", "default": "com.databricks.spark.xml", "description": "CustomerMgmt.xml reader format"},
     ]
 else:
@@ -258,7 +256,6 @@ else:
         {"name": "batch_id", "default": "", "description": "Batch ID for incremental loads (leave empty for batch)"},
         {"name": "metrics_output", "default": "dbfs:/mnt/tpcdi/metrics", "description": "Path to save metrics JSON files"},
         {"name": "log_detailed_stats", "default": "false", "description": "Log per-table timing and records; false = only job start/end/total duration"},
-        {"name": "use_udtf_customer_mgmt", "default": "auto", "description": "CustomerMgmt.xml: auto=UDTF on Databricks, true=UDTF, false=spark-xml"},
         {"name": "customer_mgmt_xml_format", "default": "com.databricks.spark.xml", "description": "CustomerMgmt.xml reader: org.apache.spark... (Databricks native); xml or com.databricks.spark.xml"},
         {"name": "upload_threads", "default": "8", "description": "Number of parallel threads for DBFS uploads"},
     ]

@@ -38,8 +38,6 @@ if __name__ == "__main__":
                        help="Path to save metrics JSON (default: dbfs:/mnt/tpcdi/metrics)")
     parser.add_argument("--log-detailed-stats", action="store_true",
                        help="Log per-table timing and records; default is only job start/end/total duration")
-    parser.add_argument("--use-udtf-customer-mgmt", choices=["auto", "true", "false"], default="false",
-                       help="CustomerMgmt.xml: auto=false (spark-xml, default), true=UDTF, false=spark-xml")
     parser.add_argument("--cluster-instance-type",
                        help="Worker node type for metrics (e.g. i3.xlarge). If omitted, auto-detected from cluster tags when available.")
     parser.add_argument("--cluster-worker-count", type=int,
@@ -70,7 +68,6 @@ if __name__ == "__main__":
     if args.cloud:
         print(f"Cloud: {args.cloud} | Recommended: Worker/Driver = {DEFAULT_NODE_TYPES[args.cloud][0]} | Allowed: {', '.join(CLOUD_NODE_OPTIONS[args.cloud])}")
     
-    use_udtf = {"auto": None, "true": True, "false": False}[args.use_udtf_customer_mgmt]
     # output_path = raw data base; runner appends /sf={scale_factor}
     if not args.target_catalog:
         print("ERROR: --target-catalog is required for Databricks platform (Unity Catalog)", file=sys.stderr)
@@ -87,7 +84,6 @@ if __name__ == "__main__":
         batch_id=args.batch_id,
         metrics_output_path=args.metrics_output,
         log_detailed_stats=args.log_detailed_stats,
-        use_udtf_customer_mgmt=use_udtf,
         cluster_instance_type=args.cluster_instance_type,
         cluster_worker_count=args.cluster_worker_count,
         cluster_master_type=args.cluster_master_type,

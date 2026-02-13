@@ -15,7 +15,7 @@
 | Bronze | bronze_trade_type         | ✅ Yes      | Same. |
 | Bronze | bronze_industry          | ✅ Yes      | Same. |
 | Bronze | bronze_hr                 | ✅ Yes      | Same. |
-| Bronze | bronze_customer_mgmt      | ✅ Yes*     | *Same code path when same config (use_udtf_customer_mgmt, customer_mgmt_xml_format). No `isinstance(platform)` in loader; config is passed from runner and can be identical. |
+| Bronze | bronze_customer_mgmt      | ✅ Yes*     | *Same code path when same config (customer_mgmt_xml_format). No `isinstance(platform)` in loader; config is passed from runner and can be identical. |
 | Bronze | bronze_trade              | ✅ Yes      | Same. |
 | Bronze | bronze_daily_market       | ✅ Yes      | Same. |
 | Bronze | bronze_prospect           | ✅ Yes      | Same. |
@@ -74,7 +74,6 @@
    - **merge_upsert / merge_scd2:** Both implement the same MERGE SQL. Dataproc falls back to overwrite when format ≠ delta. Same **logic** when both use Delta.
 
 3. **Config (optional)**
-   - **use_udtf_customer_mgmt:** Default `False` for both. If set the same (e.g. both `False`), bronze_customer_mgmt is identical.
    - **customer_mgmt_xml_format:** Default `None` → `"xml"` in bronze. Can be set per run; no platform-specific default in code.
 
 ---
@@ -91,4 +90,4 @@
 
 ## Recommendation
 
-- To keep **identical logic** on Databricks and Dataproc: use the same config (e.g. `use_udtf_customer_mgmt=False`, `customer_mgmt_xml_format` unset or same value) and, on Dataproc, use `table_format=delta` if you want merge_upsert/merge_scd2 behavior to match Databricks.
+- To keep **identical logic** on Databricks and Dataproc: use the same config (e.g. `customer_mgmt_xml_format` unset or same value) and, on Dataproc, use `table_format=delta` if you want merge_upsert/merge_scd2 behavior to match Databricks.

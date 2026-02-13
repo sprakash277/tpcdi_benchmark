@@ -83,7 +83,6 @@ def create_workflow_definition(
                 "batch_id": "",
                 "metrics_output": default_metrics_output,
                 "log_detailed_stats": "true" if default_log_detailed_stats else "false",
-                "use_udtf_customer_mgmt": "false",
                 "customer_mgmt_xml_format": default_customer_mgmt_xml_format or "com.databricks.spark.xml"
             },
             "source": "WORKSPACE"
@@ -167,7 +166,6 @@ def create_workflow_definition(
             {"name": "batch_id", "default": "", "description": "Batch ID for incremental (empty for batch)"},
             {"name": "metrics_output", "default": default_metrics_output, "description": "Path to save metrics JSON"},
             {"name": "log_detailed_stats", "default": "true" if default_log_detailed_stats else "false", "description": "Log per-table timing/records"},
-            {"name": "use_udtf_customer_mgmt", "default": "auto", "description": "CustomerMgmt.xml: auto/UDTF/spark-xml"},
             {"name": "customer_mgmt_xml_format", "default": default_customer_mgmt_xml_format or "com.databricks.spark.xml", "description": "CustomerMgmt.xml reader format"},
         ]
     else:
@@ -186,7 +184,6 @@ def create_workflow_definition(
             {"name": "batch_id", "default": "", "description": "Batch ID for incremental loads (leave empty for batch)"},
             {"name": "metrics_output", "default": default_metrics_output, "description": "Path to save metrics JSON files"},
             {"name": "log_detailed_stats", "default": "true" if default_log_detailed_stats else "false", "description": "Log per-table timing and records; false = only job start/end/total duration"},
-            {"name": "use_udtf_customer_mgmt", "default": "auto", "description": "CustomerMgmt.xml: auto=UDTF on Databricks, true=UDTF, false=spark-xml"},
             {"name": "upload_threads", "default": "8", "description": "Number of parallel threads for DBFS uploads"},
             {"name": "tpcdi_local_gen_path", "default": default_local_gen_path or "/local_disk0", "description": "Local path for datagen output (e.g. /mnt/disks/ssd0 on GCP; /local_disk0 on Databricks; empty = use default)"},
             {"name": "customer_mgmt_xml_format", "default": default_customer_mgmt_xml_format or "com.databricks.spark.xml", "description": "CustomerMgmt.xml reader: org.apache.spark.sql.execution.datasources.xml (Databricks native); xml or com.databricks.spark.xml (when attaching custom spark-xml JAR)"}

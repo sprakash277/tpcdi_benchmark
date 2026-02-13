@@ -30,14 +30,14 @@ from typing import Dict, List, Optional
 
 
 def ensure_benchmark_zip():
-    """Create benchmark.zip if it doesn't exist (next to this script in v1/)."""
+    """Create benchmark.zip if it doesn't exist (next to this script in tpcdi/)."""
     script_dir = Path(__file__).resolve().parent
     zip_path = script_dir / "benchmark.zip"
     if zip_path.exists():
         return str(zip_path)
     benchmark_dir = script_dir / "benchmark"
     if not benchmark_dir.exists():
-        print("ERROR: 'benchmark' directory not found. Run from project root or v1/.", file=sys.stderr)
+        print("ERROR: 'benchmark' directory not found. Run from project root or tpcdi/.", file=sys.stderr)
         sys.exit(1)
     print(f"Creating {zip_path}...")
     shutil.make_archive(str(zip_path.with_suffix("")), "zip", script_dir, "benchmark")
@@ -196,7 +196,7 @@ def run_dataproc(args):
             print(f"\nOr create manually and ensure it matches the recommendations above.\n")
             sys.exit(1)
     
-    # Build gcloud command (script and zip live in v1/)
+    # Build gcloud command (script and zip live in tpcdi/)
     script_path = Path(__file__).resolve().parent / "run_benchmark_dataproc.py"
     cmd = [
         "gcloud", "dataproc", "jobs", "submit", "pyspark",

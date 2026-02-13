@@ -50,10 +50,6 @@ try:
 except Exception:
     pass
 try:
-    dbutils.widgets.drop("use_udtf_customer_mgmt")
-except Exception:
-    pass
-try:
     dbutils.widgets.drop("cloud")
 except Exception:
     pass
@@ -70,7 +66,6 @@ dbutils.widgets.text("target_catalog", "main", "Target Catalog (Unity Catalog; r
 dbutils.widgets.text("batch_id", "", "Batch ID (for incremental only)")
 dbutils.widgets.text("metrics_output", "dbfs:/mnt/tpcdi/metrics", "Metrics Output Path")
 dbutils.widgets.dropdown("log_detailed_stats", "false", ["true", "false"], "Log detailed stats (per-table timing/records); false = only job start/end/total duration")
-dbutils.widgets.dropdown("use_udtf_customer_mgmt", "false", ["auto", "true", "false"], "CustomerMgmt.xml: auto=false (spark-xml), true=UDTF, false=spark-xml")
 dbutils.widgets.dropdown("customer_mgmt_xml_format", "com.databricks.spark.xml", ["org.apache.spark.sql.execution.datasources.xml", "xml", "com.databricks.spark.xml"], "CustomerMgmt.xml: org.apache.spark...=Databricks native; xml/com.databricks.spark.xml=custom JAR")
 dbutils.widgets.dropdown("cloud", "AWS", ["AWS", "Azure", "GCP"], "Cloud (for cost estimation: AWS, Azure, GCP)")
 
@@ -93,20 +88,20 @@ logging.basicConfig(
     force=True  # Override any existing configuration
 )
 
-# Add project root to path so "benchmark" package is importable (v1/benchmark/)
-# Notebook lives at .../v1/databricks/benchmark_databricks_notebook; benchmark is one folder above (v1/benchmark/).
+# Add project root to path so "benchmark" package is importable (tpcdi/benchmark/)
+# Notebook lives at .../tpcdi/databricks/benchmark_databricks_notebook; benchmark is one folder above (tpcdi/benchmark/).
 try:
     notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
     workspace_path = Path(notebook_path).parent
 except Exception:
     workspace_path = Path(os.getcwd())
-# One folder above notebook dir = v1 (contains benchmark/)
+# One folder above notebook dir = tpcdi (contains benchmark/)
 project_root = workspace_path.parent
 # Try resolved path first; on Databricks, files may be under /Workspace so also try that
 resolved = project_root.resolve()
 candidates = [resolved]
 try:
-    # e.g. /Users/.../v1 -> /Workspace/Users/.../v1
+    # e.g. /Users/.../tpcdi -> /Workspace/Users/.../tpcdi
     candidates.append(Path("/Workspace") / resolved.relative_to("/"))
 except ValueError:
     if not project_root.is_absolute():
@@ -126,7 +121,7 @@ try:
 except ModuleNotFoundError as e:
     raise ModuleNotFoundError(
         f"{e}. Tried sys.path candidates: {candidates}. "
-        f"Ensure the notebook runs from a Repos/Workspace checkout where 'v1/benchmark/' exists."
+        f"Ensure the notebook runs from a Repos/Workspace checkout where 'tpcdi/benchmark/' exists."
     ) from e
 
 # Ensure benchmark modules also use DEBUG level
@@ -156,8 +151,6 @@ if not target_catalog:
 batch_id_str = dbutils.widgets.get("batch_id").strip()
 metrics_output = dbutils.widgets.get("metrics_output").strip()
 log_detailed_stats = dbutils.widgets.get("log_detailed_stats") == "true"
-use_udtf_customer_mgmt_str = dbutils.widgets.get("use_udtf_customer_mgmt").strip().lower()
-use_udtf_customer_mgmt = {"auto": None, "true": True, "false": False}.get(use_udtf_customer_mgmt_str, None)
 customer_mgmt_xml_format = dbutils.widgets.get("customer_mgmt_xml_format").strip() or "com.databricks.spark.xml"
 cloud = dbutils.widgets.get("cloud").strip() or "AWS"
 
@@ -178,7 +171,6 @@ config = BenchmarkConfig(
     batch_id=batch_id,
     metrics_output_path=metrics_output,
     log_detailed_stats=log_detailed_stats,
-    use_udtf_customer_mgmt=use_udtf_customer_mgmt,
     customer_mgmt_xml_format=customer_mgmt_xml_format,
     cloud=cloud,
 )

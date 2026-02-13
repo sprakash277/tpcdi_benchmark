@@ -71,7 +71,7 @@ ENV_LOCAL_GEN_PATH = "TPCDI_LOCAL_GEN_PATH"
 
 
 def _repo_root() -> Path:
-    """Infer repo root (script location or workspace). When in v1/, use parent so tools/datagen is found."""
+    """Infer repo root (script location or workspace). When in tpcdi/, use parent so tools/datagen is found."""
     if IN_DATABRICKS and dbutils:
         try:
             ctx = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
@@ -82,7 +82,7 @@ def _repo_root() -> Path:
             pass
         return Path.cwd()
     script_dir = Path(__file__).resolve().parent
-    # If this script lives in v1/, tools/datagen is at project root (parent of v1)
+    # If this script lives in tpcdi/, tools/datagen is at project root (parent of tpcdi)
     parent = script_dir.parent
     if (parent / "tools" / "datagen").exists():
         return parent

@@ -4,15 +4,15 @@
 
 ## Project layout
 
-- **`v1/`** – Original implementation: Python ETL, unified runner for Databricks/Dataproc/local, data generation script, and workflow/notebook helpers. See [v1/README.md](v1/README.md).
+- **`tpcdi/`** – Python ETL implementation: unified runner for Databricks/Dataproc/local, data generation script, and workflow/notebook helpers. See [tpcdi/README.md](tpcdi/README.md).
 - **`v2/`** – SQL-based pipeline (Databricks): bronze/silver/gold SQL scripts, batch and incremental runs. See [v2/README.md](v2/README.md).
-- **`tools/datagen/`** – Shared TPC-DI data generator (DIGen); used by v1 and v2.
+- **`tools/datagen/`** – Shared TPC-DI data generator (DIGen); used by tpcdi and v2.
 - **`docs/`** – Schema and architecture notes.
 
 ## Overview
 
 - **TPC-DI** models extracting, transforming, and loading data from OLTP and other sources into a data warehouse.
-- **v1** provides: data generation (`generate_tpcdi_data.py`), Python ETL (`benchmark/`), and runners for Databricks, Dataproc, and local.
+- **tpcdi** provides: data generation (`generate_tpcdi_data.py`), Python ETL (`benchmark/`), and runners for Databricks, Dataproc, and local.
 - **v2** provides: SQL-only ETL on Databricks with batch and incremental loads.
 
 ## Prerequisites
@@ -41,31 +41,31 @@ See `tools/datagen/README.txt` for more detail.
 
 ## Quick Start
 
-### Data generation (v1)
+### Data generation (tpcdi)
 
 From the project root (tools/datagen must contain DIGen; see Prerequisites):
 
 ```bash
 # Default: scale factor 10, output to dbfs:/mnt/tpcdi
-python v1/generate_tpcdi_data.py
+python tpcdi/generate_tpcdi_data.py
 
 # Custom scale factor and output
-python v1/generate_tpcdi_data.py -s 100 -o dbfs:/mnt/tpcdi
+python tpcdi/generate_tpcdi_data.py -s 100 -o dbfs:/mnt/tpcdi
 
 # Use a Unity Catalog Volume
-python v1/generate_tpcdi_data.py -s 10 --use-volume --catalog tpcdi
+python tpcdi/generate_tpcdi_data.py -s 10 --use-volume --catalog tpcdi
 ```
 
-### v1 benchmark (Databricks / Dataproc / local)
+### tpcdi benchmark (Databricks / Dataproc / local)
 
 ```bash
 # From project root
-python v1/run_benchmark.py databricks --load-type batch --scale-factor 10 --target-catalog main ...
-python v1/run_benchmark.py dataproc --cluster my-cluster --load-type batch --scale-factor 10 ...
-python v1/run_benchmark.py local --load-type batch --scale-factor 10 ...
+python tpcdi/run_benchmark.py databricks --load-type batch --scale-factor 10 --target-catalog main ...
+python tpcdi/run_benchmark.py dataproc --cluster my-cluster --load-type batch --scale-factor 10 ...
+python tpcdi/run_benchmark.py local --load-type batch --scale-factor 10 ...
 ```
 
-See [v1/README.md](v1/README.md) and [v2/README.md](v2/README.md) for full usage.
+See [tpcdi/README.md](tpcdi/README.md) and [v2/README.md](v2/README.md) for full usage.
 
 ## Scale Factors
 
@@ -89,15 +89,15 @@ Generation runs on the **driver** only. For large scale factors (e.g. &gt; 1000)
 ```
 tpcdi_benchmark/
 ├── README.md
-├── v1/                             # Original Python ETL + runners
+├── tpcdi/                          # Python ETL + runners (Databricks/Dataproc/local)
 │   ├── README.md
 │   ├── run_benchmark.py            # Unified runner (databricks / dataproc / local)
 │   ├── run_benchmark_databricks.py
 │   ├── run_benchmark_dataproc.py
 │   ├── generate_tpcdi_data.py     # Data generation CLI
 │   ├── benchmark/                 # Python ETL (bronze/silver/gold)
-│   ├── databricks/                # v1 Databricks notebooks & workflow
-│   ├── dataproc/                  # v1 Dataproc scripts
+│   ├── databricks/                # Databricks notebooks & workflow
+│   ├── dataproc/                  # Dataproc scripts
 │   └── scripts/
 ├── v2/                             # SQL-based Databricks pipeline
 │   └── ...

@@ -31,7 +31,7 @@ v2/
 3. **Gold**: Runs **sql/gold/** load SQL.
 
 **Data quality (optional)**  
-After Silver (and after **sql/gold/create_gold_dim_messages.sql** has been run), you can run **sql/dq/*.sql** (one file per silver table). Each DQ file runs checks derived from v1 `silver_rules.py` and inserts failure messages into **gold_dim_messages** (message_timestamp, batch_id, originating_table, message_text, message_type, component_name, severity). Placeholders: `__CATALOG__.__SCHEMA__`, `__BATCH_ID__` (use 1 for reference tables like silver_date, silver_securities).
+After Silver (and after **sql/gold/create_gold_dim_messages.sql** has been run), you can run **sql/dq/*.sql** (one file per silver table). Each DQ file runs checks derived from tpcdi `silver_rules.py` and inserts failure messages into **gold_dim_messages** (message_timestamp, batch_id, originating_table, message_text, message_type, component_name, severity). Placeholders: `__CATALOG__.__SCHEMA__`, `__BATCH_ID__` (use 1 for reference tables like silver_date, silver_securities).
 
 ### Incremental (load_type = incremental, batch_id ≥ 2)
 

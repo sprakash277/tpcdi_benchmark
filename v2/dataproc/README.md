@@ -89,7 +89,7 @@ spark-submit \
 | --load-type        | `batch` or `incremental` |
 | --sql-base-path    | Base dir for sql/ (default: script dir) |
 | --xml-format       | XML reader for CustomerMgmt (default: com.databricks.spark.xml) |
-| --service-account-email | Optional. Service account email for GCS access (same as v1). |
+| --service-account-email | Optional. Service account email for GCS access (same as tpcdi). |
 | --service-account-key-file | Optional. Path to SA JSON key file (local or `gs://`). If `gs://`, the runner downloads it to a temp file for Spark. |
 
 ## Service account (GCS)
