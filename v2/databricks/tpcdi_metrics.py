@@ -198,15 +198,12 @@ def print_benchmark_report(
             compute_usd = cost.get("compute_usd")
             software_usd = cost.get("software_usd")
             total_usd = cost.get("total_usd")
-            dbu_usd = cost.get("dbu_usd")
             if compute_usd is not None:
                 lines.append(f"  Compute: ${compute_usd:.2f}")
             if software_usd is not None:
                 lines.append(f"  Software: ${software_usd:.2f}")
             if total_usd is not None:
                 lines.append(f"  Total cost: ${total_usd:.2f}")
-            if dbu_usd is not None:
-                lines.append(f"  DBU cost: ${dbu_usd:.2f}")
             lines.append("")
     except Exception:
         lines.append("Cost (estimated): Use Databricks usage / billable DBU for cost.")

@@ -143,9 +143,6 @@ if __name__ == "__main__":
                 print(f"  Software: ${cb['software_usd']:.2f}")
         if total_cost is not None:
             print(f"  Total cost: ${total_cost:.2f}")
-        dbu_cost = result['metrics'].get('dbu_cost_usd')
-        if dbu_cost is not None:
-            print(f"  DBU cost: ${dbu_cost:.2f}")
     if args.log_detailed_stats:
         try:
             from benchmark.etl.table_timing import get_summary as get_table_summary
