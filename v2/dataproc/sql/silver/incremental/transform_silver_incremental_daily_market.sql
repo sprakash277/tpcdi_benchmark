@@ -1,6 +1,6 @@
 -- TPC-DI v2: Silver incremental - silver_daily_market (Batch 2+)
 -- Placeholders: __CATALOG__, __SCHEMA__, __BATCH_ID__
--- Delta on Dataproc (Hive catalog) may not support MERGE; use overwrite with (existing - source keys) UNION ALL source.
+-- Delta on Dataproc (Hive catalog) may not support MERGE: use overwrite with (existing - source keys) UNION ALL source.
 
 WITH source AS (
     SELECT 
