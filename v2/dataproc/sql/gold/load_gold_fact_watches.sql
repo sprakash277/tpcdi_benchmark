@@ -9,12 +9,10 @@ SELECT
     swh.w_action AS watch_action,
     current_timestamp() AS etl_timestamp
 FROM __CATALOG__.__SCHEMA__.silver_watch_history swh
--- 1. JOIN TO CUSTOMER: Ensure types match and use Point-in-Time logic
+-- 1. JOIN TO CUSTOMER: equi-join on customer_id (no point-in-time to avoid expensive date-range join / hang)
 INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_customer dc 
     ON CAST(swh.w_c_id AS BIGINT) = CAST(dc.customer_id AS BIGINT)
-    AND swh.w_dts >= dc.start_date 
-    AND swh.w_dts < dc.end_date
--- 2. JOIN TO SECURITY: Use UPPER() for symbol (no point-in-time: dim_security is current snapshot, start_date=load_timestamp would exclude historical w_dts)
+-- 2. JOIN TO SECURITY: UPPER(TRIM) on symbol
 INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_security ds 
     ON UPPER(TRIM(swh.w_s_symb)) = UPPER(TRIM(ds.symbol))
 WHERE swh.batch_id = __BATCH_ID__

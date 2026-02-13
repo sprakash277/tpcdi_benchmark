@@ -24,7 +24,7 @@ SELECT
     current_timestamp() AS etl_timestamp
 FROM __CATALOG__.__SCHEMA__.silver_trades st
 INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_date dd
-    ON CAST(st.trade_dts AS DATE) = dd.date_value
+    ON CAST(st.trade_dts AS DATE) = CAST(dd.date_value AS DATE)
 INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_time dt
     ON date_format(st.trade_dts, 'HH:mm:ss') = dt.time_value
 INNER JOIN __CATALOG__.__SCHEMA__.gold_dim_account da
