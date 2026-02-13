@@ -9,7 +9,8 @@ import logging
 import time
 from datetime import datetime
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, length, trim, substring, expr, try_to_date
+from pyspark.sql.functions import col, length, trim, substring, expr
+from benchmark.etl.spark_compat import try_to_date
 
 from benchmark.etl.silver.base import SilverLoaderBase, _get_table_size_bytes
 from benchmark.etl.table_timing import end_table as table_timing_end, is_detailed as table_timing_is_detailed
