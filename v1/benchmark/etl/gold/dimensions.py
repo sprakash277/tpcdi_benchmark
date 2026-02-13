@@ -6,7 +6,7 @@ Dimensions from Silver tables, ready for star schema joins.
 
 import logging
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, lit, current_timestamp
+from pyspark.sql.functions import col, lit, current_timestamp, monotonically_increasing_id, concat_ws, split, element_at, size
 from pyspark.sql.types import StructType, StructField, LongType, StringType, DateType, TimestampType, DoubleType
 
 # Placeholder IDs for late-arriving dimension (TPC-DI: trade arrives before account/customer)
@@ -223,6 +223,80 @@ class GoldDimSecurity(GoldLoaderBase):
             col("co_name_or_cik").alias("company_id"),
             current_timestamp().alias("etl_timestamp"),
         )
+        return self._write_gold_table(gold_df, target_table, mode="overwrite")
+
+
+class GoldDimTime(GoldLoaderBase):
+    """Gold dimension table: DimTime (from silver_time)."""
+
+    def load(self, silver_table: str, target_table: str, batch_id: int = 1) -> DataFrame:
+        """Create DimTime from silver_time."""
+        logger.info("Loading gold.DimTime from %s", silver_table)
+        silver_df = self.spark.table(silver_table).filter(col("batch_id") == batch_id)
+        gold_df = silver_df.select(
+            col("sk_time_id"),
+            col("sk_time_id").alias("time_id"),
+            col("time_value"),
+            col("hour_id"),
+            col("hour_desc"),
+            col("minute_id"),
+            col("minute_desc"),
+            col("second_id"),
+            col("second_desc"),
+            col("market_hours_flag"),
+            col("office_hours_flag"),
+            current_timestamp().alias("etl_timestamp"),
+        )
+        return self._write_gold_table(gold_df, target_table, mode="overwrite")
+
+
+class GoldDimBroker(GoldLoaderBase):
+    """Gold dimension table: DimBroker (from bronze_hr, job_code LIKE '%BROKER%')."""
+
+    def load(self, bronze_hr_table: str, target_table: str, batch_id: int = 1) -> DataFrame:
+        """Create DimBroker from bronze_hr: distinct brokers (job_code contains BROKER)."""
+        logger.info("Loading gold.DimBroker from %s", bronze_hr_table)
+        bronze_df = self.spark.table(bronze_hr_table).filter(col("_batch_id") == batch_id)
+        brokers_df = bronze_df.filter(
+            col("raw_line").isNotNull() & (size(split(col("raw_line"), ",")) >= 8)
+        ).filter(
+            element_at(split(col("raw_line"), ","), 8).like("%BROKER%")
+        ).select(
+            element_at(split(col("raw_line"), ","), 1).alias("employee_id"),
+            element_at(split(col("raw_line"), ","), 3).alias("first_name"),
+            element_at(split(col("raw_line"), ","), 4).alias("last_name"),
+            element_at(split(col("raw_line"), ","), 5).alias("branch"),
+            element_at(split(col("raw_line"), ","), 6).alias("office"),
+            element_at(split(col("raw_line"), ","), 7).alias("phone"),
+        ).distinct()
+        gold_df = brokers_df.select(
+            monotonically_increasing_id().alias("sk_broker_id"),
+            col("employee_id").cast("bigint").alias("broker_id"),
+            concat_ws(" ", col("first_name"), col("last_name")).alias("broker_name"),
+            col("branch"),
+            col("office"),
+            col("phone"),
+            lit(True).alias("is_current"),
+            current_timestamp().alias("etl_timestamp"),
+        )
+        return self._write_gold_table(gold_df, target_table, mode="overwrite")
+
+
+class GoldProspect(GoldLoaderBase):
+    """Gold dimension table: Prospect (from silver_prospect)."""
+
+    def load(self, silver_table: str, target_table: str, batch_id: int = 1) -> DataFrame:
+        """Create gold_prospect from silver_prospect."""
+        logger.info("Loading gold.Prospect from %s", silver_table)
+        silver_df = self.spark.table(silver_table).filter(col("batch_id") == batch_id)
+        want = [
+            "agency_id", "last_name", "first_name", "middle_initial", "gender",
+            "address_line1", "address_line2", "postal_code", "city", "state", "country", "phone",
+            "income", "number_cars", "number_children", "marital_status", "age", "credit_rating",
+            "own_or_rent_flag", "employer", "is_customer", "net_worth", "marketing_nameplate",
+        ]
+        select_cols = [c for c in want if c in silver_df.columns]
+        gold_df = silver_df.select(*select_cols).withColumn("etl_timestamp", current_timestamp())
         return self._write_gold_table(gold_df, target_table, mode="overwrite")
 
 

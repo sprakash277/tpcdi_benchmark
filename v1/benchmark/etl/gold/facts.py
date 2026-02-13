@@ -6,7 +6,7 @@ Fact tables join Silver facts with Gold dimensions to create denormalized star s
 
 import logging
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, to_date, current_timestamp, coalesce, lit, sum as spark_sum, count
+from pyspark.sql.functions import col, to_date, current_timestamp, coalesce, lit, sum as spark_sum, count, upper, trim
 
 from benchmark.etl.gold.base import GoldLoaderBase
 
@@ -237,4 +237,47 @@ class GoldFactHoldings(GoldLoaderBase):
             return self._write_gold_table(fact_df, target_table, mode=fact_write_mode)
         except Exception as e:
             logger.warning(f"Could not load FactHoldings: {e}")
+            return None
+
+
+class GoldFactWatches(GoldLoaderBase):
+    """Gold fact table: FactWatches (customer watch list with dimension keys)."""
+
+    def load(self, silver_watch_history_table: str, target_table: str,
+             dim_customer_table: str, dim_security_table: str,
+             batch_id: int = 1, fact_write_mode: str = "overwrite") -> DataFrame:
+        """
+        Create FactWatches from silver_watch_history joined to dim_customer and dim_security.
+        Only current watch records (is_current = true).
+        """
+        logger.info("Loading gold.FactWatches from %s", silver_watch_history_table)
+        try:
+            silver_wh = self.spark.table(silver_watch_history_table).filter(
+                (col("batch_id") == batch_id) & (col("is_current") == True)
+            )
+            dim_customer = self.spark.table(dim_customer_table)
+            dim_security = self.spark.table(dim_security_table)
+            fact_df = silver_wh \
+                .join(
+                    dim_customer,
+                    silver_wh["w_c_id"].cast("bigint") == dim_customer["customer_id"].cast("bigint"),
+                    "inner",
+                ) \
+                .join(
+                    dim_security,
+                    upper(trim(silver_wh["w_s_symb"])) == upper(trim(dim_security["symbol"])),
+                    "inner",
+                ) \
+                .select(
+                    dim_customer["sk_customer_id"],
+                    dim_security["sk_security_id"],
+                    silver_wh["w_c_id"].alias("customer_id"),
+                    silver_wh["w_s_symb"].alias("symbol"),
+                    silver_wh["w_dts"].alias("watch_date"),
+                    silver_wh["w_action"].alias("watch_action"),
+                    current_timestamp().alias("etl_timestamp"),
+                )
+            return self._write_gold_table(fact_df, target_table, mode=fact_write_mode)
+        except Exception as e:
+            logger.warning("Could not load FactWatches: %s", e)
             return None

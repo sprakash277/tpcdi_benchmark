@@ -25,7 +25,7 @@ from benchmark.etl.silver.holding_history import SilverHoldingHistory
 from benchmark.etl.silver.prospect import SilverProspect
 from benchmark.etl.silver.cash_transaction import SilverCashTransaction
 from benchmark.etl.silver.reference import (
-    SilverDate, SilverStatusType, SilverTradeType, SilverIndustry,
+    SilverDate, SilverTime, SilverStatusType, SilverTradeType, SilverIndustry,
     SilverTaxRate, SilverWatchHistory,
 )
 from benchmark.etl.table_timing import start_table as table_timing_start
@@ -51,6 +51,7 @@ __all__ = [
     "SilverProspect",
     "SilverCashTransaction",
     "SilverDate",
+    "SilverTime",
     "SilverStatusType",
     "SilverTradeType",
     "SilverIndustry",
@@ -88,6 +89,7 @@ class SilverETL:
         self.prospect = SilverProspect(platform)
         self.cash_transaction = SilverCashTransaction(platform)
         self.date = SilverDate(platform)
+        self.time = SilverTime(platform)
         self.status_type = SilverStatusType(platform)
         self.trade_type = SilverTradeType(platform)
         self.industry = SilverIndustry(platform)
@@ -116,6 +118,8 @@ class SilverETL:
         if batch_id == 1:
             table_timing_start(f"{prefix}.silver_date")
             self.date.load(f"{prefix}.bronze_date", f"{prefix}.silver_date")
+            table_timing_start(f"{prefix}.silver_time")
+            self.time.load(f"{prefix}.bronze_time", f"{prefix}.silver_time")
             table_timing_start(f"{prefix}.silver_status_type")
             self.status_type.load(f"{prefix}.bronze_status_type", f"{prefix}.silver_status_type")
             table_timing_start(f"{prefix}.silver_trade_type")

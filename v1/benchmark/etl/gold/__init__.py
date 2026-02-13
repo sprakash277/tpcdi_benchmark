@@ -19,6 +19,9 @@ from benchmark.etl.gold.dimensions import (
     GoldDimCompany,
     GoldDimSecurity,
     GoldDimDate,
+    GoldDimTime,
+    GoldDimBroker,
+    GoldProspect,
     GoldDimTradeType,
     GoldDimStatusType,
     GoldDimIndustry,
@@ -30,6 +33,7 @@ from benchmark.etl.gold.facts import (
     GoldFactMarketHistory,
     GoldFactCashBalances,
     GoldFactHoldings,
+    GoldFactWatches,
 )
 from benchmark.etl.gold.financials import GoldFinancials
 from benchmark.etl.table_timing import start_table as table_timing_start
@@ -49,6 +53,9 @@ __all__ = [
     "GoldDimCompany",
     "GoldDimSecurity",
     "GoldDimDate",
+    "GoldDimTime",
+    "GoldDimBroker",
+    "GoldProspect",
     "GoldDimTradeType",
     "GoldDimStatusType",
     "GoldDimIndustry",
@@ -56,6 +63,7 @@ __all__ = [
     "GoldFactMarketHistory",
     "GoldFactCashBalances",
     "GoldFactHoldings",
+    "GoldFactWatches",
     "GoldFinancials",
 ]
 
@@ -83,6 +91,9 @@ class GoldETL:
         self.dim_company = GoldDimCompany(platform)
         self.dim_security = GoldDimSecurity(platform)
         self.dim_date = GoldDimDate(platform)
+        self.dim_time = GoldDimTime(platform)
+        self.dim_broker = GoldDimBroker(platform)
+        self.prospect = GoldProspect(platform)
         self.dim_trade_type = GoldDimTradeType(platform)
         self.dim_status_type = GoldDimStatusType(platform)
         self.dim_industry = GoldDimIndustry(platform)
@@ -92,6 +103,7 @@ class GoldETL:
         self.fact_market_history = GoldFactMarketHistory(platform)
         self.fact_cash_balances = GoldFactCashBalances(platform)
         self.fact_holdings = GoldFactHoldings(platform)
+        self.fact_watches = GoldFactWatches(platform)
         self.financials = GoldFinancials(platform)
         
         logger.info("Initialized GoldETL orchestrator")
@@ -114,7 +126,8 @@ class GoldETL:
         from benchmark.config import LoadType
         prefix = ".".join(p for p in (target_database, target_schema) if p)
         fact_mode = "append" if load_type == LoadType.INCREMENTAL else "overwrite"
-        
+        bid = batch_id if batch_id is not None else 1
+
         logger.info("Starting Gold layer load (fact mode=%s)", fact_mode)
         
         # Ensure DimMessages exists (Silver DQ may have already created it)
@@ -128,7 +141,14 @@ class GoldETL:
             f"{prefix}.silver_date",
             f"{prefix}.gold_dim_date"
         )
-        
+
+        table_timing_start(f"{prefix}.gold_dim_time")
+        self.dim_time.load(
+            f"{prefix}.silver_time",
+            f"{prefix}.gold_dim_time",
+            batch_id=bid,
+        )
+
         table_timing_start(f"{prefix}.gold_dim_customer")
         self.dim_customer.load(
             f"{prefix}.silver_customers",
@@ -142,7 +162,14 @@ class GoldETL:
             f"{prefix}.gold_dim_account",
             load_type=load_type
         )
-        
+
+        table_timing_start(f"{prefix}.gold_dim_broker")
+        self.dim_broker.load(
+            f"{prefix}.bronze_hr",
+            f"{prefix}.gold_dim_broker",
+            batch_id=bid,
+        )
+
         table_timing_start(f"{prefix}.gold_dim_company")
         self.dim_company.load(
             f"{prefix}.silver_companies",
@@ -182,7 +209,17 @@ class GoldETL:
             )
         except Exception as e:
             logger.warning("Gold financials skipped: %s", e)
-        
+
+        try:
+            table_timing_start(f"{prefix}.gold_prospect")
+            self.prospect.load(
+                f"{prefix}.silver_prospect",
+                f"{prefix}.gold_prospect",
+                batch_id=bid,
+            )
+        except Exception as e:
+            logger.warning("Gold prospect skipped: %s", e)
+
         logger.info("Gold dimension tables loaded")
         
         # Step 2: Load fact tables (join with dimensions)
@@ -234,5 +271,18 @@ class GoldETL:
             )
         except Exception as e:
             logger.warning(f"FactHoldings skipped: {e}")
-        
+
+        try:
+            table_timing_start(f"{prefix}.gold_fact_watches")
+            self.fact_watches.load(
+                f"{prefix}.silver_watch_history",
+                f"{prefix}.gold_fact_watches",
+                dim_customer_table=f"{prefix}.gold_dim_customer",
+                dim_security_table=f"{prefix}.gold_dim_security",
+                batch_id=bid,
+                fact_write_mode=fact_mode,
+            )
+        except Exception as e:
+            logger.warning("FactWatches skipped: %s", e)
+
         logger.info("Gold layer load completed")

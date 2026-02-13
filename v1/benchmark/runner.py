@@ -401,14 +401,14 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
                 "bronze_trade_type", "bronze_industry", "bronze_hr", "bronze_customer_mgmt",
                 "bronze_trade", "bronze_daily_market", "bronze_prospect", "bronze_cash_transaction",
                 "bronze_holding_history", "bronze_watch_history", "bronze_finwire",
-                "silver_date", "silver_status_type", "silver_trade_type", "silver_industry",
+                "silver_date", "silver_time", "silver_status_type", "silver_trade_type", "silver_industry",
                 "silver_tax_rate", "silver_companies", "silver_securities", "silver_financials",
                 "silver_customers", "silver_accounts", "silver_trades", "silver_daily_market",
                 "silver_prospect", "silver_cash_transaction", "silver_watch_history", "silver_holding_history",
-                "gold_dim_date", "gold_dim_customer", "gold_dim_account", "gold_dim_company",
-                "gold_dim_security", "gold_dim_trade_type", "gold_dim_status_type", "gold_dim_industry",
-                "gold_financials", "gold_fact_trade", "gold_fact_market_history", "gold_dim_messages",
-                "gold_fact_cash_balances", "gold_fact_holdings",
+                "gold_dim_date", "gold_dim_time", "gold_dim_customer", "gold_dim_account", "gold_dim_broker",
+                "gold_dim_company", "gold_dim_security", "gold_dim_trade_type", "gold_dim_status_type", "gold_dim_industry",
+                "gold_financials", "gold_prospect", "gold_fact_trade", "gold_fact_market_history", "gold_dim_messages",
+                "gold_fact_cash_balances", "gold_fact_holdings", "gold_fact_watches",
             ]
             if hasattr(platform, "drop_table_if_exists"):
                 prefix = ".".join(p for p in (db_or_catalog, effective_schema) if p)
@@ -448,7 +448,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             silver_etl.run_silver_batch_load(1, db_or_catalog, effective_schema, metrics=metrics)
             
             silver_tables = ["silver_customers", "silver_accounts", "silver_trades",
-                            "silver_daily_market", "silver_date", "silver_status_type",
+                            "silver_daily_market", "silver_date", "silver_time", "silver_status_type",
                             "silver_trade_type", "silver_industry", "silver_companies",
                             "silver_securities", "silver_financials"]
             silver_row_counts = {}
@@ -468,9 +468,10 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             gold_etl.run_gold_load(db_or_catalog, effective_schema, load_type=config.load_type, batch_id=1)
             
             gold_tables = ["gold_dim_customer", "gold_dim_account", "gold_dim_company",
-                          "gold_dim_security", "gold_dim_date", "gold_dim_trade_type",
-                          "gold_dim_status_type", "gold_dim_industry",
-                          "gold_fact_trade", "gold_fact_market_history"]
+                          "gold_dim_security", "gold_dim_date", "gold_dim_time", "gold_dim_broker",
+                          "gold_dim_trade_type", "gold_dim_status_type", "gold_dim_industry",
+                          "gold_prospect", "gold_fact_trade", "gold_fact_market_history",
+                          "gold_fact_cash_balances", "gold_fact_holdings", "gold_fact_watches"]
             gold_row_counts = {}
             for table in gold_tables:
                 table_name = ".".join(p for p in (db_or_catalog, effective_schema, table) if p)
