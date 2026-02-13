@@ -154,7 +154,10 @@ def print_benchmark_report(
     lines.append("")
 
     try:
-        from benchmark.cost import estimate_databricks_cost
+        try:
+            from cost import estimate_databricks_cost
+        except ImportError:
+            from benchmark.cost import estimate_databricks_cost
         cost = estimate_databricks_cost(
             total_duration_seconds=total_duration,
             cluster_worker_count=num_workers if isinstance(num_workers, int) else 4,
@@ -179,7 +182,7 @@ def print_benchmark_report(
                 lines.append(f"  DBU cost: ${dbu_usd:.2f}")
             lines.append("")
     except Exception:
-        lines.append("Cost (estimated): N/A (benchmark.cost not available)")
+        lines.append("Cost (estimated): Use Databricks usage / billable DBU for cost.")
         lines.append("")
 
     lines.append("Step Details:")

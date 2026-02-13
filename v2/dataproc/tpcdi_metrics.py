@@ -88,6 +88,9 @@ def print_benchmark_report(
     load_type: str,
     sf: str,
     total_refresh_seconds: float = 0.0,
+    cluster_worker_count: Optional[int] = None,
+    cluster_instance_type: Optional[str] = None,
+    cluster_master_type: Optional[str] = None,
 ) -> None:
     """Print TPC-DI benchmark results for Dataproc (Delta)."""
     total_duration = (job_end_time - job_start_time) if job_end_time and job_start_time else 0
@@ -125,8 +128,33 @@ def print_benchmark_report(
     if total_refresh_seconds > 0:
         lines.append(f"  Table stats refresh: {total_refresh_seconds:.2f}s")
     lines.append("")
-    lines.append("Cost (estimated): N/A (Dataproc - use GCP billing for cost)")
-    lines.append("")
+
+    try:
+        try:
+            from cost import estimate_dataproc_cost
+        except ImportError:
+            from benchmark.cost import estimate_dataproc_cost
+        cost = estimate_dataproc_cost(
+            total_duration_seconds=total_duration,
+            cluster_worker_count=cluster_worker_count,
+            cluster_instance_type=cluster_instance_type,
+            cluster_master_type=cluster_master_type,
+        )
+        if cost:
+            lines.append("Cost (estimated):")
+            compute_usd = cost.get("compute_usd")
+            software_usd = cost.get("software_usd")
+            total_usd = cost.get("total_usd")
+            if compute_usd is not None:
+                lines.append(f"  Compute: ${compute_usd:.2f}")
+            if software_usd is not None:
+                lines.append(f"  Dataproc fee: ${software_usd:.2f}")
+            if total_usd is not None:
+                lines.append(f"  Total cost: ${total_usd:.2f}")
+            lines.append("")
+    except Exception:
+        lines.append("Cost (estimated): Use GCP billing for actual cost.")
+        lines.append("")
 
     lines.append("Step Details:")
     for s in steps:

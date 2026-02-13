@@ -26,8 +26,8 @@ if [ ! -f "$SPARK_XML_JAR" ]; then
 fi
 JARS="$DELTA_JAR,$SPARK_XML_JAR"
 
-# Package metrics and sql/ so runner can read SQL files on the cluster (only main script + py-files are uploaded by default)
-zip -q -r tpcdi_metrics.zip tpcdi_metrics.py 2>/dev/null || true
+# Package metrics, cost, and sql/ so runner can read SQL files on the cluster (only main script + py-files are uploaded by default)
+zip -q -r tpcdi_metrics.zip tpcdi_metrics.py cost.py 2>/dev/null || true
 if [ ! -d "sql" ]; then
   echo "ERROR: sql/ directory not found in $SCRIPT_DIR. Run this script from v2/dataproc."
   exit 1
