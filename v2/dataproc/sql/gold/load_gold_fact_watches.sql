@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.gold_fact_watches AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.gold_fact_watches;
+CREATE TABLE __CATALOG__.__SCHEMA__.gold_fact_watches AS
 SELECT 
     dc.sk_customer_id,
     ds.sk_security_id,

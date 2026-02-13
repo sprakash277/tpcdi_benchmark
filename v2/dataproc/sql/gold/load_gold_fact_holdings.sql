@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.gold_fact_holdings AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.gold_fact_holdings;
+CREATE TABLE __CATALOG__.__SCHEMA__.gold_fact_holdings AS
 SELECT 
     dd.sk_date_id,
     da.sk_account_id,

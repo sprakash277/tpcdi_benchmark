@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.gold_fact_trade AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.gold_fact_trade;
+CREATE TABLE __CATALOG__.__SCHEMA__.gold_fact_trade AS
 SELECT 
     st.trade_id AS sk_trade_id,
     dd.sk_date_id,

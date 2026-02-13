@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.gold_dim_status_type AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.gold_dim_status_type;
+CREATE TABLE __CATALOG__.__SCHEMA__.gold_dim_status_type AS
 SELECT 
     st_id AS sk_status_type_id,
     st_id AS status_type_id,

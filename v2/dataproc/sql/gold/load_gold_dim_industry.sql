@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.gold_dim_industry AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.gold_dim_industry;
+CREATE TABLE __CATALOG__.__SCHEMA__.gold_dim_industry AS
 SELECT 
     in_id AS sk_industry_id,
     in_id AS industry_id,

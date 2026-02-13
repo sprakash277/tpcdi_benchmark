@@ -1,4 +1,5 @@
-CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.gold_dim_time AS
+DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.gold_dim_time;
+CREATE TABLE __CATALOG__.__SCHEMA__.gold_dim_time AS
 SELECT 
     sk_time_id AS sk_time_id,
     sk_time_id AS time_id,
