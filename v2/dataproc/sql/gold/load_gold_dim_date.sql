@@ -1,5 +1,5 @@
-DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.gold_dim_date;
-CREATE TABLE __CATALOG__.__SCHEMA__.gold_dim_date AS
+-- Logic aligned with v2/databricks/sql/gold (CREATE OR REPLACE TABLE, same SELECT). Placeholders: __CATALOG__.__SCHEMA__, __BATCH_ID__
+CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.gold_dim_date AS
 SELECT 
     sk_date_id AS sk_date_id,
     sk_date_id AS date_id,

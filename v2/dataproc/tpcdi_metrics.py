@@ -157,6 +157,16 @@ def print_benchmark_report(
         lines.append(f"  Table stats refresh: {total_refresh_seconds:.2f}s")
     lines.append("")
 
+    if cluster_instance_type or cluster_worker_count is not None or cluster_master_type:
+        lines.append("Cluster Configuration:")
+        if cluster_instance_type:
+            lines.append(f"  Worker Node Type: {cluster_instance_type}")
+        if cluster_master_type:
+            lines.append(f"  Driver Node Type: {cluster_master_type}")
+        if cluster_worker_count is not None:
+            lines.append(f"  Number of Worker Nodes: {cluster_worker_count}")
+        lines.append("")
+
     try:
         try:
             from cost import estimate_dataproc_cost
@@ -226,6 +236,9 @@ def save_metrics_output(
     total_refresh_seconds: float = 0.0,
     cost_dict: Optional[Dict[str, Any]] = None,
     service_account_key_file: Optional[str] = None,
+    cluster_worker_count: Optional[int] = None,
+    cluster_instance_type: Optional[str] = None,
+    cluster_master_type: Optional[str] = None,
 ) -> Optional[str]:
     """
     Save metrics to a JSON file (v1-style). Default path gs://sumit_prakash_gcs/tpcdi/metrics.
@@ -266,6 +279,12 @@ def save_metrics_output(
     if cost_dict:
         payload["cost_breakdown"] = cost_dict
         payload["total_cost_usd"] = cost_dict.get("total_usd")
+    if cluster_instance_type is not None:
+        payload["cluster_instance_type"] = cluster_instance_type
+    if cluster_worker_count is not None:
+        payload["cluster_worker_count"] = cluster_worker_count
+    if cluster_master_type is not None:
+        payload["cluster_master_type"] = cluster_master_type
 
     json_content = json.dumps(payload, indent=2)
 

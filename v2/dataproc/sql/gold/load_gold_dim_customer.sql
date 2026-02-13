@@ -1,5 +1,4 @@
-DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.gold_dim_customer;
-CREATE TABLE __CATALOG__.__SCHEMA__.gold_dim_customer AS
+CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.gold_dim_customer AS
 SELECT 
     sk_customer_id,
     customer_id,

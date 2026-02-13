@@ -378,6 +378,13 @@ _steps.append({"step_name": "silver_dq", "duration_seconds": time.time() - _dq_s
 
 # COMMAND ----------
 
+# gold_etl rows = sum of these 17 tables only (same definition as Dataproc for comparable metrics)
+GOLD_LOAD_TABLE_NAMES = {
+    "gold_dim_date", "gold_dim_time", "gold_dim_status_type", "gold_dim_trade_type", "gold_dim_industry",
+    "gold_dim_customer", "gold_dim_account", "gold_dim_broker", "gold_dim_company", "gold_dim_security",
+    "gold_fact_trade", "gold_fact_cash_balances", "gold_fact_holdings", "gold_fact_market_history", "gold_fact_watches",
+    "gold_financials", "gold_prospect",
+}
 _gold_start = time.time()
 _n_before_gold = len(_table_details)
 gold_sql_files = [
@@ -402,7 +409,7 @@ gold_sql_files = [
 for rel in gold_sql_files:
     print(f"Gold SQL: {rel}")
     run_sql_timed(rel)
-_gold_rows = sum(d["row_count"] for d in _table_details[_n_before_gold:])
+_gold_rows = sum(d["row_count"] for d in _table_details[_n_before_gold:] if d.get("table", "").split(".")[-1] in GOLD_LOAD_TABLE_NAMES)
 _steps.append({"step_name": "gold_etl", "duration_seconds": time.time() - _gold_start, "rows_processed": _gold_rows})
 
 job_end_time = time.time()

@@ -19,6 +19,10 @@ SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_EMAIL:-}"
 SERVICE_ACCOUNT_KEY_FILE="${SERVICE_ACCOUNT_KEY_FILE:-}"
 # Metrics JSON output path (GCS or local); default gs://sumit_prakash_gcs/tpcdi/metrics
 METRICS_OUTPUT="${METRICS_OUTPUT:-gs://sumit_prakash_gcs/tpcdi/metrics}"
+# Cluster config for metrics (optional; if unset, script auto-detects from GCP metadata / Spark)
+CLUSTER_INSTANCE_TYPE="${CLUSTER_INSTANCE_TYPE:-}"
+CLUSTER_WORKER_COUNT="${CLUSTER_WORKER_COUNT:-}"
+CLUSTER_MASTER_TYPE="${CLUSTER_MASTER_TYPE:-}"
 
 # JARs: spark-xml from v2/dataproc/libs or set SPARK_XML_JAR (Delta is provided by Dataproc image)
 SPARK_XML_JAR="${SPARK_XML_JAR:-$SCRIPT_DIR/libs/spark-xml_2.12-0.18.0.jar}"
@@ -54,4 +58,7 @@ gcloud dataproc jobs submit pyspark run_tpcdi_batch.py \
   --batch-id "$BATCH_ID" \
   --metrics-output "$METRICS_OUTPUT" \
   $([ -n "$SERVICE_ACCOUNT_EMAIL" ] && echo "--service-account-email $SERVICE_ACCOUNT_EMAIL") \
-  $([ -n "$SERVICE_ACCOUNT_KEY_FILE" ] && echo "--service-account-key-file $SERVICE_ACCOUNT_KEY_FILE")
+  $([ -n "$SERVICE_ACCOUNT_KEY_FILE" ] && echo "--service-account-key-file $SERVICE_ACCOUNT_KEY_FILE") \
+  $([ -n "$CLUSTER_INSTANCE_TYPE" ] && echo "--cluster-instance-type $CLUSTER_INSTANCE_TYPE") \
+  $([ -n "$CLUSTER_WORKER_COUNT" ] && echo "--cluster-worker-count $CLUSTER_WORKER_COUNT") \
+  $([ -n "$CLUSTER_MASTER_TYPE" ] && echo "--cluster-master-type $CLUSTER_MASTER_TYPE")

@@ -11,8 +11,10 @@ import os
 import re
 import sys
 import time
+import urllib.request
 import zipfile
 from pathlib import Path
+from typing import Optional
 
 # Bronze batch: table short name -> (path_suffix under raw_path/sf=X/, source_file label)
 BRONZE_BATCH_PATHS = {
@@ -41,6 +43,57 @@ BRONZE_INCR_PATHS = {
     "bronze_watch_history": ("Batch{batch_id}/WatchHistory.txt", "WatchHistory.txt"),
     "bronze_prospect": ("Batch{batch_id}/Prospect.csv", "Prospect.csv"),
 }
+
+
+def _get_gcp_machine_type() -> Optional[str]:
+    """Get current VM machine type from GCP metadata (e.g. on Dataproc). Returns short name like n2d-standard-16. v1-style."""
+    try:
+        req = urllib.request.Request(
+            "http://metadata.google.internal/computeMetadata/v1/instance/machine-type",
+            headers={"Metadata-Flavor": "Google"},
+        )
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            path = resp.read().decode().strip()
+            return path.split("/")[-1] if path else None
+    except Exception:
+        return None
+
+
+def _get_dataproc_worker_count_from_metadata() -> Optional[int]:
+    """Get number of worker nodes from Dataproc GCP instance metadata (attributes/dataproc-worker-count). v1-style."""
+    try:
+        req = urllib.request.Request(
+            "http://metadata.google.internal/computeMetadata/v1/instance/attributes/dataproc-worker-count",
+            headers={"Metadata-Flavor": "Google"},
+        )
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            val = resp.read().decode().strip()
+            return int(val) if val else None
+    except Exception:
+        return None
+
+
+def _get_executor_count(spark) -> Optional[int]:
+    """Get number of executors (worker nodes) from Spark. Excludes driver. v1-style."""
+    try:
+        sc = spark.sparkContext
+        status = sc._jsc.sc().getExecutorMemoryStatus()
+        count = status.size() - 1
+        return max(0, count) if count is not None else None
+    except Exception:
+        return None
+
+
+def _get_cluster_info(spark, cluster_instance_type: Optional[str], cluster_worker_count: Optional[int], cluster_master_type: Optional[str]):
+    """Return (worker_type, worker_count, driver_type) from args or GCP/Spark metadata. v1-style."""
+    driver_type = cluster_master_type or _get_gcp_machine_type()
+    worker_type = cluster_instance_type or driver_type
+    worker_count = cluster_worker_count
+    if worker_count is None:
+        worker_count = _get_executor_count(spark)
+        if worker_count is None or worker_count == 0:
+            worker_count = _get_dataproc_worker_count_from_metadata()
+    return (worker_type, worker_count, driver_type)
 
 
 def adapt_sql(content: str, database: str, batch_id: int, raw_path: str, use_pipe: bool = False) -> str:
@@ -72,6 +125,9 @@ def main():
     parser.add_argument("--service-account-email", default="", help="Service account email for GCS (optional)")
     parser.add_argument("--service-account-key-file", default="", help="Path to SA JSON key file (local or gs://); local required for Spark GCS auth")
     parser.add_argument("--metrics-output", default="gs://sumit_prakash_gcs/tpcdi/metrics", help="Path to save metrics JSON (GCS or local; default gs://sumit_prakash_gcs/tpcdi/metrics)")
+    parser.add_argument("--cluster-instance-type", default="", help="Worker node type for metrics (e.g. n2d-standard-16); auto-detected from GCP metadata if not set")
+    parser.add_argument("--cluster-worker-count", type=int, default=None, help="Number of worker nodes for metrics; auto-detected from Spark/metadata if not set")
+    parser.add_argument("--cluster-master-type", default="", help="Driver node type for metrics; auto-detected from GCP metadata if not set")
     args = parser.parse_args()
 
     database = args.database
@@ -219,6 +275,14 @@ def main():
     _steps = []
     _total_refresh_seconds = 0.0
     job_start_time = time.time()
+
+    # Cluster config for metrics (v1-style: from args or GCP metadata / Spark)
+    _cluster_instance_type = (getattr(args, "cluster_instance_type", "") or "").strip() or None
+    _cluster_master_type = (getattr(args, "cluster_master_type", "") or "").strip() or None
+    _cluster_worker_count = getattr(args, "cluster_worker_count", None)
+    _cluster_instance_type, _cluster_worker_count, _cluster_master_type = _get_cluster_info(
+        spark, _cluster_instance_type, _cluster_worker_count, _cluster_master_type
+    )
 
     def run_sql_timed(rel_path: str, use_pipe: bool = False):
         nonlocal _total_refresh_seconds
@@ -382,9 +446,9 @@ def main():
             print(f"Gold: {f}")
             run_sql_multi_timed(f)
         _steps.append({"step_name": "gold_etl", "duration_seconds": time.time() - t0, "rows_processed": sum(d["row_count"] for d in _table_details[_n:])})
-        metrics.print_benchmark_report(spark, _steps, _table_details, job_start_time, time.time(), database, load_type, str(args.sf), _total_refresh_seconds)
+        metrics.print_benchmark_report(spark, _steps, _table_details, job_start_time, time.time(), database, load_type, str(args.sf), _total_refresh_seconds, cluster_worker_count=_cluster_worker_count, cluster_instance_type=_cluster_instance_type, cluster_master_type=_cluster_master_type)
         if getattr(args, "metrics_output", ""):
-            metrics.save_metrics_output(spark, _steps, _table_details, job_start_time, time.time(), database, load_type, str(args.sf), args.metrics_output, batch_id=batch_id, total_refresh_seconds=_total_refresh_seconds, service_account_key_file=getattr(args, "service_account_key_file", None))
+            metrics.save_metrics_output(spark, _steps, _table_details, job_start_time, time.time(), database, load_type, str(args.sf), args.metrics_output, batch_id=batch_id, total_refresh_seconds=_total_refresh_seconds, service_account_key_file=getattr(args, "service_account_key_file", None), cluster_worker_count=_cluster_worker_count, cluster_instance_type=_cluster_instance_type, cluster_master_type=_cluster_master_type)
         return
 
     # ========== BATCH ==========
@@ -489,6 +553,13 @@ def main():
             print(f"DQ {rel} warning: {e}")
     _steps.append({"step_name": "silver_dq", "duration_seconds": time.time() - _dq_start, "rows_processed": 0})
 
+    # gold_etl rows = sum of these 17 tables only (same definition as Databricks for comparable metrics)
+    GOLD_LOAD_TABLE_NAMES = {
+        "gold_dim_date", "gold_dim_time", "gold_dim_status_type", "gold_dim_trade_type", "gold_dim_industry",
+        "gold_dim_customer", "gold_dim_account", "gold_dim_broker", "gold_dim_company", "gold_dim_security",
+        "gold_fact_trade", "gold_fact_cash_balances", "gold_fact_holdings", "gold_fact_market_history", "gold_fact_watches",
+        "gold_financials", "gold_prospect",
+    }
     _gold_start = time.time()
     _n_gold = len(_table_details)
     gold_sql = [
@@ -502,11 +573,12 @@ def main():
     for rel in gold_sql:
         print(f"Gold SQL: {rel}")
         run_sql_timed(rel)
-    _steps.append({"step_name": "gold_etl", "duration_seconds": time.time() - _gold_start, "rows_processed": sum(d["row_count"] for d in _table_details[_n_gold:])})
+    _gold_rows = sum(d["row_count"] for d in _table_details[_n_gold:] if d.get("table", "").split(".")[-1] in GOLD_LOAD_TABLE_NAMES)
+    _steps.append({"step_name": "gold_etl", "duration_seconds": time.time() - _gold_start, "rows_processed": _gold_rows})
 
-    metrics.print_benchmark_report(spark, _steps, _table_details, job_start_time, time.time(), database, load_type, str(args.sf), _total_refresh_seconds)
+    metrics.print_benchmark_report(spark, _steps, _table_details, job_start_time, time.time(), database, load_type, str(args.sf), _total_refresh_seconds, cluster_worker_count=_cluster_worker_count, cluster_instance_type=_cluster_instance_type, cluster_master_type=_cluster_master_type)
     if getattr(args, "metrics_output", ""):
-        metrics.save_metrics_output(spark, _steps, _table_details, job_start_time, time.time(), database, load_type, str(args.sf), args.metrics_output, batch_id=batch_id, total_refresh_seconds=_total_refresh_seconds, service_account_key_file=getattr(args, "service_account_key_file", None))
+        metrics.save_metrics_output(spark, _steps, _table_details, job_start_time, time.time(), database, load_type, str(args.sf), args.metrics_output, batch_id=batch_id, total_refresh_seconds=_total_refresh_seconds, service_account_key_file=getattr(args, "service_account_key_file", None), cluster_worker_count=_cluster_worker_count, cluster_instance_type=_cluster_instance_type, cluster_master_type=_cluster_master_type)
 
 
 if __name__ == "__main__":

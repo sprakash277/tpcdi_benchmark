@@ -1,5 +1,4 @@
-DROP TABLE IF EXISTS __CATALOG__.__SCHEMA__.gold_financials;
-CREATE TABLE __CATALOG__.__SCHEMA__.gold_financials AS
+CREATE OR REPLACE TABLE __CATALOG__.__SCHEMA__.gold_financials AS
 SELECT 
     COALESCE(dc.sk_company_id, -1) AS sk_company_id,
     sf.co_name_or_cik,
