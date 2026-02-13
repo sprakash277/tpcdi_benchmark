@@ -246,6 +246,20 @@ def main():
         tmp_view = f"_tmp_{table_short}"
         df.createOrReplaceTempView(tmp_view)
 
+    def drop_bronze_table_and_path(db: str, table: str):
+        """Drop table then remove its warehouse path if present (v1-style). Avoids LOCATION_ALREADY_EXISTS on re-runs."""
+        spark.sql(f"DROP TABLE IF EXISTS {db}.{table}")
+        table_path = f"{warehouse_dir}/{db}.db/{table}"
+        try:
+            jvm = spark._jvm
+            hadoop_conf = spark.sparkContext._jsc.hadoopConfiguration()
+            fs = jvm.org.apache.hadoop.fs.FileSystem.get(hadoop_conf)
+            path = jvm.org.apache.hadoop.fs.Path(table_path)
+            if fs.exists(path):
+                fs.delete(path, True)
+        except Exception as e:
+            print(f"WARN: Could not delete path {table_path}: {e}")
+
     def run_bronze_load_sql(rel_path: str):
         """Run bronze load SQL; expects content to use FROM _tmp_<table> (Dataproc sql/bronze/)."""
         table_name = metrics.sql_file_to_table_name(rel_path)
@@ -254,6 +268,8 @@ def main():
             return
         path_suffix, _ = BRONZE_BATCH_PATHS[table_name]
         create_bronze_temp_view(table_name, path_suffix)
+        # v1-style: drop table first (and remove path) so CREATE TABLE AS SELECT does not hit LOCATION_ALREADY_EXISTS
+        drop_bronze_table_and_path(database, table_name)
         t0 = time.time()
         content = read_sql_file(rel_path)
         content = content.replace("__DATABASE__", database).replace("__CATALOG__.__SCHEMA__", database).replace("__BATCH_ID__", str(batch_id))

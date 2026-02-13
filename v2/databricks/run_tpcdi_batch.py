@@ -7,7 +7,7 @@
 # COMMAND ----------
 
 dbutils.widgets.text("catalog", "tpcdi_catalog", "Unity Catalog")
-dbutils.widgets.text("schema_name", "tpcdi_schema_sf10", "Schema Name")
+dbutils.widgets.text("schema_name", "tpcdi_schema", "Schema Name (sf appended as _sf{sf})")
 dbutils.widgets.text("raw_data_path", "gs://sumit_prakash_gcs/tpcdi", "Raw Data Path")
 dbutils.widgets.text("sf", "10", "Scale Factor")
 dbutils.widgets.text("batch_id", "1", "Batch ID")
@@ -30,6 +30,8 @@ batch_id = dbutils.widgets.get("batch_id")
 load_type = dbutils.widgets.get("load_type") or "batch"
 xml_format = dbutils.widgets.get("xml_format") or "com.databricks.spark.xml"
 metrics_output = (dbutils.widgets.get("metrics_output") or "").strip()
+# Use schema with sf in name so different scale factors use different DBs (e.g. tpcdi_schema_sf10)
+schema_name = schema_name if schema_name.endswith(f"_sf{sf}") else f"{schema_name}_sf{sf}"
 full_raw_data_path = f"{raw_data_path}/sf={sf}"
 sql_base_path = dbutils.widgets.get("sql_base_path") or ""
 

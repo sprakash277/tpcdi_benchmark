@@ -115,8 +115,7 @@ xml_format = dbutils.widgets.get("xml_format") or "com.databricks.spark.xml"
 sql_base_path = dbutils.widgets.get("sql_base_path") or ""
 metrics_output = (dbutils.widgets.get("metrics_output") or "").strip() or "gs://sumit_prakash_gcs/tpcdi/metrics"
 
-schema_name_with_sf = f"{schema_name}_sf{sf}"
-
+# run_tpcdi_batch appends _sf{sf} to schema_name if not already present
 spark_version = dbutils.widgets.get("spark_version")
 cloud = dbutils.widgets.get("cloud")
 node_type_id = dbutils.widgets.get("node_type_id")
@@ -161,7 +160,7 @@ def create_workflow_definition():
             "notebook_path": run_notebook_path,
             "base_parameters": {
                 "catalog": catalog,
-                "schema_name": schema_name_with_sf,
+                "schema_name": schema_name,
                 "raw_data_path": raw_data_path_base,
                 "sf": sf,
                 "batch_id": batch_id_str,
@@ -195,7 +194,7 @@ def create_workflow_definition():
         "format": "MULTI_TASK",
         "parameters": [
             {"name": "catalog", "default": catalog},
-            {"name": "schema_name", "default": schema_name_with_sf},
+            {"name": "schema_name", "default": schema_name},
             {"name": "raw_data_path", "default": raw_data_path_base},
             {"name": "sf", "default": sf},
             {"name": "batch_id", "default": batch_id_str},
