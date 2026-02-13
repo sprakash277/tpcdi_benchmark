@@ -168,6 +168,7 @@ class GoldETL:
             f"{prefix}.bronze_hr",
             f"{prefix}.gold_dim_broker",
             batch_id=bid,
+            dim_date_table=f"{prefix}.gold_dim_date",
         )
 
         table_timing_start(f"{prefix}.gold_dim_company")

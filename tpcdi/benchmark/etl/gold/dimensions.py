@@ -6,7 +6,8 @@ Dimensions from Silver tables, ready for star schema joins.
 
 import logging
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, lit, current_timestamp, monotonically_increasing_id, concat_ws, split, element_at, size, lower, trim
+from pyspark.sql.functions import col, lit, current_timestamp, row_number, split, element_at, size, lower, trim, min as spark_min
+from pyspark.sql import Window
 from pyspark.sql.types import StructType, StructField, LongType, StringType, DateType, TimestampType, DoubleType
 
 # Placeholder IDs for late-arriving dimension (TPC-DI: trade arrives before account/customer)
@@ -251,41 +252,87 @@ class GoldDimTime(GoldLoaderBase):
 
 
 class GoldDimBroker(GoldLoaderBase):
-    """Gold dimension table: DimBroker (from bronze_hr, job_code LIKE '%BROKER%' or JobCode = 1)."""
+    """Gold dimension table: DimBroker (from bronze_hr, employee_job_code = 314 per TPC-DI)."""
 
-    # TPC-DI pdgf outputs numeric JobCode (BROKER_JOB_ID); string "BROKER" is used in some specs.
-    BROKER_JOB_ID_STR = "1"
+    # TPC-DI standard code for Brokers (314); also accept legacy "1" and "%broker%" for backward compat.
+    BROKER_JOB_CODE_314 = "314"
 
-    def load(self, bronze_hr_table: str, target_table: str, batch_id: int = 1) -> DataFrame:
-        """Create DimBroker from bronze_hr: distinct brokers (job_code contains BROKER or equals broker job ID).
+    def load(
+        self,
+        bronze_hr_table: str,
+        target_table: str,
+        batch_id: int = 1,
+        dim_date_table: str | None = None,
+    ) -> DataFrame:
+        """Create DimBroker from bronze_hr: brokers (job_code = 314 per TPC-DI).
         HR.csv spec: 1=EmployeeID, 2=ManagerID, 3=FirstName, 4=LastName, 5=MI, 6=JobCode, 7=Branch, 8=Office, 9=Phone.
-        Accepts either string (e.g. 'BROKER') or numeric JobCode (e.g. '1' from TPC-DI pdgf).
+        Output matches v2 SQL: sk_broker_id, broker_id, manager_id, first_name, last_name, middle_initial,
+        branch, office, phone, is_current, batch_id, start_date, end_date, etl_timestamp.
+        start_date = MIN(date_value) from gold_dim_date when dim_date_table is provided; else current_date.
         """
         logger.info("Loading gold.DimBroker from %s", bronze_hr_table)
         bronze_df = self.spark.table(bronze_hr_table).filter(col("_batch_id") == batch_id)
         arr = split(col("raw_line"), ",")
         job_code = trim(element_at(arr, 6))
-        is_broker = lower(job_code).like("%broker%") | (job_code == lit(self.BROKER_JOB_ID_STR))
-        brokers_df = bronze_df.filter(
-            col("raw_line").isNotNull() & (size(arr) >= 9)
-        ).filter(
-            is_broker
-        ).select(
-            element_at(arr, 1).alias("employee_id"),
-            element_at(arr, 3).alias("first_name"),
-            element_at(arr, 4).alias("last_name"),
-            element_at(arr, 7).alias("branch"),
-            element_at(arr, 8).alias("office"),
-            element_at(arr, 9).alias("phone"),
-        ).distinct()
-        gold_df = brokers_df.select(
-            monotonically_increasing_id().alias("sk_broker_id"),
+        is_broker = (
+            (job_code == lit(self.BROKER_JOB_CODE_314))
+            | lower(job_code).like("%broker%")
+            | (job_code == lit("1"))
+        )
+        brokers_df = (
+            bronze_df.filter(col("raw_line").isNotNull() & (size(arr) >= 9))
+            .filter(is_broker)
+            .select(
+                element_at(arr, 1).alias("employee_id"),
+                element_at(arr, 2).alias("manager_id"),
+                element_at(arr, 3).alias("first_name"),
+                element_at(arr, 4).alias("last_name"),
+                element_at(arr, 5).alias("middle_initial"),
+                element_at(arr, 7).alias("branch"),
+                element_at(arr, 8).alias("office"),
+                element_at(arr, 9).alias("phone"),
+            )
+            .distinct()
+        )
+        # Surrogate key: ROW_NUMBER() OVER (ORDER BY employee_id) to match SQL
+        window_spec = Window.orderBy(col("employee_id"))
+        brokers_with_sk = brokers_df.withColumn(
+            "sk_broker_id", row_number().over(window_spec)
+        )
+        # start_date: MIN(date_value) from gold_dim_date when provided (matches v2 SQL)
+        if dim_date_table:
+            min_date_row = (
+                self.spark.table(dim_date_table)
+                .agg(spark_min("date_value").alias("min_date"))
+                .first()
+            )
+            start_date_val = (
+                min_date_row["min_date"]
+                if min_date_row and min_date_row["min_date"] is not None
+                else None
+            )
+        else:
+            start_date_val = None
+        start_date_col = (
+            lit(start_date_val).cast("date")
+            if start_date_val is not None
+            else lit(None).cast("date")
+        )
+        end_date_col = lit("9999-12-31").cast("date")
+        gold_df = brokers_with_sk.select(
+            col("sk_broker_id"),
             col("employee_id").cast("bigint").alias("broker_id"),
-            concat_ws(" ", col("first_name"), col("last_name")).alias("broker_name"),
+            col("manager_id").cast("bigint"),
+            col("first_name"),
+            col("last_name"),
+            col("middle_initial"),
             col("branch"),
             col("office"),
             col("phone"),
             lit(True).alias("is_current"),
+            lit(batch_id).cast("int").alias("batch_id"),
+            start_date_col.alias("start_date"),
+            end_date_col.alias("end_date"),
             current_timestamp().alias("etl_timestamp"),
         )
         return self._write_gold_table(gold_df, target_table, mode="overwrite")
