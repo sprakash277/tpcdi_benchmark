@@ -45,7 +45,7 @@ gcloud dataproc jobs submit pyspark run_tpcdi_batch.py \
   --py-files=tpcdi_metrics.zip \
   --files=sql.zip \
   --jars="$JARS" \
-  --properties=spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension,spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
+  --properties=spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension,spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog,spark.delta.logStore.gs.impl=io.delta.storage.GCSLogStore,spark.sql.defaultSerializer=org.apache.spark.serializer.KryoSerializer \
   -- \
   --database "$DATABASE" \
   --raw-data-path "$RAW_DATA_PATH" \

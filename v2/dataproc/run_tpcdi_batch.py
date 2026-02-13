@@ -96,6 +96,8 @@ def main():
         .config("spark.sql.warehouse.dir", warehouse_dir)
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+        .config("spark.delta.logStore.gs.impl", "io.delta.storage.GCSLogStore")
+        .config("spark.sql.defaultSerializer", "org.apache.spark.serializer.KryoSerializer")
         .getOrCreate()
     )
     # On Dataproc only the main script and --py-files are uploaded; sql/ is missing. Unzip sql.zip if found.
