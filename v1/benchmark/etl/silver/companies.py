@@ -9,7 +9,7 @@ import logging
 import time
 from datetime import datetime
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, trim, substring, monotonically_increasing_id
+from pyspark.sql.functions import col, length, trim, substring, monotonically_increasing_id
 
 from benchmark.etl.silver.base import SilverLoaderBase, _get_table_size_bytes
 from benchmark.etl.table_timing import end_table as table_timing_end, is_detailed as table_timing_is_detailed
@@ -30,7 +30,7 @@ class SilverCompanies(SilverLoaderBase):
         logger.info(f"Loading silver_companies from {bronze_table}")
         bronze_df = self.spark.table(bronze_table)
         cmp_df = bronze_df.filter(substring(col("raw_line"), 16, 3) == "CMP").filter(
-            col("raw_line").isNotNull() & (col("raw_line").length() >= 394)
+            col("raw_line").isNotNull() & (length(col("raw_line")) >= 394)
         )
         silver_df = cmp_df.select(
             monotonically_increasing_id().alias("sk_company_id"),
