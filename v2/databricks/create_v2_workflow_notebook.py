@@ -57,6 +57,7 @@ dbutils.widgets.text("batch_id", "1", "Batch ID")
 dbutils.widgets.dropdown("load_type", "batch", ["batch", "incremental"], "Load Type (batch = full load, incremental = batch 2+)")
 dbutils.widgets.text("xml_format", "com.databricks.spark.xml", "XML Format")
 dbutils.widgets.text("sql_base_path", "", "SQL base path (optional)")
+dbutils.widgets.text("metrics_output", "gs://sumit_prakash_gcs/tpcdi/metrics", "Metrics Output Path")
 
 # Cluster
 dbutils.widgets.dropdown(
@@ -112,6 +113,7 @@ batch_id_str = dbutils.widgets.get("batch_id") or "1"
 load_type = dbutils.widgets.get("load_type") or "batch"
 xml_format = dbutils.widgets.get("xml_format") or "com.databricks.spark.xml"
 sql_base_path = dbutils.widgets.get("sql_base_path") or ""
+metrics_output = (dbutils.widgets.get("metrics_output") or "").strip() or "gs://sumit_prakash_gcs/tpcdi/metrics"
 
 schema_name_with_sf = f"{schema_name}_sf{sf}"
 
@@ -166,6 +168,7 @@ def create_workflow_definition():
                 "load_type": load_type,
                 "xml_format": xml_format,
                 "sql_base_path": sql_base_path,
+                "metrics_output": metrics_output,
             },
             "source": "WORKSPACE",
         },
@@ -199,6 +202,7 @@ def create_workflow_definition():
             {"name": "load_type", "default": load_type},
             {"name": "xml_format", "default": xml_format},
             {"name": "sql_base_path", "default": sql_base_path},
+            {"name": "metrics_output", "default": metrics_output},
         ],
         "tags": {"project": "tpcdi", "version": "v2", "type": "run_tpcdi_batch"},
     }

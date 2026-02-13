@@ -71,6 +71,7 @@ def main():
     parser.add_argument("--xml-format", default="com.databricks.spark.xml", help="XML reader for CustomerMgmt")
     parser.add_argument("--service-account-email", default="", help="Service account email for GCS (optional)")
     parser.add_argument("--service-account-key-file", default="", help="Path to SA JSON key file (local or gs://); local required for Spark GCS auth")
+    parser.add_argument("--metrics-output", default="gs://sumit_prakash_gcs/tpcdi/metrics", help="Path to save metrics JSON (GCS or local; default gs://sumit_prakash_gcs/tpcdi/metrics)")
     args = parser.parse_args()
 
     database = args.database
@@ -363,6 +364,8 @@ def main():
             run_sql_multi_timed(f)
         _steps.append({"step_name": "gold_etl", "duration_seconds": time.time() - t0, "rows_processed": sum(d["row_count"] for d in _table_details[_n:])})
         metrics.print_benchmark_report(spark, _steps, _table_details, job_start_time, time.time(), database, load_type, str(args.sf), _total_refresh_seconds)
+        if getattr(args, "metrics_output", ""):
+            metrics.save_metrics_output(spark, _steps, _table_details, job_start_time, time.time(), database, load_type, str(args.sf), args.metrics_output, batch_id=batch_id, total_refresh_seconds=_total_refresh_seconds, service_account_key_file=getattr(args, "service_account_key_file", None))
         return
 
     # ========== BATCH ==========
@@ -483,6 +486,8 @@ def main():
     _steps.append({"step_name": "gold_etl", "duration_seconds": time.time() - _gold_start, "rows_processed": sum(d["row_count"] for d in _table_details[_n_gold:])})
 
     metrics.print_benchmark_report(spark, _steps, _table_details, job_start_time, time.time(), database, load_type, str(args.sf), _total_refresh_seconds)
+    if getattr(args, "metrics_output", ""):
+        metrics.save_metrics_output(spark, _steps, _table_details, job_start_time, time.time(), database, load_type, str(args.sf), args.metrics_output, batch_id=batch_id, total_refresh_seconds=_total_refresh_seconds, service_account_key_file=getattr(args, "service_account_key_file", None))
 
 
 if __name__ == "__main__":

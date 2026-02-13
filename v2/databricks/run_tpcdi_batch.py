@@ -14,6 +14,7 @@ dbutils.widgets.text("batch_id", "1", "Batch ID")
 dbutils.widgets.dropdown("load_type", "batch", ["batch", "incremental"], "Load Type (batch = full load, incremental = batch 2+)")
 dbutils.widgets.text("xml_format", "com.databricks.spark.xml", "XML Format")
 dbutils.widgets.text("sql_base_path", "", "SQL base path (optional; default = notebook dir)")
+dbutils.widgets.text("metrics_output", "gs://sumit_prakash_gcs/tpcdi/metrics", "Metrics Output Path")
 
 # COMMAND ----------
 
@@ -28,6 +29,7 @@ sf = dbutils.widgets.get("sf")
 batch_id = dbutils.widgets.get("batch_id")
 load_type = dbutils.widgets.get("load_type") or "batch"
 xml_format = dbutils.widgets.get("xml_format") or "com.databricks.spark.xml"
+metrics_output = (dbutils.widgets.get("metrics_output") or "").strip()
 full_raw_data_path = f"{raw_data_path}/sf={sf}"
 sql_base_path = dbutils.widgets.get("sql_base_path") or ""
 
@@ -252,6 +254,8 @@ if is_incremental:
 
     job_end_time = time.time()
     metrics.print_benchmark_report(spark, _steps, _table_details, job_start_time, job_end_time, catalog, schema_name, load_type, sf, total_refresh_seconds=_total_refresh_seconds)
+    if metrics_output:
+        metrics.save_metrics_output(spark, _steps, _table_details, job_start_time, time.time(), catalog, schema_name, load_type, sf, metrics_output, batch_id=batch_id, total_refresh_seconds=_total_refresh_seconds)
     dbutils.notebook.exit("Incremental load completed.")
 
 # COMMAND ----------
@@ -401,6 +405,8 @@ _steps.append({"step_name": "gold_etl", "duration_seconds": time.time() - _gold_
 
 job_end_time = time.time()
 metrics.print_benchmark_report(spark, _steps, _table_details, job_start_time, job_end_time, catalog, schema_name, load_type, sf, total_refresh_seconds=_total_refresh_seconds)
+if metrics_output:
+    metrics.save_metrics_output(spark, _steps, _table_details, job_start_time, job_end_time, catalog, schema_name, load_type, sf, metrics_output, batch_id=batch_id, total_refresh_seconds=_total_refresh_seconds)
 
 # COMMAND ----------
 
