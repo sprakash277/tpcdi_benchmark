@@ -97,20 +97,36 @@ logging.basicConfig(
 # Notebook lives at .../v1/databricks/benchmark_databricks_notebook; benchmark is one folder above (v1/benchmark/).
 try:
     notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-    workspace_path = Path(notebook_path).parent.resolve()
+    workspace_path = Path(notebook_path).parent
 except Exception:
-    workspace_path = Path(os.getcwd()).resolve()
-# Benchmark is one folder above the notebook dir: .../v1/databricks -> .../v1 (contains benchmark/)
+    workspace_path = Path(os.getcwd())
+# One folder above notebook dir = v1 (contains benchmark/)
 project_root = workspace_path.parent
-sys.path.insert(0, str(project_root))
+# Try resolved path first; on Databricks, files may be under /Workspace so also try that
+resolved = project_root.resolve()
+candidates = [resolved]
+try:
+    # e.g. /Users/.../v1 -> /Workspace/Users/.../v1
+    candidates.append(Path("/Workspace") / resolved.relative_to("/"))
+except ValueError:
+    if not project_root.is_absolute():
+        candidates.append(Path("/Workspace") / project_root)
+for candidate in candidates:
+    c = Path(candidate)
+    if (c / "benchmark").exists():
+        sys.path.insert(0, str(c))
+        project_root = c
+        break
+else:
+    sys.path.insert(0, str(project_root.resolve()))
 
 try:
     from benchmark.config import BenchmarkConfig, Platform, LoadType
     from benchmark.runner import run_benchmark
 except ModuleNotFoundError as e:
     raise ModuleNotFoundError(
-        f"{e}. Ensure the notebook runs from a Repos checkout where 'benchmark' exists (e.g. .../v1/benchmark/). "
-        f"Current sys.path[0]={project_root}"
+        f"{e}. Tried sys.path candidates: {candidates}. "
+        f"Ensure the notebook runs from a Repos/Workspace checkout where 'v1/benchmark/' exists."
     ) from e
 
 # Ensure benchmark modules also use DEBUG level
