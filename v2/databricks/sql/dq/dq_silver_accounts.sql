@@ -22,9 +22,5 @@ SELECT current_timestamp(), __BATCH_ID__, 'silver_accounts', 'account_name NULL 
 FROM (SELECT 1 FROM __CATALOG__.__SCHEMA__.silver_accounts WHERE batch_id = __BATCH_ID__ AND (account_name IS NULL OR TRIM(CAST(account_name AS STRING)) = '') LIMIT 1) t;
 
 INSERT INTO __CATALOG__.__SCHEMA__.gold_dim_messages
-SELECT current_timestamp(), __BATCH_ID__, 'silver_accounts', 'ca_name NULL or empty', 'Validation', 'Silver_Account_Validation', 'Alert'
-FROM (SELECT 1 FROM __CATALOG__.__SCHEMA__.silver_accounts WHERE batch_id = __BATCH_ID__ AND (ca_name IS NULL OR TRIM(CAST(ca_name AS STRING)) = '') LIMIT 1) t;
-
-INSERT INTO __CATALOG__.__SCHEMA__.gold_dim_messages
 SELECT current_timestamp(), __BATCH_ID__, 'silver_accounts', 'duplicate account_id within batch', 'Validation', 'Silver_Account_Validation', 'Alert'
 FROM (SELECT 1 FROM (SELECT account_id FROM __CATALOG__.__SCHEMA__.silver_accounts WHERE batch_id = __BATCH_ID__ GROUP BY account_id HAVING COUNT(*) > 1) u LIMIT 1) t;
