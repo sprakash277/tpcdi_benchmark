@@ -1,4 +1,4 @@
--- TPC-DI v2: DQ rules for silver_holding_history (v2 batch schema: hh_h_t_id, hh_t_id, hh_before_qty, hh_after_qty, effective_date, record_type; no quantity/symbol/account_id/purchase_price/holding_date)
+-- TPC-DI v2: DQ rules for silver_holding_history (v2 batch: hh_h_t_id, hh_t_id, hh_before_qty, hh_after_qty, effective_date, record_type)
 -- Placeholders: __CATALOG__, __SCHEMA__, __BATCH_ID__
 
 INSERT INTO __CATALOG__.__SCHEMA__.gold_dim_messages

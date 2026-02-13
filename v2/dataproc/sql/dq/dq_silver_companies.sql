@@ -1,4 +1,4 @@
--- TPC-DI v2: DQ rules for silver_companies (aligned with v2 schema: company_id, company_name, founding_date; no cik)
+-- TPC-DI v2: DQ rules for silver_companies (v2 schema: company_id, company_name, founding_date)
 -- Placeholders: __CATALOG__, __SCHEMA__, __BATCH_ID__
 
 INSERT INTO __CATALOG__.__SCHEMA__.gold_dim_messages
