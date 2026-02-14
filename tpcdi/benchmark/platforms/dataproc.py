@@ -167,15 +167,16 @@ class DataprocPlatform:
         fmt = (format or self.table_format).lower()
         logger.info(f"Writing table: {table_name} (mode={mode}, format={fmt})")
         
-        # Check if table exists
+        # Check if table exists (for append path and for logging)
         table_exists = False
         try:
             table_exists = self.spark.catalog.tableExists(table_name)
         except Exception as e:
             logger.warning(f"Could not check if table {table_name} exists: {e}")
         
-        # For Delta Lake with overwrite mode, drop table first to avoid schema merge conflicts
-        if mode == "overwrite" and fmt == "delta" and table_exists:
+        # For overwrite + Delta: always drop first so we create a fresh table and avoid
+        # "does not support append in batch mode" (Spark/Delta can use append internally for overwrite).
+        if mode == "overwrite" and fmt == "delta":
             self.drop_table_if_exists(table_name)
         
         # For append mode, if table doesn't exist, create it (treat as overwrite for first write)

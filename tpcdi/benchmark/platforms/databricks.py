@@ -67,7 +67,9 @@ class DatabricksPlatform:
             table_exists = self.spark.catalog.tableExists(table_name)
         except Exception as e:
             logger.warning(f"Could not check if table {table_name} exists: {e}")
-        if mode == "overwrite" and format == "delta" and table_exists:
+        # For overwrite + Delta: always drop first so we create a fresh table and avoid
+        # "does not support append in batch mode" (Spark/Delta can use append internally for overwrite).
+        if mode == "overwrite" and format == "delta":
             self.drop_table_if_exists(table_name)
         actual_mode = mode
         if mode == "append" and not table_exists:
