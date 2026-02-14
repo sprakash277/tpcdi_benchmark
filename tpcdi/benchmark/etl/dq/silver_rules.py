@@ -96,11 +96,7 @@ class SilverDQRunner:
             log("Silver_Trade_Validation", f"DQ run failed: {e}", "Alert", f"{prefix}.silver_trades")
 
         # --- DimDate (silver_date) ---
-        try:
-            _timed("silver_date", lambda: self._run_date_rules(prefix, log, messages_table))
-        except Exception as e:
-            logger.warning(f"Silver DQ silver_date failed: {e}")
-            log("Silver_Date_Validation", f"DQ run failed: {e}", "Alert", f"{prefix}.silver_date")
+        _timed("silver_date", lambda: self._run_date_rules(prefix, log, messages_table))
 
         # --- Securities (silver_securities) ---
         try:
@@ -129,11 +125,7 @@ class SilverDQRunner:
         except Exception as e:
             logger.warning(f"Silver DQ silver_status_type failed: {e}")
             log("Silver_StatusType_Validation", f"DQ run failed: {e}", "Alert", f"{prefix}.silver_status_type")
-        try:
-            _timed("silver_trade_type", lambda: self._run_trade_type_rules(prefix, log, messages_table))
-        except Exception as e:
-            logger.warning(f"Silver DQ silver_trade_type failed: {e}")
-            log("Silver_TradeType_Validation", f"DQ run failed: {e}", "Alert", f"{prefix}.silver_trade_type")
+        _timed("silver_trade_type", lambda: self._run_trade_type_rules(prefix, log, messages_table))
         try:
             _timed("silver_industry", lambda: self._run_industry_rules(prefix, log, messages_table))
         except Exception as e:

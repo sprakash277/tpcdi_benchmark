@@ -114,21 +114,21 @@ class SilverETL:
         
         logger.info(f"Starting Silver layer load for Batch{batch_id}")
         
-        # Reference data (Batch1 only)
-        if batch_id == 1:
-            table_timing_start(f"{prefix}.silver_date")
-            self.date.load(f"{prefix}.bronze_date", f"{prefix}.silver_date")
-            table_timing_start(f"{prefix}.silver_time")
-            self.time.load(f"{prefix}.bronze_time", f"{prefix}.silver_time")
-            table_timing_start(f"{prefix}.silver_status_type")
-            self.status_type.load(f"{prefix}.bronze_status_type", f"{prefix}.silver_status_type")
-            table_timing_start(f"{prefix}.silver_trade_type")
-            self.trade_type.load(f"{prefix}.bronze_trade_type", f"{prefix}.silver_trade_type")
-            table_timing_start(f"{prefix}.silver_industry")
-            self.industry.load(f"{prefix}.bronze_industry", f"{prefix}.silver_industry")
-            table_timing_start(f"{prefix}.silver_tax_rate")
-            self.tax_rate.load(f"{prefix}.bronze_tax_rate", f"{prefix}.silver_tax_rate")
+        # Reference data (all batches so silver_date, silver_time, silver_trade_type exist for incremental/Dataproc)
+        table_timing_start(f"{prefix}.silver_date")
+        self.date.load(f"{prefix}.bronze_date", f"{prefix}.silver_date")
+        table_timing_start(f"{prefix}.silver_time")
+        self.time.load(f"{prefix}.bronze_time", f"{prefix}.silver_time")
+        table_timing_start(f"{prefix}.silver_status_type")
+        self.status_type.load(f"{prefix}.bronze_status_type", f"{prefix}.silver_status_type")
+        table_timing_start(f"{prefix}.silver_trade_type")
+        self.trade_type.load(f"{prefix}.bronze_trade_type", f"{prefix}.silver_trade_type")
+        table_timing_start(f"{prefix}.silver_industry")
+        self.industry.load(f"{prefix}.bronze_industry", f"{prefix}.silver_industry")
+        table_timing_start(f"{prefix}.silver_tax_rate")
+        self.tax_rate.load(f"{prefix}.bronze_tax_rate", f"{prefix}.silver_tax_rate")
 
+        if batch_id == 1:
             # FINWIRE parsing (Batch1 only) - exceptions propagate and fail the run
             table_timing_start(f"{prefix}.silver_companies")
             self.companies.load(f"{prefix}.bronze_finwire", f"{prefix}.silver_companies")
