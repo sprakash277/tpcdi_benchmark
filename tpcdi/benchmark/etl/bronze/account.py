@@ -49,12 +49,13 @@ class BronzeAccount(BronzeLoaderBase):
             ensure_bronze_table_exists(self.spark, self.platform, target_table)
             return self._write_bronze_table(bronze_df, target_table, batch_id, "Account.txt")
         except Exception as e:
-            # Retry once if append failed because table did not exist (e.g. ensure_bronze_table_exists not run or failed)
+            # Retry once if append failed because table did not exist: create table with overwrite (avoids Delta append to non-existing table)
             if bronze_df is not None and "DELTA_TABLE_NOT_FOUND" in str(e):
                 try:
-                    logger.info("Creating bronze_account table and retrying write after DELTA_TABLE_NOT_FOUND")
-                    ensure_bronze_table_exists(self.spark, self.platform, target_table)
-                    return self._write_bronze_table(bronze_df, target_table, batch_id, "Account.txt")
+                    logger.info("Creating bronze_account table with overwrite after DELTA_TABLE_NOT_FOUND")
+                    bronze_with_meta = self._add_metadata_columns(bronze_df, "Account.txt", batch_id)
+                    self.platform.write_table(bronze_with_meta, target_table, mode="overwrite")
+                    return bronze_with_meta
                 except Exception as e2:
                     logger.warning(f"Account.txt / bronze_account write failed after retry: {e2}")
                     return None
