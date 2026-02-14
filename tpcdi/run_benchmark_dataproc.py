@@ -70,8 +70,8 @@ if __name__ == "__main__":
                        help="Target schema name (default: dw)")
     parser.add_argument("--batch-id", type=int,
                        help="Batch ID for incremental loads (required for incremental)")
-    parser.add_argument("--spark-master", 
-                       help="Spark master URL (default: yarn for Dataproc)")
+    parser.add_argument("--spark-master", default="yarn",
+                       help="Spark master URL (default: yarn). For serverless batches, pass --spark-master= to leave master unset.")
     parser.add_argument("--service-account-email",
                        help="Service account email for GCS access (optional)")
     parser.add_argument("--service-account-key-file",
@@ -127,7 +127,7 @@ if __name__ == "__main__":
         cluster_instance_type=args.cluster_instance_type,
         cluster_worker_count=args.cluster_worker_count,
         cluster_master_type=args.cluster_master_type,
-        spark_master=args.spark_master or "yarn",
+        spark_master=None if args.spark_master == "" else args.spark_master,
         service_account_email=args.service_account_email,
         service_account_key_file=args.service_account_key_file,
         enable_metrics=args.save_metrics,

@@ -54,11 +54,13 @@ def create_spark_session(config: BenchmarkConfig) -> SparkSession:
             return SparkSession.builder.appName("TPC-DI-Benchmark").getOrCreate()
     
     elif config.platform == Platform.DATAPROC:
-        # Dataproc: create SparkSession with GCS support
+        # Dataproc: create SparkSession with GCS support.
+        # Only set master when provided: use "yarn" on managed cluster; omit on serverless batches.
         builder = SparkSession.builder.appName("TPC-DI-Benchmark-Dataproc")
         
         if config.spark_master:
             builder = builder.master(config.spark_master)
+            logger.info("Using Spark master: %s", config.spark_master)
         
         # Use GCS for Spark warehouse so CREATE DATABASE / tables use gs://, not file:/tmp/...
         warehouse_dir = f"gs://{config.gcs_bucket}/spark-warehouse"
