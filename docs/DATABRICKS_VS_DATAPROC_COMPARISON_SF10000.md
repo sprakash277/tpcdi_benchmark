@@ -17,6 +17,47 @@ Same workload: **batch**, **scale factor 10,000**, **12 × n2d-standard-16 worke
 
 ---
 
+## Rows processed per table
+
+Same workload on both platforms; row counts are identical. Table names are short (schema prefix omitted).
+
+| Table | Rows | Table | Rows |
+|-------|------|-------|------|
+| bronze_date | 25,933 | silver_date | 25,933 |
+| bronze_time | 86,400 | silver_time | 86,400 |
+| bronze_status_type | 6 | silver_status_type | 6 |
+| bronze_tax_rate | 320 | silver_trade_type | 5 |
+| bronze_trade_type | 5 | silver_industry | 102 |
+| bronze_industry | 102 | silver_tax_rate | 320 |
+| bronze_hr | 50,000,000 | silver_companies | 5,000,000 |
+| bronze_customer_mgmt | 50,000,000 | silver_securities | 4,000,035 |
+| bronze_trade | 1,300,000,023 | silver_financials | 240,026,359 |
+| bronze_daily_market | 5,414,058,372 | silver_customers | 50,000,000 |
+| bronze_prospect | 49,940,000 | silver_accounts | 23,870,000 |
+| bronze_cash_transaction | 1,203,033,846 | silver_trades | 1,300,000,023 |
+| bronze_holding_history | 1,204,706,232 | silver_daily_market | 5,414,058,372 |
+| bronze_watch_history | 3,000,000,120 | silver_prospect | 49,940,000 |
+| bronze_finwire | 493,042,301 | silver_cash_transaction | 1,203,033,846 |
+| | | silver_watch_history | 3,000,000,120 |
+| | | silver_holding_history | 1,204,706,232 |
+| | | silver_dq_validation | 22 |
+
+| Table | Rows | Table | Rows |
+|-------|------|-------|------|
+| gold_dim_date | 25,933 | gold_dim_industry | 102 |
+| gold_dim_time | 86,400 | gold_financials | 240,026,359 |
+| gold_dim_customer | 15,280,001 | gold_prospect | 49,940,000 |
+| gold_dim_account | 18,600,837 | gold_fact_trade | 1,304,362,109 |
+| gold_dim_broker | 14,251,373 | gold_fact_market_history | 5,429,685,419 |
+| gold_dim_company | 5,000,000 | gold_fact_cash_balances | 758,197,484 |
+| gold_dim_security | 4,000,035 | gold_fact_holdings | 1,208,760,786 |
+| gold_dim_trade_type | 5 | gold_fact_watches | 1,551,462,778 |
+| gold_dim_status_type | 6 | | |
+
+**Total (table-level):** 35,859,321,062 rows across 50 tables.
+
+---
+
 ## Cost (estimated)
 
 | | Databricks | Dataproc |
