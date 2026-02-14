@@ -32,8 +32,9 @@ BRONZE_EMPTY_SCHEMA = StructType([
 def ensure_bronze_table_exists(spark: SparkSession, platform: Any, table_name: str) -> None:
     """
     During incremental run, bronze_customer / bronze_account may not exist yet (created in same run).
-    If the table is not in the catalog, create it via SQL so Delta append can succeed (avoid DataFrame
-    write path which can throw DELTA_TABLE_NOT_FOUND when table does not exist).
+    If the table is not in the catalog, create it by writing empty Delta data to the table path
+    then registering it, so Delta append can succeed (CREATE TABLE ... USING delta alone may not
+    create a layout that Delta's append path recognizes).
     """
     try:
         if spark.catalog.tableExists(table_name):
@@ -41,18 +42,26 @@ def ensure_bronze_table_exists(spark: SparkSession, platform: Any, table_name: s
     except Exception:
         pass
     logger.info("Creating bronze table %s for incremental run (table did not exist)", table_name)
-    # Parse db.table for CREATE TABLE (escape backticks if needed)
     parts = table_name.split(".")
-    if len(parts) >= 2:
-        db, tbl = parts[-2], parts[-1]
-        spark.sql(f"CREATE DATABASE IF NOT EXISTS `{db}`")
+    if len(parts) < 2:
+        return
+    db, tbl = parts[-2], parts[-1]
+    spark.sql(f"CREATE DATABASE IF NOT EXISTS `{db}`")
+    warehouse = spark.conf.get("spark.sql.warehouse.dir", "").rstrip("/")
+    if not warehouse and getattr(platform, "gcs_bucket", None):
+        warehouse = f"gs://{platform.gcs_bucket}/spark-warehouse"
+    if not warehouse:
+        spark.sql(
+            f"CREATE TABLE IF NOT EXISTS {table_name} "
+            f"(raw_line STRING, _load_timestamp TIMESTAMP, _source_file STRING, _batch_id BIGINT) USING delta"
+        )
+        return
+    table_path = f"{warehouse}/{db}.db/{tbl}"
     fmt = getattr(platform, "table_format", "delta").lower()
-    create_sql = (
-        f"CREATE TABLE IF NOT EXISTS {table_name} "
-        f"(raw_line STRING, _load_timestamp TIMESTAMP, _source_file STRING, _batch_id BIGINT) "
-        f"USING {fmt}"
-    )
-    spark.sql(create_sql)
+    empty_df = spark.createDataFrame([], BRONZE_EMPTY_SCHEMA)
+    # Write empty Delta to path so table has proper _delta_log; then register
+    empty_df.write.format(fmt).mode("overwrite").save(table_path)
+    spark.sql(f"CREATE TABLE IF NOT EXISTS {table_name} USING {fmt} LOCATION '{table_path}'")
 
 
 def _get_table_size_bytes(platform, table_name: str) -> Optional[int]:
