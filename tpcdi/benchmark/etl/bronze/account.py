@@ -8,7 +8,7 @@ Only present in Batch 2+ (incremental loads).
 import logging
 from typing import Optional
 from pyspark.sql import DataFrame
-from benchmark.etl.bronze.base import BronzeLoaderBase
+from benchmark.etl.bronze.base import BronzeLoaderBase, ensure_bronze_table_exists
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,8 @@ class BronzeAccount(BronzeLoaderBase):
             # Read as text (raw lines)
             df = self.platform.read_raw_file(file_path, format="text")
             bronze_df = df.withColumnRenamed("value", "raw_line")
-            
+            # Incremental: table may not exist yet; create empty so append succeeds (Delta)
+            ensure_bronze_table_exists(self.spark, self.platform, target_table)
             return self._write_bronze_table(bronze_df, target_table, batch_id, "Account.txt")
             
         except Exception as e:
