@@ -32,7 +32,8 @@ BRONZE_EMPTY_SCHEMA = StructType([
 def ensure_bronze_table_exists(spark: SparkSession, platform: Any, table_name: str) -> None:
     """
     During incremental run, bronze_customer / bronze_account may not exist yet (created in same run).
-    If the table is not in the catalog, create it empty with standard bronze schema so silver can read it.
+    If the table is not in the catalog, create it via SQL so Delta append can succeed (avoid DataFrame
+    write path which can throw DELTA_TABLE_NOT_FOUND when table does not exist).
     """
     try:
         if spark.catalog.tableExists(table_name):
@@ -40,8 +41,18 @@ def ensure_bronze_table_exists(spark: SparkSession, platform: Any, table_name: s
     except Exception:
         pass
     logger.info("Creating bronze table %s for incremental run (table did not exist)", table_name)
-    empty_df = spark.createDataFrame([], BRONZE_EMPTY_SCHEMA)
-    platform.write_table(empty_df, table_name, mode="overwrite")
+    # Parse db.table for CREATE TABLE (escape backticks if needed)
+    parts = table_name.split(".")
+    if len(parts) >= 2:
+        db, tbl = parts[-2], parts[-1]
+        spark.sql(f"CREATE DATABASE IF NOT EXISTS `{db}`")
+    fmt = getattr(platform, "table_format", "delta").lower()
+    create_sql = (
+        f"CREATE TABLE IF NOT EXISTS {table_name} "
+        f"(raw_line STRING, _load_timestamp TIMESTAMP, _source_file STRING, _batch_id BIGINT) "
+        f"USING {fmt}"
+    )
+    spark.sql(create_sql)
 
 
 def _get_table_size_bytes(platform, table_name: str) -> Optional[int]:
