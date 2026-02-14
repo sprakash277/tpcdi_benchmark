@@ -7,9 +7,10 @@ Provides common functionality for raw data ingestion.
 import logging
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
-from pyspark.sql import DataFrame
+from typing import TYPE_CHECKING, Optional, Any
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import current_timestamp, lit
+from pyspark.sql.types import StructType, StructField, StringType, TimestampType, LongType
 
 if TYPE_CHECKING:
     from benchmark.platforms.databricks import DatabricksPlatform
@@ -18,6 +19,29 @@ if TYPE_CHECKING:
 from benchmark.etl.table_timing import end_table as table_timing_end, is_detailed as table_timing_is_detailed
 
 logger = logging.getLogger(__name__)
+
+# Standard bronze table schema (raw_line + metadata) for empty-table creation during incremental
+BRONZE_EMPTY_SCHEMA = StructType([
+    StructField("raw_line", StringType(), True),
+    StructField("_load_timestamp", TimestampType(), True),
+    StructField("_source_file", StringType(), True),
+    StructField("_batch_id", LongType(), True),
+])
+
+
+def ensure_bronze_table_exists(spark: SparkSession, platform: Any, table_name: str) -> None:
+    """
+    During incremental run, bronze_customer / bronze_account may not exist yet (created in same run).
+    If the table is not in the catalog, create it empty with standard bronze schema so silver can read it.
+    """
+    try:
+        if spark.catalog.tableExists(table_name):
+            return
+    except Exception:
+        pass
+    logger.info("Creating bronze table %s for incremental run (table did not exist)", table_name)
+    empty_df = spark.createDataFrame([], BRONZE_EMPTY_SCHEMA)
+    platform.write_table(empty_df, table_name, mode="overwrite")
 
 
 def _get_table_size_bytes(platform, table_name: str) -> Optional[int]:

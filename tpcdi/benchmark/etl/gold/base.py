@@ -61,7 +61,50 @@ class GoldLoaderBase:
         """
         self.platform = platform
         self.spark = platform.get_spark()
-    
+
+    def _ensure_table_registered_from_warehouse(self, target_table: str) -> bool:
+        """
+        If the target table is not in the catalog but its data exists under the Spark warehouse
+        (e.g. GCS path from a previous run / different session), register it so MERGE can run.
+        Returns True if the table is now in the catalog (was already there or we registered it).
+        """
+        if self.spark.catalog.tableExists(target_table):
+            return True
+        # Parse database.table (or catalog.database.table)
+        parts = target_table.split(".")
+        if len(parts) < 2:
+            return False
+        db, table_name = parts[-2], parts[-1]
+        # Warehouse path: spark.sql.warehouse.dir or gs://bucket/spark-warehouse
+        warehouse = self.spark.conf.get("spark.sql.warehouse.dir", "").rstrip("/")
+        if not warehouse and getattr(self.platform, "gcs_bucket", None):
+            warehouse = f"gs://{self.platform.gcs_bucket}/spark-warehouse"
+        if not warehouse:
+            return False
+        location = f"{warehouse}/{db}.db/{table_name}"
+        # Check if path exists (e.g. Delta table on GCS from batch 1)
+        try:
+            jvm = self.spark._jvm
+            path = jvm.org.apache.hadoop.fs.Path(location)
+            fs = path.getFileSystem(self.spark._jsc.hadoopConfiguration())
+            if not fs.exists(path):
+                return False
+        except Exception as e:
+            logger.debug("Could not check warehouse path %s: %s", location, e)
+            return False
+        # Register external table so MERGE can run against existing data
+        try:
+            self.spark.sql(f"CREATE DATABASE IF NOT EXISTS `{db}`")
+            fmt = getattr(self.platform, "table_format", None) or "delta"
+            self.spark.sql(
+                f"CREATE TABLE IF NOT EXISTS {target_table} USING {fmt} LOCATION '{location}'"
+            )
+            logger.info("Registered existing table %s from warehouse location %s", target_table, location)
+            return self.spark.catalog.tableExists(target_table)
+        except Exception as e:
+            logger.warning("Could not register table %s from %s: %s", target_table, location, e)
+            return False
+
     def _select_current_version(self, silver_table: str) -> DataFrame:
         """
         Select only current versions from Silver table (is_current = true).

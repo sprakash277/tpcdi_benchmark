@@ -89,25 +89,35 @@ class GoldDimCustomer(GoldLoaderBase):
 
     def _load_dim_customer_incremental(self, silver_df: DataFrame, target_table: str, batch_id: int) -> DataFrame:
         """V2-style: MERGE close current row then INSERT new versions from silver (batch_id)."""
-        # Close: one row per customer_id with latest effective_date from this batch
-        updates_to_close = silver_df.filter(col("batch_id") == batch_id).groupBy("customer_id").agg(
-            spark_max(coalesce(col("effective_date"), col("load_timestamp"))).alias("new_effective_date"),
-        )
-        view_close = "_gold_close_customer_" + target_table.replace(".", "_")
-        updates_to_close.createOrReplaceTempView(view_close)
-        merge_close_sql = f"""
-        MERGE INTO {target_table} AS target
-        USING (SELECT customer_id, CAST(new_effective_date AS DATE) AS new_effective_date FROM {view_close}) AS source
-        ON target.customer_id = source.customer_id AND target.is_current = true
-        WHEN MATCHED THEN UPDATE SET
-            target.is_current = false,
-            target.end_date = source.new_effective_date,
-            target.etl_timestamp = current_timestamp()
-        """
+        # If target is not in the catalog, try to register from warehouse location (e.g. GCS from batch 1)
+        # so MERGE runs against existing data; otherwise skip MERGE and only INSERT.
+        target_exists = False
         try:
-            self.spark.sql(merge_close_sql)
-        finally:
-            self.spark.catalog.dropTempView(view_close)
+            target_exists = self.spark.catalog.tableExists(target_table)
+        except Exception:
+            pass
+        if not target_exists:
+            target_exists = self._ensure_table_registered_from_warehouse(target_table)
+        if target_exists:
+            # Close: one row per customer_id with latest effective_date from this batch
+            updates_to_close = silver_df.filter(col("batch_id") == batch_id).groupBy("customer_id").agg(
+                spark_max(coalesce(col("effective_date"), col("load_timestamp"))).alias("new_effective_date"),
+            )
+            view_close = "_gold_close_customer_" + target_table.replace(".", "_")
+            updates_to_close.createOrReplaceTempView(view_close)
+            merge_close_sql = f"""
+            MERGE INTO {target_table} AS target
+            USING (SELECT customer_id, CAST(new_effective_date AS DATE) AS new_effective_date FROM {view_close}) AS source
+            ON target.customer_id = source.customer_id AND target.is_current = true
+            WHEN MATCHED THEN UPDATE SET
+                target.is_current = false,
+                target.end_date = source.new_effective_date,
+                target.etl_timestamp = current_timestamp()
+            """
+            try:
+                self.spark.sql(merge_close_sql)
+            finally:
+                self.spark.catalog.dropTempView(view_close)
 
         # Insert new versions from silver (batch_id, is_current, exclude placeholder)
         insert_df = silver_df.filter(col("batch_id") == batch_id).filter(col("is_current") == lit(True)).filter(
@@ -226,27 +236,37 @@ class GoldDimAccount(GoldLoaderBase):
     def _load_dim_account_incremental(self, silver_df: DataFrame, target_table: str, batch_id: int,
                                       dim_customer_table: str = None) -> DataFrame:
         """V2-style: MERGE close current row then INSERT new versions (join to dim_customer for sk_customer_id)."""
-        # Close: one row per account_id with latest effective_date from this batch (U/D)
-        updates_to_close = silver_df.filter(col("batch_id") == batch_id).filter(
-            col("record_type").isin("U", "D"),
-        ).groupBy("account_id").agg(
-            spark_max(coalesce(col("effective_date"), col("load_timestamp"))).alias("new_effective_date"),
-        )
-        view_close = "_gold_close_account_" + target_table.replace(".", "_")
-        updates_to_close.createOrReplaceTempView(view_close)
-        merge_close_sql = f"""
-        MERGE INTO {target_table} AS target
-        USING (SELECT account_id, CAST(new_effective_date AS DATE) AS new_effective_date FROM {view_close}) AS source
-        ON target.account_id = source.account_id AND target.is_current = true
-        WHEN MATCHED THEN UPDATE SET
-            target.is_current = false,
-            target.end_date = source.new_effective_date,
-            target.etl_timestamp = current_timestamp()
-        """
+        # If target is not in the catalog, try to register from warehouse location (e.g. GCS from batch 1)
+        # so MERGE runs against existing data; otherwise skip MERGE and only INSERT.
+        target_exists = False
         try:
-            self.spark.sql(merge_close_sql)
-        finally:
-            self.spark.catalog.dropTempView(view_close)
+            target_exists = self.spark.catalog.tableExists(target_table)
+        except Exception:
+            pass
+        if not target_exists:
+            target_exists = self._ensure_table_registered_from_warehouse(target_table)
+        if target_exists:
+            # Close: one row per account_id with latest effective_date from this batch (U/D)
+            updates_to_close = silver_df.filter(col("batch_id") == batch_id).filter(
+                col("record_type").isin("U", "D"),
+            ).groupBy("account_id").agg(
+                spark_max(coalesce(col("effective_date"), col("load_timestamp"))).alias("new_effective_date"),
+            )
+            view_close = "_gold_close_account_" + target_table.replace(".", "_")
+            updates_to_close.createOrReplaceTempView(view_close)
+            merge_close_sql = f"""
+            MERGE INTO {target_table} AS target
+            USING (SELECT account_id, CAST(new_effective_date AS DATE) AS new_effective_date FROM {view_close}) AS source
+            ON target.account_id = source.account_id AND target.is_current = true
+            WHEN MATCHED THEN UPDATE SET
+                target.is_current = false,
+                target.end_date = source.new_effective_date,
+                target.etl_timestamp = current_timestamp()
+            """
+            try:
+                self.spark.sql(merge_close_sql)
+            finally:
+                self.spark.catalog.dropTempView(view_close)
 
         # Insert: silver batch_id and record_type I/U; join to dim_customer for sk_customer_id (point-in-time)
         insert_df = silver_df.filter(col("batch_id") == batch_id).filter(col("record_type").isin("I", "U")).filter(

@@ -17,6 +17,7 @@ from pyspark.sql.functions import (
 from pyspark.sql.types import LongType, IntegerType, StringType, DateType, TimestampType
 
 from benchmark.etl.silver.base import SilverLoaderBase
+from benchmark.etl.bronze.base import ensure_bronze_table_exists
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +173,8 @@ class SilverAccounts(SilverLoaderBase):
           _c6: CA_TAX_ST, _c7: CA_ST_ID. SCD2 driven by record_type: D = close only, no insert.
         """
         logger.info("Parsing accounts from pipe-delimited format (Batch 2+)")
-        
+        # Incremental: bronze_account may not exist yet; create empty table if needed so we can read
+        ensure_bronze_table_exists(self.spark, self.platform, bronze_table)
         bronze_df = self.spark.table(bronze_table)
         bronze_df = bronze_df.filter(col("_batch_id") == batch_id)
         
