@@ -25,12 +25,12 @@ class SilverProspect(SilverLoaderBase):
         logger.info(f"Loading silver_prospect from {bronze_table}")
         bronze_df = self.spark.table(bronze_table)
         bronze_df = bronze_df.filter(col("_batch_id") == batch_id)
-        num_cols = 22  # v2: 22 comma-separated fields
+        num_cols = 22  # v2: 22 comma-separated fields (same for batch and incremental)
         parsed_df = self._parse_csv_delimited(bronze_df, num_cols)
-        # _c0.._c21 = v2 columns 1..22
+        # _c0.._c21 = v2 columns 1..22 (no extra leading column in incremental per v2 SQL)
         def c(i: int):
             return coalesce(col(f"_c{i}"), lit(""))
-        offset = 1 if batch_id > 1 else 0
+        offset = 0  # v2 batch and incremental both use split_part(raw_line, ',', 1)..22
         income = expr("try_cast(TRIM(_c" + str(offset + 12) + ") AS INT)")
         age = expr("try_cast(TRIM(_c" + str(offset + 16) + ") AS INT)")
         credit_rating = expr("try_cast(TRIM(_c" + str(offset + 17) + ") AS INT)")
