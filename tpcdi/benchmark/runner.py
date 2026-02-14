@@ -492,7 +492,31 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
                 except Exception as e:
                     logger.warning(f"Could not get metrics for {table}: {e}")
             metrics.finish_step(rows=sum(row_counts.values()), metadata={"table_counts": row_counts})
-            
+
+            # Gold OPTIMIZE ZORDER before incremental load (same as v2 SQL flow)
+            _gold_optimize_tables = [
+                ("gold_dim_company", "company_id"),
+                ("gold_dim_customer", "customer_id"),
+                ("gold_dim_account", "account_id"),
+                ("gold_dim_security", "symbol"),
+                ("gold_dim_broker", "broker_id"),
+                ("gold_prospect", "agency_id"),
+                ("gold_fact_trade", "sk_date_id, sk_account_id"),
+                ("gold_fact_holdings", "sk_account_id, sk_security_id"),
+                ("gold_financials", "co_name_or_cik"),
+            ]
+            metrics.start_step("gold_optimize")
+            _prefix = ".".join(p for p in (db_or_catalog, effective_schema) if p)
+            _spark = platform.get_spark()
+            for _tbl, _zorder in _gold_optimize_tables:
+                _full = f"{_prefix}.{_tbl}"
+                try:
+                    _spark.sql(f"OPTIMIZE {_full} ZORDER BY ({_zorder})")
+                    logger.info("OPTIMIZE %s ZORDER BY (%s)", _full, _zorder)
+                except Exception as e:
+                    logger.warning("OPTIMIZE %s failed: %s", _full, e)
+            metrics.finish_step()
+
             # Gold layer: Refresh Gold tables from updated Silver
             metrics.start_step(f"gold_incremental_batch{config.batch_id}")
             from benchmark.etl.gold import GoldETL
