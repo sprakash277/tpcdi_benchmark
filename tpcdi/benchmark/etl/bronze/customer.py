@@ -40,6 +40,7 @@ class BronzeCustomer(BronzeLoaderBase):
         
         file_path = f"Batch{batch_id}/Customer.txt"
         
+        bronze_df = None
         try:
             # Read as text (raw lines)
             df = self.platform.read_raw_file(file_path, format="text")
@@ -47,7 +48,15 @@ class BronzeCustomer(BronzeLoaderBase):
             # Incremental: table may not exist yet; create empty so append succeeds (Delta)
             ensure_bronze_table_exists(self.spark, self.platform, target_table)
             return self._write_bronze_table(bronze_df, target_table, batch_id, "Customer.txt")
-            
         except Exception as e:
+            # Retry once if append failed because table did not exist (e.g. ensure_bronze_table_exists not run or failed)
+            if bronze_df is not None and "DELTA_TABLE_NOT_FOUND" in str(e):
+                try:
+                    logger.info("Creating bronze_customer table and retrying write after DELTA_TABLE_NOT_FOUND")
+                    ensure_bronze_table_exists(self.spark, self.platform, target_table)
+                    return self._write_bronze_table(bronze_df, target_table, batch_id, "Customer.txt")
+                except Exception as e2:
+                    logger.warning(f"Customer.txt / bronze_customer write failed after retry: {e2}")
+                    return None
             logger.warning(f"Customer.txt not found for Batch{batch_id}: {e}")
             return None

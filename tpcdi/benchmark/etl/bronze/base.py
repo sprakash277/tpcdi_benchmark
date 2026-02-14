@@ -59,9 +59,17 @@ def ensure_bronze_table_exists(spark: SparkSession, platform: Any, table_name: s
     table_path = f"{warehouse}/{db}.db/{tbl}"
     fmt = getattr(platform, "table_format", "delta").lower()
     empty_df = spark.createDataFrame([], BRONZE_EMPTY_SCHEMA)
-    # Write empty Delta to path so table has proper _delta_log; then register
-    empty_df.write.format(fmt).mode("overwrite").save(table_path)
-    spark.sql(f"CREATE TABLE IF NOT EXISTS {table_name} USING {fmt} LOCATION '{table_path}'")
+    try:
+        # Write empty Delta to path so table has proper _delta_log; then register
+        empty_df.write.format(fmt).mode("overwrite").save(table_path)
+        spark.sql(f"CREATE TABLE IF NOT EXISTS {table_name} USING {fmt} LOCATION '{table_path}'")
+    except Exception as e:
+        logger.warning("Failed to create bronze table %s at path %s: %s", table_name, table_path, e)
+        # Fallback: register via SQL only (may still fail on append if Delta expects path layout)
+        spark.sql(
+            f"CREATE TABLE IF NOT EXISTS {table_name} "
+            f"(raw_line STRING, _load_timestamp TIMESTAMP, _source_file STRING, _batch_id BIGINT) USING {fmt}"
+        )
 
 
 def _get_table_size_bytes(platform, table_name: str) -> Optional[int]:
