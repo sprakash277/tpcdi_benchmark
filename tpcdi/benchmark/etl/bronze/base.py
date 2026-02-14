@@ -46,7 +46,11 @@ def ensure_bronze_table_exists(spark: SparkSession, platform: Any, table_name: s
     if len(parts) < 2:
         return
     db, tbl = parts[-2], parts[-1]
-    spark.sql(f"CREATE DATABASE IF NOT EXISTS `{db}`")
+    # Do not CREATE DATABASE when table is catalog.schema.table (3+ parts): schema already
+    # exists in the user's catalog (runner created it). Creating with just schema name would
+    # use default catalog 'main' and fail with PERMISSION_DENIED.
+    if len(parts) < 3:
+        spark.sql(f"CREATE DATABASE IF NOT EXISTS `{db}`")
     warehouse = spark.conf.get("spark.sql.warehouse.dir", "").rstrip("/")
     if not warehouse and getattr(platform, "gcs_bucket", None):
         warehouse = f"gs://{platform.gcs_bucket}/spark-warehouse"

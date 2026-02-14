@@ -70,7 +70,7 @@ class GoldLoaderBase:
         """
         if self.spark.catalog.tableExists(target_table):
             return True
-        # Parse database.table (or catalog.database.table)
+        # Parse database.table (or catalog.schema.table)
         parts = target_table.split(".")
         if len(parts) < 2:
             return False
@@ -92,9 +92,11 @@ class GoldLoaderBase:
         except Exception as e:
             logger.debug("Could not check warehouse path %s: %s", location, e)
             return False
-        # Register external table so MERGE can run against existing data
+        # Register external table so MERGE can run against existing data.
+        # Do not CREATE DATABASE when target is catalog.schema.table (3+ parts): use user's catalog/schema only.
         try:
-            self.spark.sql(f"CREATE DATABASE IF NOT EXISTS `{db}`")
+            if len(parts) < 3:
+                self.spark.sql(f"CREATE DATABASE IF NOT EXISTS `{db}`")
             fmt = getattr(self.platform, "table_format", None) or "delta"
             self.spark.sql(
                 f"CREATE TABLE IF NOT EXISTS {target_table} USING {fmt} LOCATION '{location}'"
