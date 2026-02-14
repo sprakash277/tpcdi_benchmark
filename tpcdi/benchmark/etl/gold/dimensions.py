@@ -6,7 +6,10 @@ Dimensions from Silver tables, ready for star schema joins.
 
 import logging
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, lit, current_timestamp, row_number, split, element_at, size, lower, trim, min as spark_min
+from pyspark.sql.functions import (
+    col, lit, current_timestamp, row_number, split, element_at, size, lower, trim,
+    min as spark_min, coalesce, to_date, max as spark_max, monotonically_increasing_id,
+)
 from pyspark.sql import Window
 from pyspark.sql.types import StructType, StructField, LongType, StringType, DateType, TimestampType, DoubleType
 
@@ -20,25 +23,27 @@ logger = logging.getLogger(__name__)
 
 
 class GoldDimCustomer(GoldLoaderBase):
-    """Gold dimension table: DimCustomer."""
+    """Gold dimension table: DimCustomer. Batch and incremental aligned with v2 (SCD2 columns)."""
 
-    def load(self, silver_table: str, target_table: str, load_type=None) -> DataFrame:
+    def load(self, silver_table: str, target_table: str, load_type=None, batch_id: int = 1) -> DataFrame:
         """
         Create/update DimCustomer from silver_customers.
-        - Batch load: Overwrite entire table
-        - Incremental load: MERGE upsert (update existing, insert new)
+        - Batch load: Overwrite with SCD2 columns (is_current, start_date, end_date, batch_id).
+        - Incremental load: MERGE close current row then INSERT new versions (v2-style).
         """
         from benchmark.config import LoadType
         is_incremental = load_type == LoadType.INCREMENTAL
-        
-        logger.info("Loading gold.DimCustomer from %s (%s)", silver_table, "MERGE upsert" if is_incremental else "overwrite")
-        # Get all records from Silver (no SCD filtering)
+
+        logger.info("Loading gold.DimCustomer from %s (%s)", silver_table, "incremental (close+insert)" if is_incremental else "overwrite")
         current_df = self.spark.table(silver_table)
-        # Exclude placeholder key so we don't duplicate it when we add the placeholder row
         current_df = current_df.filter(col("customer_id") != lit(PLACEHOLDER_CUSTOMER_ID))
-        # Dedupe by customer_id (keep one record per customer_id)
+
+        if is_incremental:
+            return self._load_dim_customer_incremental(current_df, target_table, batch_id)
+
+        # Batch: filter current batch and is_current
+        current_df = current_df.filter(col("is_current") == lit(True)).filter(col("batch_id") == lit(batch_id))
         current_df = current_df.dropDuplicates(["customer_id"])
-        # Gold: dimension cols only (no SCD2 columns)
         want = [
             "sk_customer_id", "customer_id", "tax_id", "status", "last_name", "first_name",
             "middle_name", "gender", "tier", "dob", "address_line1", "address_line2",
@@ -46,7 +51,20 @@ class GoldDimCustomer(GoldLoaderBase):
             "local_tax_id", "national_tax_id",
         ]
         select_cols = [c for c in want if c in current_df.columns]
-        gold_df = current_df.select(*select_cols).withColumn("etl_timestamp", current_timestamp())
+        # Keep effective_date/load_timestamp for start_date, then drop
+        extra = [c for c in ["effective_date", "load_timestamp", "batch_id"] if c in current_df.columns]
+        gold_df = current_df.select(*select_cols, *[col(c) for c in extra])
+        gold_df = gold_df.withColumn("is_current", lit(True))
+        gold_df = gold_df.withColumn(
+            "start_date",
+            to_date(coalesce(col("effective_date"), col("load_timestamp"))),
+        )
+        gold_df = gold_df.withColumn("end_date", lit("9999-12-31").cast("date"))
+        gold_df = gold_df.withColumn("batch_id", col("batch_id").cast("int") if "batch_id" in gold_df.columns else lit(batch_id))
+        gold_df = gold_df.withColumn("etl_timestamp", current_timestamp())
+        for c in ["effective_date", "load_timestamp"]:
+            if c in gold_df.columns:
+                gold_df = gold_df.drop(c)
         ph = self.spark.range(1).select(
             lit(PLACEHOLDER_CUSTOMER_ID).alias("sk_customer_id"),
             lit(PLACEHOLDER_CUSTOMER_ID).alias("customer_id"),
@@ -59,64 +77,196 @@ class GoldDimCustomer(GoldLoaderBase):
             lit("").alias("state_prov"), lit("").alias("country"),
             lit("").alias("email1"), lit("").alias("email2"),
             lit("").alias("local_tax_id"), lit("").alias("national_tax_id"),
+            lit(True).alias("is_current"),
+            lit(None).cast("date").alias("start_date"),
+            lit("9999-12-31").cast("date").alias("end_date"),
+            lit(1).alias("batch_id"),
             current_timestamp().alias("etl_timestamp"),
         )
         gold_df = gold_df.unionByName(ph, allowMissingColumns=True)
-        
-        if is_incremental and hasattr(self.platform, "merge_upsert"):
-            # Incremental: MERGE upsert (update existing, insert new)
-            self.platform.merge_upsert(gold_df, target_table, key_columns=["customer_id"])
-        else:
-            # Batch: Overwrite entire table
-            self._write_gold_table(gold_df, target_table, mode="overwrite")
+        self._write_gold_table(gold_df, target_table, mode="overwrite")
         return gold_df
+
+    def _load_dim_customer_incremental(self, silver_df: DataFrame, target_table: str, batch_id: int) -> DataFrame:
+        """V2-style: MERGE close current row then INSERT new versions from silver (batch_id)."""
+        # Close: one row per customer_id with latest effective_date from this batch
+        updates_to_close = silver_df.filter(col("batch_id") == batch_id).groupBy("customer_id").agg(
+            spark_max(coalesce(col("effective_date"), col("load_timestamp"))).alias("new_effective_date"),
+        )
+        view_close = "_gold_close_customer_" + target_table.replace(".", "_")
+        updates_to_close.createOrReplaceTempView(view_close)
+        merge_close_sql = f"""
+        MERGE INTO {target_table} AS target
+        USING (SELECT customer_id, CAST(new_effective_date AS DATE) AS new_effective_date FROM {view_close}) AS source
+        ON target.customer_id = source.customer_id AND target.is_current = true
+        WHEN MATCHED THEN UPDATE SET
+            target.is_current = false,
+            target.end_date = source.new_effective_date,
+            target.etl_timestamp = current_timestamp()
+        """
+        try:
+            self.spark.sql(merge_close_sql)
+        finally:
+            self.spark.catalog.dropTempView(view_close)
+
+        # Insert new versions from silver (batch_id, is_current, exclude placeholder)
+        insert_df = silver_df.filter(col("batch_id") == batch_id).filter(col("is_current") == lit(True)).filter(
+            col("customer_id") != lit(PLACEHOLDER_CUSTOMER_ID),
+        )
+        want = [
+            "sk_customer_id", "customer_id", "tax_id", "status", "last_name", "first_name",
+            "middle_name", "gender", "tier", "dob", "address_line1", "address_line2",
+            "postal_code", "city", "state_prov", "country", "email1", "email2",
+            "local_tax_id", "national_tax_id",
+        ]
+        select_cols = [c for c in want if c in insert_df.columns]
+        gold_insert = insert_df.select(*select_cols)
+        gold_insert = gold_insert.withColumn("is_current", lit(True))
+        gold_insert = gold_insert.withColumn(
+            "start_date",
+            to_date(coalesce(col("effective_date"), col("load_timestamp"))),
+        )
+        gold_insert = gold_insert.withColumn("end_date", lit("9999-12-31").cast("date"))
+        gold_insert = gold_insert.withColumn("batch_id", lit(batch_id).cast("int"))
+        gold_insert = gold_insert.withColumn("etl_timestamp", current_timestamp())
+        self.platform.write_table(gold_insert, target_table, mode="append", format=getattr(self.platform, "table_format", None) or "delta")
+        return gold_insert
 
 
 class GoldDimAccount(GoldLoaderBase):
-    """Gold dimension table: DimAccount."""
+    """Gold dimension table: DimAccount. Batch and incremental aligned with v2 (SCD2 + sk_customer_id)."""
 
-    def load(self, silver_table: str, target_table: str, load_type=None) -> DataFrame:
+    def load(self, silver_table: str, target_table: str, load_type=None, batch_id: int = 1,
+             dim_customer_table: str = None) -> DataFrame:
         """
         Create/update DimAccount from silver_accounts.
-        - Batch load: Overwrite entire table
-        - Incremental load: MERGE upsert (update existing, insert new)
+        - Batch load: Join to gold_dim_customer for sk_customer_id; SCD2 columns (is_current, start_date, end_date, batch_id).
+        - Incremental load: MERGE close current row then INSERT new versions (v2-style).
         """
         from benchmark.config import LoadType
         is_incremental = load_type == LoadType.INCREMENTAL
-        
-        logger.info("Loading gold.DimAccount from %s (%s)", silver_table, "MERGE upsert" if is_incremental else "overwrite")
-        # Get all records from Silver (no SCD filtering)
+
+        logger.info("Loading gold.DimAccount from %s (%s)", silver_table, "incremental (close+insert)" if is_incremental else "overwrite")
         current_df = self.spark.table(silver_table)
-        # Exclude placeholder key so we don't duplicate it when we add the placeholder row
         current_df = current_df.filter(col("account_id") != lit(PLACEHOLDER_ACCOUNT_ID))
-        # Dedupe by account_id (keep one record per account_id)
+
+        if is_incremental:
+            return self._load_dim_account_incremental(current_df, target_table, batch_id, dim_customer_table)
+
+        # Batch: filter is_current and batch_id; join to dim_customer for sk_customer_id (point-in-time)
+        current_df = current_df.filter(col("is_current") == lit(True)).filter(col("batch_id") == lit(batch_id))
         current_df = current_df.dropDuplicates(["account_id"])
+        if dim_customer_table:
+            dim_customer = self.spark.table(dim_customer_table)
+            # Point-in-time: effective_date within customer's start_date/end_date
+            eff = coalesce(current_df["effective_date"], current_df["load_timestamp"])
+            current_df = current_df.join(
+                dim_customer,
+                (current_df["customer_id"] == dim_customer["customer_id"])
+                & (dim_customer["is_current"] == lit(True))
+                & (to_date(eff) >= dim_customer["start_date"])
+                & (dim_customer["end_date"].isNull() | (to_date(eff) < dim_customer["end_date"])),
+                "left",
+            )
+            sk_customer_id = dim_customer["sk_customer_id"]
+        else:
+            sk_customer_id = lit(PLACEHOLDER_CUSTOMER_ID)
         base_cols = ["account_id", "broker_id", "customer_id", "account_name", "tax_status", "status_id"]
-        # Gold: dimension cols only (no SCD2 columns)
-        select_cols = [c for c in base_cols if c in current_df.columns]
+        extra = [c for c in ["effective_date", "load_timestamp", "batch_id"] if c in current_df.columns]
         gold_df = current_df.select(
             col("account_id").alias("sk_account_id"),
+            coalesce(sk_customer_id, lit(PLACEHOLDER_CUSTOMER_ID)).alias("sk_customer_id"),
             *[col(c) for c in base_cols if c in current_df.columns],
-        ).withColumn("etl_timestamp", current_timestamp())
+            *[col(c) for c in extra],
+        )
+        gold_df = gold_df.withColumn("is_current", lit(True))
+        gold_df = gold_df.withColumn(
+            "start_date",
+            to_date(coalesce(col("effective_date"), col("load_timestamp"))),
+        )
+        gold_df = gold_df.withColumn("end_date", lit("9999-12-31").cast("date"))
+        gold_df = gold_df.withColumn("batch_id", col("batch_id").cast("int") if "batch_id" in gold_df.columns else lit(batch_id))
+        gold_df = gold_df.withColumn("etl_timestamp", current_timestamp())
+        for c in ["effective_date", "load_timestamp"]:
+            if c in gold_df.columns:
+                gold_df = gold_df.drop(c)
         ph = self.spark.range(1).select(
             lit(PLACEHOLDER_ACCOUNT_ID).alias("sk_account_id"),
             lit(PLACEHOLDER_ACCOUNT_ID).alias("account_id"),
             lit(PLACEHOLDER_ACCOUNT_ID).alias("broker_id"),
+            lit(PLACEHOLDER_CUSTOMER_ID).alias("sk_customer_id"),
             lit(PLACEHOLDER_CUSTOMER_ID).alias("customer_id"),
             lit("Unknown").alias("account_name"),
             lit(0).alias("tax_status"),
             lit("ACTV").alias("status_id"),
+            lit(True).alias("is_current"),
+            lit(None).cast("date").alias("start_date"),
+            lit("9999-12-31").cast("date").alias("end_date"),
+            lit(1).alias("batch_id"),
             current_timestamp().alias("etl_timestamp"),
         )
         gold_df = gold_df.unionByName(ph, allowMissingColumns=True)
-        
-        if is_incremental and hasattr(self.platform, "merge_upsert"):
-            # Incremental: MERGE upsert (update existing, insert new)
-            self.platform.merge_upsert(gold_df, target_table, key_columns=["account_id"])
-        else:
-            # Batch: Overwrite entire table
-            self._write_gold_table(gold_df, target_table, mode="overwrite")
+        self._write_gold_table(gold_df, target_table, mode="overwrite")
         return gold_df
+
+    def _load_dim_account_incremental(self, silver_df: DataFrame, target_table: str, batch_id: int,
+                                      dim_customer_table: str = None) -> DataFrame:
+        """V2-style: MERGE close current row then INSERT new versions (join to dim_customer for sk_customer_id)."""
+        # Close: one row per account_id with latest effective_date from this batch (U/D)
+        updates_to_close = silver_df.filter(col("batch_id") == batch_id).filter(
+            col("record_type").isin("U", "D"),
+        ).groupBy("account_id").agg(
+            spark_max(coalesce(col("effective_date"), col("load_timestamp"))).alias("new_effective_date"),
+        )
+        view_close = "_gold_close_account_" + target_table.replace(".", "_")
+        updates_to_close.createOrReplaceTempView(view_close)
+        merge_close_sql = f"""
+        MERGE INTO {target_table} AS target
+        USING (SELECT account_id, CAST(new_effective_date AS DATE) AS new_effective_date FROM {view_close}) AS source
+        ON target.account_id = source.account_id AND target.is_current = true
+        WHEN MATCHED THEN UPDATE SET
+            target.is_current = false,
+            target.end_date = source.new_effective_date,
+            target.etl_timestamp = current_timestamp()
+        """
+        try:
+            self.spark.sql(merge_close_sql)
+        finally:
+            self.spark.catalog.dropTempView(view_close)
+
+        # Insert: silver batch_id and record_type I/U; join to dim_customer for sk_customer_id (point-in-time)
+        insert_df = silver_df.filter(col("batch_id") == batch_id).filter(col("record_type").isin("I", "U")).filter(
+            col("account_id") != lit(PLACEHOLDER_ACCOUNT_ID),
+        )
+        if dim_customer_table:
+            dim_customer = self.spark.table(dim_customer_table)
+            eff = coalesce(insert_df["effective_date"], insert_df["load_timestamp"])
+            insert_df = insert_df.join(
+                dim_customer,
+                (insert_df["customer_id"] == dim_customer["customer_id"])
+                & (to_date(eff) >= dim_customer["start_date"])
+                & (dim_customer["end_date"].isNull() | (to_date(eff) < dim_customer["end_date"])),
+                "left",
+            )
+            sk_customer_id = coalesce(dim_customer["sk_customer_id"], lit(PLACEHOLDER_CUSTOMER_ID))
+        else:
+            sk_customer_id = lit(PLACEHOLDER_CUSTOMER_ID)
+        base_cols = ["account_id", "broker_id", "customer_id", "account_name", "tax_status", "status_id"]
+        gold_insert = insert_df.select(
+            monotonically_increasing_id().alias("sk_account_id"),
+            sk_customer_id.alias("sk_customer_id"),
+            *[col(c) for c in base_cols if c in insert_df.columns],
+        )
+        gold_insert = gold_insert.withColumn("is_current", lit(True))
+        gold_insert = gold_insert.withColumn(
+            "start_date",
+            to_date(coalesce(col("effective_date"), col("load_timestamp"))),
+        )
+        gold_insert = gold_insert.withColumn("end_date", lit("9999-12-31").cast("date"))
+        gold_insert = gold_insert.withColumn("batch_id", lit(batch_id).cast("int"))
+        gold_insert = gold_insert.withColumn("etl_timestamp", current_timestamp())
+        self.platform.write_table(gold_insert, target_table, mode="append", format=getattr(self.platform, "table_format", None) or "delta")
+        return gold_insert
 
 
 class GoldDimCompany(GoldLoaderBase):

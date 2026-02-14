@@ -126,7 +126,7 @@ class GoldETL:
         from benchmark.config import LoadType
         prefix = ".".join(p for p in (target_database, target_schema) if p)
         fact_mode = "append" if load_type == LoadType.INCREMENTAL else "overwrite"
-        bid = batch_id if batch_id is not None else 1
+        bid = batch_id if batch_id is not None else (2 if load_type == LoadType.INCREMENTAL else 1)
 
         logger.info("Starting Gold layer load (fact mode=%s)", fact_mode)
         
@@ -153,14 +153,17 @@ class GoldETL:
         self.dim_customer.load(
             f"{prefix}.silver_customers",
             f"{prefix}.gold_dim_customer",
-            load_type=load_type
+            load_type=load_type,
+            batch_id=bid,
         )
         
         table_timing_start(f"{prefix}.gold_dim_account")
         self.dim_account.load(
             f"{prefix}.silver_accounts",
             f"{prefix}.gold_dim_account",
-            load_type=load_type
+            load_type=load_type,
+            batch_id=bid,
+            dim_customer_table=f"{prefix}.gold_dim_customer",
         )
 
         table_timing_start(f"{prefix}.gold_dim_broker")
@@ -236,6 +239,7 @@ class GoldETL:
             dim_date_table=f"{prefix}.gold_dim_date",
             dim_trade_type_table=f"{prefix}.gold_dim_trade_type",
             fact_write_mode=fact_mode,
+            batch_id=bid if load_type == LoadType.INCREMENTAL else None,
         )
 
         table_timing_start(f"{prefix}.gold_fact_market_history")
@@ -245,6 +249,7 @@ class GoldETL:
             dim_date_table=f"{prefix}.gold_dim_date",
             dim_security_table=f"{prefix}.gold_dim_security",
             fact_write_mode=fact_mode,
+            batch_id=bid if load_type == LoadType.INCREMENTAL else None,
         )
         
         # Optional fact tables (may not exist yet)
@@ -256,6 +261,7 @@ class GoldETL:
                 dim_date_table=f"{prefix}.gold_dim_date",
                 dim_account_table=f"{prefix}.gold_dim_account",
                 fact_write_mode=fact_mode,
+                batch_id=bid if load_type == LoadType.INCREMENTAL else None,
             )
         except Exception as e:
             logger.warning(f"FactCashBalances skipped: {e}")
@@ -269,6 +275,7 @@ class GoldETL:
                 dim_account_table=f"{prefix}.gold_dim_account",
                 dim_security_table=f"{prefix}.gold_dim_security",
                 fact_write_mode=fact_mode,
+                batch_id=bid if load_type == LoadType.INCREMENTAL else None,
             )
         except Exception as e:
             logger.warning(f"FactHoldings skipped: {e}")

@@ -20,42 +20,60 @@ class GoldFactTrade(GoldLoaderBase):
              dim_customer_table: str, dim_account_table: str,
              dim_security_table: str, dim_date_table: str,
              dim_trade_type_table: str,
-             fact_write_mode: str = "overwrite") -> DataFrame:
+             fact_write_mode: str = "overwrite", batch_id: int = None) -> DataFrame:
         """
         Create FactTrade by joining silver_trades with dimension tables.
         TPC-DI spec: append only after $SK$ lookups (fact_write_mode=append for incremental).
+        Incremental: filter silver by batch_id, is_current, record_type I/U; point-in-time dim joins.
         
         Args:
             silver_trade_table: silver_trades table name
             target_table: gold.FactTrade table name
             dim_*_table: gold dimension table names
             fact_write_mode: "overwrite" (batch) or "append" (incremental)
+            batch_id: when append, only silver_trades with this batch_id (and is_current, record_type I/U)
         """
         logger.info(f"Loading gold.FactTrade from {silver_trade_table}")
-        
-        # Get all trades from Silver (no SCD filtering)
         silver_trades = self.spark.table(silver_trade_table)
-        
-        # Read dimension tables (no SCD filtering - use all records)
+        if fact_write_mode == "append" and batch_id is not None:
+            silver_trades = silver_trades.filter(col("batch_id") == batch_id)
+            if "is_current" in silver_trades.columns:
+                silver_trades = silver_trades.filter(col("is_current") == lit(True))
+            if "record_type" in silver_trades.columns:
+                silver_trades = silver_trades.filter(col("record_type").isin("I", "U"))
+
         dim_customer = self.spark.table(dim_customer_table)
         dim_account = self.spark.table(dim_account_table)
         dim_security = self.spark.table(dim_security_table)
         dim_date = self.spark.table(dim_date_table)
         dim_trade_type = self.spark.table(dim_trade_type_table)
-        
-        # Join with dimensions to get surrogate keys (qualify columns to avoid ambiguity)
-        # Note: silver_trades has account_id, join to account to get customer_id
-        # Late-arriving dim: use placeholder -1 when account/customer not yet loaded; flag the row
+
+        # Point-in-time join when dim has start_date/end_date (SCD2)
+        dim_account_cols = [f.name for f in dim_account.schema.fields]
+        use_pt_account = "start_date" in dim_account_cols and "end_date" in dim_account_cols
+        dim_customer_cols = [f.name for f in dim_customer.schema.fields]
+        use_pt_customer = "start_date" in dim_customer_cols and "end_date" in dim_customer_cols
+
+        trade_dts = silver_trades["trade_dts"]
+        if use_pt_account:
+            account_on = (silver_trades["account_id"] == dim_account["account_id"]) & (
+                to_date(trade_dts) >= dim_account["start_date"]
+            ) & (dim_account["end_date"].isNull() | (to_date(trade_dts) < dim_account["end_date"]))
+        else:
+            account_on = silver_trades["account_id"] == dim_account["account_id"]
+        if use_pt_customer:
+            customer_on = (dim_account["customer_id"] == dim_customer["customer_id"]) & (
+                to_date(trade_dts) >= dim_customer["start_date"]
+            ) & (dim_customer["end_date"].isNull() | (to_date(trade_dts) < dim_customer["end_date"]))
+        else:
+            customer_on = dim_account["customer_id"] == dim_customer["customer_id"]
+
         fact_df = silver_trades \
             .join(dim_date,
                   to_date(silver_trades["trade_dts"]) == dim_date["date_value"],
                   "left") \
-            .join(dim_account,
-                  silver_trades["account_id"] == dim_account["account_id"],
-                  "left") \
-            .join(dim_customer,
-                  dim_account["customer_id"] == dim_customer["customer_id"],
-                  "left") \
+            .join(dim_account, account_on, "left") \
+            .join(dim_customer, customer_on, "left") \
             .join(dim_security,
                   silver_trades["symbol"] == dim_security["symbol"],
                   "left") \
@@ -95,15 +113,16 @@ class GoldFactMarketHistory(GoldLoaderBase):
     
     def load(self, silver_daily_market_table: str, target_table: str,
              dim_date_table: str, dim_security_table: str,
-             fact_write_mode: str = "overwrite") -> DataFrame:
+             fact_write_mode: str = "overwrite", batch_id: int = None) -> DataFrame:
         """
         Create FactMarketHistory by joining silver_daily_market with dimensions.
         TPC-DI spec: append only (fact_write_mode=append for incremental).
+        Incremental: filter silver by batch_id.
         """
         logger.info(f"Loading gold.FactMarketHistory from {silver_daily_market_table}")
-        
-        # Get all daily market data from Silver (no SCD filtering)
         silver_dm = self.spark.table(silver_daily_market_table)
+        if fact_write_mode == "append" and batch_id is not None and "batch_id" in silver_dm.columns:
+            silver_dm = silver_dm.filter(col("batch_id") == batch_id)
         
         # Read dimension tables
         dim_date = self.spark.table(dim_date_table)
@@ -143,17 +162,17 @@ class GoldFactCashBalances(GoldLoaderBase):
     
     def load(self, silver_cash_transaction_table: str, target_table: str,
              dim_date_table: str, dim_account_table: str,
-             fact_write_mode: str = "overwrite") -> DataFrame:
+             fact_write_mode: str = "overwrite", batch_id: int = None) -> DataFrame:
         """
         Create FactCashBalances by aggregating silver_cash_transaction.
         TPC-DI spec: append only (fact_write_mode=append for incremental).
+        Incremental: filter silver by batch_id.
         """
         logger.info(f"Loading gold.FactCashBalances from {silver_cash_transaction_table}")
-        
-        # Note: silver_cash_transaction may not exist yet
-        # This is a placeholder for when cash transaction loader is implemented
         try:
             silver_ct = self.spark.table(silver_cash_transaction_table)
+            if fact_write_mode == "append" and batch_id is not None and "batch_id" in silver_ct.columns:
+                silver_ct = silver_ct.filter(col("batch_id") == batch_id)
             
             dim_date = self.spark.table(dim_date_table)
             dim_account = self.spark.table(dim_account_table)
@@ -196,16 +215,17 @@ class GoldFactHoldings(GoldLoaderBase):
     def load(self, silver_holding_history_table: str, target_table: str,
              dim_date_table: str, dim_account_table: str,
              dim_security_table: str,
-             fact_write_mode: str = "overwrite") -> DataFrame:
+             fact_write_mode: str = "overwrite", batch_id: int = None) -> DataFrame:
         """
         Create FactHoldings from silver_holding_history.
         TPC-DI spec: append only (fact_write_mode=append for incremental).
+        Incremental: filter silver by batch_id.
         """
         logger.info(f"Loading gold.FactHoldings from {silver_holding_history_table}")
-        
         try:
-            # Get all holding history from Silver (no SCD filtering)
             silver_hh = self.spark.table(silver_holding_history_table)
+            if fact_write_mode == "append" and batch_id is not None and "batch_id" in silver_hh.columns:
+                silver_hh = silver_hh.filter(col("batch_id") == batch_id)
             
             dim_date = self.spark.table(dim_date_table)
             dim_account = self.spark.table(dim_account_table)
