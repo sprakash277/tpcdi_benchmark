@@ -120,7 +120,9 @@ class GoldDimCustomer(GoldLoaderBase):
             "local_tax_id", "national_tax_id",
         ]
         select_cols = [c for c in want if c in insert_df.columns]
-        gold_insert = insert_df.select(*select_cols)
+        # Need effective_date/load_timestamp for start_date; include then drop
+        extra = [c for c in ["effective_date", "load_timestamp"] if c in insert_df.columns]
+        gold_insert = insert_df.select(*select_cols, *[col(c) for c in extra])
         gold_insert = gold_insert.withColumn("is_current", lit(True))
         gold_insert = gold_insert.withColumn(
             "start_date",
@@ -129,6 +131,9 @@ class GoldDimCustomer(GoldLoaderBase):
         gold_insert = gold_insert.withColumn("end_date", lit("9999-12-31").cast("date"))
         gold_insert = gold_insert.withColumn("batch_id", lit(batch_id).cast("int"))
         gold_insert = gold_insert.withColumn("etl_timestamp", current_timestamp())
+        for c in ["effective_date", "load_timestamp"]:
+            if c in gold_insert.columns:
+                gold_insert = gold_insert.drop(c)
         self.platform.write_table(gold_insert, target_table, mode="append", format=getattr(self.platform, "table_format", None) or "delta")
         return gold_insert
 
@@ -249,23 +254,35 @@ class GoldDimAccount(GoldLoaderBase):
         )
         if dim_customer_table:
             dim_customer = self.spark.table(dim_customer_table)
-            eff = coalesce(insert_df["effective_date"], insert_df["load_timestamp"])
-            insert_df = insert_df.join(
-                dim_customer,
-                (insert_df["customer_id"] == dim_customer["customer_id"])
-                & (to_date(eff) >= dim_customer["start_date"])
-                & (dim_customer["end_date"].isNull() | (to_date(eff) < dim_customer["end_date"])),
+            sa_acc = insert_df.alias("sa_acc")
+            dc = dim_customer.alias("dc")
+            eff = coalesce(sa_acc["effective_date"], sa_acc["load_timestamp"])
+            insert_df = sa_acc.join(
+                dc,
+                (sa_acc["customer_id"] == dc["customer_id"])
+                & (to_date(eff) >= dc["start_date"])
+                & (dc["end_date"].isNull() | (to_date(eff) < dc["end_date"])),
                 "left",
             )
-            sk_customer_id = coalesce(dim_customer["sk_customer_id"], lit(PLACEHOLDER_CUSTOMER_ID))
+            sk_customer_id = coalesce(dc["sk_customer_id"], lit(PLACEHOLDER_CUSTOMER_ID))
+            base_cols = ["account_id", "broker_id", "customer_id", "account_name", "tax_status", "status_id"]
+            extra = [c for c in ["effective_date", "load_timestamp"] if c in sa_acc.columns]
+            gold_insert = insert_df.select(
+                monotonically_increasing_id().alias("sk_account_id"),
+                sk_customer_id.alias("sk_customer_id"),
+                *[sa_acc[c] for c in base_cols if c in sa_acc.columns],
+                *[sa_acc[c] for c in extra],
+            )
         else:
             sk_customer_id = lit(PLACEHOLDER_CUSTOMER_ID)
-        base_cols = ["account_id", "broker_id", "customer_id", "account_name", "tax_status", "status_id"]
-        gold_insert = insert_df.select(
-            monotonically_increasing_id().alias("sk_account_id"),
-            sk_customer_id.alias("sk_customer_id"),
-            *[col(c) for c in base_cols if c in insert_df.columns],
-        )
+            base_cols = ["account_id", "broker_id", "customer_id", "account_name", "tax_status", "status_id"]
+            extra = [c for c in ["effective_date", "load_timestamp"] if c in insert_df.columns]
+            gold_insert = insert_df.select(
+                monotonically_increasing_id().alias("sk_account_id"),
+                sk_customer_id.alias("sk_customer_id"),
+                *[col(c) for c in base_cols if c in insert_df.columns],
+                *[col(c) for c in extra],
+            )
         gold_insert = gold_insert.withColumn("is_current", lit(True))
         gold_insert = gold_insert.withColumn(
             "start_date",
@@ -274,6 +291,9 @@ class GoldDimAccount(GoldLoaderBase):
         gold_insert = gold_insert.withColumn("end_date", lit("9999-12-31").cast("date"))
         gold_insert = gold_insert.withColumn("batch_id", lit(batch_id).cast("int"))
         gold_insert = gold_insert.withColumn("etl_timestamp", current_timestamp())
+        for c in ["effective_date", "load_timestamp"]:
+            if c in gold_insert.columns:
+                gold_insert = gold_insert.drop(c)
         self.platform.write_table(gold_insert, target_table, mode="append", format=getattr(self.platform, "table_format", None) or "delta")
         return gold_insert
 
