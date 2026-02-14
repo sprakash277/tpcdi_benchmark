@@ -174,10 +174,24 @@ class DataprocPlatform:
         except Exception as e:
             logger.warning(f"Could not check if table {table_name} exists: {e}")
         
-        # For overwrite + Delta: always drop first so we create a fresh table and avoid
-        # "does not support append in batch mode" (Spark/Delta can use append internally for overwrite).
+        # For overwrite + Delta on Dataproc: write to path then CREATE TABLE to avoid
+        # "does not support append in batch mode" (saveAsTable can use append internally).
         if mode == "overwrite" and fmt == "delta":
             self.drop_table_if_exists(table_name)
+            parts = table_name.split(".")
+            if len(parts) >= 2:
+                db, tbl = parts[0], parts[-1]
+                warehouse = self.spark.conf.get("spark.sql.warehouse.dir", "").rstrip("/")
+                if not warehouse:
+                    warehouse = f"gs://{self.gcs_bucket}/spark-warehouse"
+                location = f"{warehouse}/{db}.db/{tbl}"
+                writer = df.write.format("delta").mode("overwrite")
+                if partition_by:
+                    writer = writer.partitionBy(*partition_by)
+                writer.save(location)
+                self.spark.sql(f"CREATE TABLE {table_name} USING delta LOCATION '{location}'")
+                logger.info(f"Created table {table_name} from path {location}")
+                return
         
         # For append mode, if table doesn't exist, create it (treat as overwrite for first write)
         actual_mode = mode
