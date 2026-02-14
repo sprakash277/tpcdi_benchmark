@@ -158,27 +158,36 @@ class GoldDimAccount(GoldLoaderBase):
         current_df = current_df.dropDuplicates(["account_id"])
         if dim_customer_table:
             dim_customer = self.spark.table(dim_customer_table)
-            # Point-in-time: effective_date within customer's start_date/end_date
-            eff = coalesce(current_df["effective_date"], current_df["load_timestamp"])
-            current_df = current_df.join(
-                dim_customer,
-                (current_df["customer_id"] == dim_customer["customer_id"])
-                & (dim_customer["is_current"] == lit(True))
-                & (to_date(eff) >= dim_customer["start_date"])
-                & (dim_customer["end_date"].isNull() | (to_date(eff) < dim_customer["end_date"])),
+            sa = current_df.alias("sa")
+            dc = dim_customer.alias("dc")
+            eff = coalesce(sa["effective_date"], sa["load_timestamp"])
+            current_df = sa.join(
+                dc,
+                (sa["customer_id"] == dc["customer_id"])
+                & (dc["is_current"] == lit(True))
+                & (to_date(eff) >= dc["start_date"])
+                & (dc["end_date"].isNull() | (to_date(eff) < dc["end_date"])),
                 "left",
             )
-            sk_customer_id = dim_customer["sk_customer_id"]
+            sk_customer_id = coalesce(dc["sk_customer_id"], lit(PLACEHOLDER_CUSTOMER_ID))
+            base_cols = ["account_id", "broker_id", "customer_id", "account_name", "tax_status", "status_id"]
+            extra = [c for c in ["effective_date", "load_timestamp", "batch_id"] if c in sa.columns]
+            gold_df = current_df.select(
+                sa["account_id"].alias("sk_account_id"),
+                sk_customer_id.alias("sk_customer_id"),
+                *[sa[c] for c in base_cols if c in sa.columns],
+                *[sa[c] for c in extra],
+            )
         else:
             sk_customer_id = lit(PLACEHOLDER_CUSTOMER_ID)
-        base_cols = ["account_id", "broker_id", "customer_id", "account_name", "tax_status", "status_id"]
-        extra = [c for c in ["effective_date", "load_timestamp", "batch_id"] if c in current_df.columns]
-        gold_df = current_df.select(
-            col("account_id").alias("sk_account_id"),
-            coalesce(sk_customer_id, lit(PLACEHOLDER_CUSTOMER_ID)).alias("sk_customer_id"),
-            *[col(c) for c in base_cols if c in current_df.columns],
-            *[col(c) for c in extra],
-        )
+            base_cols = ["account_id", "broker_id", "customer_id", "account_name", "tax_status", "status_id"]
+            extra = [c for c in ["effective_date", "load_timestamp", "batch_id"] if c in current_df.columns]
+            gold_df = current_df.select(
+                col("account_id").alias("sk_account_id"),
+                coalesce(sk_customer_id, lit(PLACEHOLDER_CUSTOMER_ID)).alias("sk_customer_id"),
+                *[col(c) for c in base_cols if c in current_df.columns],
+                *[col(c) for c in extra],
+            )
         gold_df = gold_df.withColumn("is_current", lit(True))
         gold_df = gold_df.withColumn(
             "start_date",
