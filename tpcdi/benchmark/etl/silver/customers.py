@@ -298,7 +298,7 @@ class SilverCustomers(SilverLoaderBase):
             col("c_alt_email").alias("email2"),
             col("c_lcl_tx_id").alias("local_tax_id"),
             col("c_nat_tx_id").alias("national_tax_id"),
-            col("batch_id"),
+            coalesce(col("batch_id"), lit(batch_id)).cast(IntegerType()).alias("batch_id"),
         ])
         
         # is_current: D = false (close only, no insert); I/U = true
