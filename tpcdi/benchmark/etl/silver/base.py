@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from benchmark.platforms.dataproc import DataprocPlatform
 
 from benchmark.etl.table_timing import end_table as table_timing_end, is_detailed as table_timing_is_detailed
+from benchmark.config import LoadType
 
 logger = logging.getLogger(__name__)
 
@@ -183,8 +184,9 @@ class SilverLoaderBase:
         Returns:
             DataFrame that was written
         """
-        # Batch 1 = overwrite, subsequent batches = append
-        mode = "overwrite" if batch_id == 1 else "append"
+        # Batch mode: always overwrite. Incremental: overwrite for batch_id 1, append for 2+
+        load_type = getattr(self.platform, "_tpcdi_load_type", None)
+        mode = "overwrite" if load_type == LoadType.BATCH else ("overwrite" if batch_id == 1 else "append")
         
         # Log timing (detailed only when log_detailed_stats is True)
         start_time = time.time()

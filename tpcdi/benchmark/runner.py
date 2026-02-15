@@ -323,6 +323,9 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
         platform = create_platform_adapter(config, spark)
         metrics.finish_step()
 
+        # Expose load_type to ETL so bronze/silver can use overwrite when BATCH (gold gets load_type explicitly).
+        setattr(platform, "_tpcdi_load_type", config.load_type)
+
         # Set cluster metadata for metrics (from config or auto-detection)
         instance_type, worker_count, master_type = get_cluster_info(config, spark)
         metrics.metrics.set_cluster_info(

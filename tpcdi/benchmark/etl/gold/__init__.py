@@ -204,12 +204,13 @@ class GoldETL:
             f"{prefix}.gold_dim_industry"
         )
         
-        # Financials: SCD Type 1 MERGE (upsert) - latest figures only
+        # Financials: batch = overwrite, incremental = MERGE (upsert)
         try:
             table_timing_start(f"{prefix}.gold_financials")
             self.financials.load(
                 f"{prefix}.silver_financials",
-                f"{prefix}.gold_financials"
+                f"{prefix}.gold_financials",
+                load_type=load_type,
             )
         except Exception as e:
             logger.warning("Gold financials skipped: %s", e)
