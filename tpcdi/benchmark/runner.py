@@ -72,6 +72,15 @@ def create_spark_session(config: BenchmarkConfig) -> SparkSession:
             packages.append("io.delta:delta-spark_2.12:3.0.0")
         spark_config = spark_config.config("spark.jars.packages", ",".join(packages))
         
+        # Delta 3.x on Dataproc serverless (no spark_master) requires session extension and catalog.
+        # Without these, DeltaDataSource fails with DELTA_CONFIGURE_SPARK_SESSION_WITH_EXTENSION_AND_CATALOG.
+        if getattr(config, "table_format", None) == "delta" and not config.spark_master:
+            spark_config = spark_config.config(
+                "spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension"
+            ).config(
+                "spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog"
+            )
+        
         # Configure for GCS
         spark_config = spark_config.config("spark.hadoop.fs.gs.impl", 
                               "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem") \
