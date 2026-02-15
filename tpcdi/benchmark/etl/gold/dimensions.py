@@ -99,6 +99,17 @@ class GoldDimCustomer(GoldLoaderBase):
         if not target_exists:
             target_exists = self._ensure_table_registered_from_warehouse(target_table)
         if target_exists:
+            # MERGE requires SCD2 columns (is_current, end_date). If table was created by an older run or
+            # different pipeline (e.g. SF1000 batch 1 with old schema), fail with clear instructions.
+            target_cols = [f.name for f in self.spark.table(target_table).schema.fields]
+            required = ["is_current", "end_date"]
+            missing = [c for c in required if c not in target_cols]
+            if missing:
+                raise ValueError(
+                    f"Gold table {target_table} is missing SCD2 columns: {missing}. "
+                    "Incremental MERGE requires is_current and end_date. "
+                    "Drop the table and re-run from Batch 1, or run a full batch load first to recreate it with the correct schema."
+                )
             # Close: one row per customer_id with latest effective_date from this batch
             updates_to_close = silver_df.filter(col("batch_id") == batch_id).groupBy("customer_id").agg(
                 spark_max(coalesce(col("effective_date"), col("load_timestamp"))).alias("new_effective_date"),
@@ -246,6 +257,16 @@ class GoldDimAccount(GoldLoaderBase):
         if not target_exists:
             target_exists = self._ensure_table_registered_from_warehouse(target_table)
         if target_exists:
+            # MERGE requires SCD2 columns (is_current, end_date). Fail fast if table has old schema.
+            target_cols = [f.name for f in self.spark.table(target_table).schema.fields]
+            required = ["is_current", "end_date"]
+            missing = [c for c in required if c not in target_cols]
+            if missing:
+                raise ValueError(
+                    f"Gold table {target_table} is missing SCD2 columns: {missing}. "
+                    "Incremental MERGE requires is_current and end_date. "
+                    "Drop the table and re-run from Batch 1, or run a full batch load first to recreate it with the correct schema."
+                )
             # Close: one row per account_id with latest effective_date from this batch (U/D)
             updates_to_close = silver_df.filter(col("batch_id") == batch_id).filter(
                 col("record_type").isin("U", "D"),
