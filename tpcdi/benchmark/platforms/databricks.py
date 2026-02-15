@@ -67,19 +67,16 @@ class DatabricksPlatform:
             table_exists = self.spark.catalog.tableExists(table_name)
         except Exception as e:
             logger.warning(f"Could not check if table {table_name} exists: {e}")
-        # For overwrite + Delta (batch mode): write to path then CREATE TABLE to always override
-        # and avoid "does not support append in batch mode" (saveAsTable can use append internally).
+        # For overwrite + Delta: drop first. Use path-based write only for 2-part names (Hive metastore).
+        # Unity Catalog (3-part catalog.schema.table) does not allow CREATE TABLE with dbfs LOCATION.
         if mode == "overwrite" and format == "delta":
             self.drop_table_if_exists(table_name)
             parts = table_name.split(".")
-            if len(parts) >= 2:
+            if len(parts) == 2:
                 warehouse = self.spark.conf.get("spark.sql.warehouse.dir", "").rstrip("/")
-                if warehouse:
-                    # Build path: 2-part -> warehouse/db.db/table; 3-part -> warehouse/catalog/schema/table
-                    if len(parts) == 2:
-                        location = f"{warehouse}/{parts[0]}.db/{parts[1]}"
-                    else:
-                        location = f"{warehouse}/{'/'.join(parts)}"
+                if warehouse and not warehouse.startswith("dbfs:"):
+                    # Path-based write only when warehouse is not dbfs (UC uses dbfs and rejects it)
+                    location = f"{warehouse}/{parts[0]}.db/{parts[1]}"
                     writer = df.write.format("delta").mode("overwrite")
                     if partition_by:
                         writer = writer.partitionBy(*partition_by)
