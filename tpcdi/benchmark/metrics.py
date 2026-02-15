@@ -91,8 +91,12 @@ class BenchmarkMetrics:
     cluster_instance_type: Optional[str] = None
     cluster_worker_count: Optional[int] = None
     cluster_master_type: Optional[str] = None
+    # Platform type for result/metrics: "databricks" | "dataproc" | "dataproc_serverless"
+    platform_type: Optional[str] = None
     # Databricks only: "serverless" or "classic" (provisioned) compute
     databricks_compute_type: Optional[str] = None
+    # Path where metrics JSON was saved (set in save() before writing)
+    metrics_saved_path: Optional[str] = None
     # DQ time per silver table: [{"table": str, "duration_seconds": float}, ...]
     dq_table_timings: Optional[List[Dict[str, Any]]] = None
     # Cost estimation (compute + software/DBU; list-price approximation)
@@ -159,10 +163,20 @@ class BenchmarkMetrics:
             "steps": [asdict(step) for step in self.steps],
             "summary": self.summary,
         }
+        if self.platform_type is not None:
+            d["platform_type"] = self.platform_type
         if self.cluster_instance_type is not None or self.cluster_worker_count is not None or self.cluster_master_type is not None:
             d["cluster_instance_type"] = self.cluster_instance_type
             d["cluster_worker_count"] = self.cluster_worker_count
             d["cluster_master_type"] = self.cluster_master_type
+            # Cluster configuration (human-readable for result and metrics)
+            d["cluster_configuration"] = {
+                "worker_node_type": self.cluster_instance_type,
+                "driver_node_type": self.cluster_master_type,
+                "number_of_worker_nodes": self.cluster_worker_count,
+            }
+        if self.metrics_saved_path is not None:
+            d["metrics_saved_path"] = self.metrics_saved_path
         if self.databricks_compute_type is not None:
             d["databricks_compute_type"] = self.databricks_compute_type
         if self.dq_table_timings is not None:
@@ -196,6 +210,7 @@ class BenchmarkMetrics:
             # pathlib.Path("gs://bucket/path") turns gs:// into gs:/ (one slash). Build path as string and upload.
             base = output_path.rstrip("/")
             full_gcs_path = f"{base}/{filename}"
+            self.metrics_saved_path = full_gcs_path
             json_content = json.dumps(self.to_dict(), indent=2)
             gsutil_cmd = shutil.which("gsutil")
             if not gsutil_cmd:
@@ -250,6 +265,7 @@ class BenchmarkMetrics:
             output = Path(output_path)
             output.mkdir(parents=True, exist_ok=True)
             filepath = output / filename
+            self.metrics_saved_path = str(filepath)
             with open(filepath, "w") as f:
                 json.dump(self.to_dict(), f, indent=2)
             logger.info(f"Metrics saved to {filepath}")

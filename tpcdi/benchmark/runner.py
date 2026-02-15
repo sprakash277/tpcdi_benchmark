@@ -334,6 +334,12 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             master_type=master_type,
         )
 
+        # Platform type for result and metrics: databricks | dataproc | dataproc_serverless
+        if config.platform == Platform.DATABRICKS:
+            metrics.metrics.platform_type = "databricks"
+        elif config.platform == Platform.DATAPROC:
+            metrics.metrics.platform_type = "dataproc_serverless" if not config.spark_master else "dataproc"
+
         # Create target database (and catalog/schema for Databricks UC)
         # Append scale factor to database/schema names
         metrics.start_step("database_creation")
@@ -564,9 +570,26 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
         logger.debug("Cost estimation skipped: %s", e)
     
     logger.info("Benchmark completed successfully")
+    # Build cluster_configuration for result (same shape as in metrics JSON)
+    m = metrics.metrics
+    cluster_config = None
+    if m.cluster_instance_type is not None or m.cluster_master_type is not None or m.cluster_worker_count is not None:
+        cluster_config = {
+            "worker_node_type": m.cluster_instance_type,
+            "driver_node_type": m.cluster_master_type,
+            "number_of_worker_nodes": m.cluster_worker_count,
+        }
+        logger.info(
+            "Cluster Configuration: Worker Node Type: %s, Driver Node Type: %s, Number of Worker Nodes: %s",
+            m.cluster_instance_type or "N/A",
+            m.cluster_master_type or "N/A",
+            m.cluster_worker_count if m.cluster_worker_count is not None else "N/A",
+        )
     return {
         "status": "success",
-        "metrics": metrics.metrics.to_dict(),
+        "platform_type": m.platform_type,
+        "cluster_configuration": cluster_config,
+        "metrics": m.to_dict(),
         "config": {
             "platform": config.platform.value,
             "load_type": config.load_type.value,
