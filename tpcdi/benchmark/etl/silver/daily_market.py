@@ -7,7 +7,7 @@ Market data is Type 1 (overwrite on key) or append-only; no SCD Type 2.
 
 import logging
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, lit, to_date, concat_ws, coalesce, expr
+from pyspark.sql.functions import col, lit, concat_ws, coalesce, expr
 from pyspark.sql.types import LongType, DoubleType
 
 from benchmark.etl.silver.base import SilverLoaderBase
@@ -90,7 +90,10 @@ class SilverDailyMarket(SilverLoaderBase):
             col_idx = idx + col_offset
             if col_exists(col_idx):
                 if alias_name == "dm_date":
-                    select_cols.append(to_date(col(f"_c{col_idx}")).alias(alias_name))
+                    # try_to_date / try_cast so malformed values (e.g. numeric) become NULL
+                    select_cols.append(
+                        expr(f"try_cast(trim(_c{col_idx}) AS DATE)").alias(alias_name)
+                    )
                 elif cast_type:
                     sql_type = "DOUBLE" if cast_type == DoubleType else "BIGINT"
                     select_cols.append(
