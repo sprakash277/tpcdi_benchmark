@@ -15,10 +15,12 @@ dbutils.widgets.dropdown("load_type", "batch", ["batch", "incremental"], "Load T
 dbutils.widgets.text("xml_format", "com.databricks.spark.xml", "XML Format")
 dbutils.widgets.text("sql_base_path", "", "SQL base path (optional; default = notebook dir)")
 dbutils.widgets.text("metrics_output", "gs://sumit_prakash_gcs/tpcdi/metrics", "Metrics Output Path")
+dbutils.widgets.dropdown("use_read_files", "true", ["true", "false"], "Bronze: use read_files (true) or load + temp view (false, like Dataproc)")
 
 # COMMAND ----------
 
 import os
+import re
 import sys
 import time
 
@@ -48,6 +50,47 @@ else:
 if base_dir and base_dir not in sys.path:
     sys.path.insert(0, base_dir)
 import tpcdi_metrics as metrics
+
+# Bronze: when use_read_files is False, load via spark.read and create temp view (same pattern as Dataproc).
+# Temp view name is _tmp_<table_name> (e.g. _tmp_bronze_date); target table uses catalog and schema.
+use_read_files = (dbutils.widgets.get("use_read_files") or "true").lower() in ("true", "1", "yes")
+if not use_read_files:
+    print("Bronze: using load + temp view (use_read_files=false); target tables use catalog and schema.")
+BRONZE_BATCH_PATHS = {
+    "bronze_date": ("Batch1/Date.txt", "Date.txt"),
+    "bronze_time": ("Batch1/Time.txt", "Time.txt"),
+    "bronze_status_type": ("Batch1/StatusType.txt", "StatusType.txt"),
+    "bronze_trade_type": ("Batch1/TradeType.txt", "TradeType.txt"),
+    "bronze_industry": ("Batch1/Industry.txt", "Industry.txt"),
+    "bronze_tax_rate": ("Batch1/TaxRate.txt", "TaxRate.txt"),
+    "bronze_trade": ("Batch1/Trade.txt", "Trade.txt"),
+    "bronze_daily_market": ("Batch1/DailyMarket.txt", "DailyMarket.txt"),
+    "bronze_cash_transaction": ("Batch1/CashTransaction.txt", "CashTransaction.txt"),
+    "bronze_holding_history": ("Batch1/HoldingHistory.txt", "HoldingHistory.txt"),
+    "bronze_watch_history": ("Batch1/WatchHistory.txt", "WatchHistory.txt"),
+    "bronze_hr": ("Batch1/HR.csv", "HR.csv"),
+    "bronze_prospect": ("Batch1/Prospect.csv", "Prospect.csv"),
+}
+BRONZE_INCR_PATHS = {
+    "bronze_customer": ("Batch{batch_id}/Customer.txt", "Customer.txt"),
+    "bronze_account": ("Batch{batch_id}/Account.txt", "Account.txt"),
+    "bronze_trade": ("Batch{batch_id}/Trade.txt", "Trade.txt"),
+    "bronze_daily_market": ("Batch{batch_id}/DailyMarket.txt", "DailyMarket.txt"),
+    "bronze_cash_transaction": ("Batch{batch_id}/CashTransaction.txt", "CashTransaction.txt"),
+    "bronze_holding_history": ("Batch{batch_id}/HoldingHistory.txt", "HoldingHistory.txt"),
+    "bronze_watch_history": ("Batch{batch_id}/WatchHistory.txt", "WatchHistory.txt"),
+    "bronze_prospect": ("Batch{batch_id}/Prospect.csv", "Prospect.csv"),
+}
+
+def create_bronze_temp_view(table_short, path_suffix):
+    """Create temp view _tmp_<table_short> from spark.read.text(path). Uses catalog/schema context for target table; temp view is session-scoped."""
+    path = f"{full_raw_data_path.rstrip('/')}/{path_suffix}"
+    df = spark.read.format("text").load(path)
+    df.createOrReplaceTempView("_tmp_" + table_short)
+
+def _replace_from_read_files_with_tmp(content, table_name):
+    """Replace FROM read_files(...) with FROM _tmp_<table_name> so SQL uses temp view instead of read_files."""
+    return re.sub(r"FROM\s+read_files\s*\([^)]+\)", "FROM _tmp_" + table_name, content, flags=re.IGNORECASE)
 
 def _workspace_file_path(path):
     """Convert path to workspace file URI so dbutils.fs and Spark can read it."""
@@ -110,6 +153,28 @@ def run_sql_timed(rel_path, use_pipe_placeholder=False):
         metrics.record_table_load(_table_details, table_name, duration, row_count, size_mb, catalog, schema_name)
     return duration
 
+def run_bronze_sql_timed(rel_path, use_pipe_placeholder=False):
+    """Run bronze SQL: if use_read_files use read_files (default); else create temp view from load and run SQL with FROM _tmp_*."""
+    global _total_refresh_seconds
+    table_name = metrics.sql_file_to_table_name(rel_path)
+    if use_read_files or not table_name or table_name not in BRONZE_BATCH_PATHS:
+        return run_sql_timed(rel_path, use_pipe_placeholder=use_pipe_placeholder)
+    path_suffix, _ = BRONZE_BATCH_PATHS[table_name]
+    create_bronze_temp_view(table_name, path_suffix)
+    content = read_sql_file(rel_path)
+    content = _replace_from_read_files_with_tmp(content, table_name)
+    t0 = time.time()
+    run_sql(content, use_pipe_placeholder=use_pipe_placeholder)
+    duration = time.time() - t0
+    if table_name:
+        use_refresh = not is_incremental
+        row_count, size_mb, refresh_sec = metrics.get_table_stats(spark, catalog, schema_name, table_name, use_refresh=use_refresh)
+        if use_refresh:
+            _total_refresh_seconds += refresh_sec
+            duration += refresh_sec
+        metrics.record_table_load(_table_details, table_name, duration, row_count, size_mb, catalog, schema_name)
+    return duration
+
 def run_sql_multi_timed(rel_path, use_pipe_placeholder=False, incremental=False):
     """Run multi-statement SQL file and record duration + table stats.
     Incremental: stats = delta (rows/size added this run). No refresh so before/after counts are correct."""
@@ -120,6 +185,33 @@ def run_sql_multi_timed(rel_path, use_pipe_placeholder=False, incremental=False)
         count_before, size_before_mb = 0, 0.0
     t0 = time.time()
     run_sql_multi(read_sql_file(rel_path), use_pipe_placeholder=use_pipe_placeholder)
+    duration = time.time() - t0
+    if table_name:
+        count_after, size_after_mb, _ = metrics.get_table_stats(spark, catalog, schema_name, table_name, use_refresh=False)
+        if incremental:
+            row_count = max(0, count_after - count_before)
+            size_mb = max(0.0, size_after_mb - size_before_mb)
+        else:
+            row_count, size_mb = count_after, size_after_mb
+        metrics.record_table_load(_table_details, table_name, duration, row_count, size_mb, catalog, schema_name)
+    return duration
+
+def run_bronze_sql_multi_timed(rel_path, use_pipe_placeholder=False, incremental=False):
+    """Run bronze multi-statement SQL: if use_read_files use read_files; else create temp view from load and run SQL with FROM _tmp_*."""
+    table_name = metrics.sql_file_to_table_name(rel_path)
+    if use_read_files or not table_name or table_name not in BRONZE_INCR_PATHS:
+        return run_sql_multi_timed(rel_path, use_pipe_placeholder=use_pipe_placeholder, incremental=incremental)
+    path_pattern, _ = BRONZE_INCR_PATHS[table_name]
+    path_suffix = path_pattern.format(batch_id=batch_id)
+    create_bronze_temp_view(table_name, path_suffix)
+    content = read_sql_file(rel_path)
+    content = _replace_from_read_files_with_tmp(content, table_name)
+    if table_name and incremental:
+        count_before, size_before_mb, _ = metrics.get_table_stats(spark, catalog, schema_name, table_name, use_refresh=False)
+    else:
+        count_before, size_before_mb = 0, 0.0
+    t0 = time.time()
+    run_sql_multi(content, use_pipe_placeholder=use_pipe_placeholder)
     duration = time.time() - t0
     if table_name:
         count_after, size_after_mb, _ = metrics.get_table_stats(spark, catalog, schema_name, table_name, use_refresh=False)
@@ -196,7 +288,7 @@ if is_incremental:
     _n_before = len(_table_details)
     for f in bronze_incremental_files:
         print(f"Bronze: {f}")
-        run_sql_multi_timed(f, incremental=True)
+        run_bronze_sql_multi_timed(f, incremental=True)
     _inc_bronze_rows = sum(d["row_count"] for d in _table_details[_n_before:])
     _steps.append({"step_name": "bronze_etl", "duration_seconds": time.time() - _inc_bronze_start, "rows_processed": _inc_bronze_rows})
 
@@ -278,7 +370,7 @@ bronze_sql_before_finwire = [
 ]
 for rel in bronze_sql_before_finwire:
     print(f"Bronze SQL: {rel}")
-    run_sql_timed(rel)
+    run_bronze_sql_timed(rel)
 
 bronze_notebook_dir = (base_dir + "/sql/bronze/batch") if base_dir else "sql/bronze/batch"
 for nb_name, table_short in [("load_bronze_customer_mgmt", "bronze_customer_mgmt"), ("load_bronze_finwire", "bronze_finwire")]:
@@ -300,7 +392,7 @@ bronze_sql_after_finwire = [
 ]
 for rel in bronze_sql_after_finwire:
     print(f"Bronze SQL: {rel}")
-    run_sql_timed(rel)
+    run_bronze_sql_timed(rel)
 _bronze_rows = sum(d["row_count"] for d in _table_details)
 _steps.append({"step_name": "bronze_etl", "duration_seconds": time.time() - _bronze_start, "rows_processed": _bronze_rows})
 

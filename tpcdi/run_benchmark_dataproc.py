@@ -12,7 +12,11 @@ When submitting via gcloud, you must provide the benchmark package with --py-fil
   gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py --py-files=benchmark.zip ...
 """
 
+import json
+import os
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 def _ensure_benchmark_on_path():
@@ -46,6 +50,83 @@ _ensure_benchmark_on_path()
 
 from benchmark.config import BenchmarkConfig, Platform, LoadType
 from benchmark.runner import run_benchmark
+
+
+def _fetch_and_merge_dataproc_batch_usage(
+    batch_id: str,
+    region: str,
+    project: str,
+    metrics_file_path: str,
+) -> bool:
+    """
+    Fetch Dataproc batch usage (gcloud describe) and merge into the metrics JSON file.
+    Returns True if merge succeeded. Uses gcloud and, for gs:// paths, gsutil.
+    """
+    bid = batch_id.split("/")[-1] if "/" in batch_id else batch_id
+    try:
+        out = subprocess.run(
+            [
+                "gcloud", "dataproc", "batches", "describe", bid,
+                f"--region={region}", f"--project={project}", "--format=json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if out.returncode != 0:
+            print(f"Warning: could not describe batch for usage (gcloud exit {out.returncode})", file=sys.stderr)
+            return False
+        full = json.loads(out.stdout)
+    except (FileNotFoundError, json.JSONDecodeError, subprocess.TimeoutExpired) as e:
+        print(f"Warning: fetch batch usage failed: {e}", file=sys.stderr)
+        return False
+
+    payload = {
+        "batch_name": full.get("name"),
+        "batch_uuid": full.get("uuid"),
+        "state": full.get("state"),
+        "create_time": full.get("createTime"),
+        "state_time": full.get("stateTime"),
+        "labels": full.get("labels"),
+    }
+    if "runtimeInfo" in full and "approximateUsage" in full["runtimeInfo"]:
+        payload["approximate_usage"] = full["runtimeInfo"]["approximateUsage"]
+    if "runtimeConfig" in full:
+        payload["runtime_config"] = {
+            "version": full["runtimeConfig"].get("version"),
+            "properties": full["runtimeConfig"].get("properties"),
+        }
+
+    if metrics_file_path.startswith("gs://"):
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+                tmp = f.name
+            subprocess.run(["gsutil", "-q", "cp", metrics_file_path, tmp], check=True, capture_output=True)
+            with open(tmp) as f:
+                data = json.load(f)
+            data["dataproc_batch"] = payload
+            with open(tmp, "w") as f:
+                json.dump(data, f, indent=2)
+            subprocess.run(["gsutil", "-q", "cp", tmp, metrics_file_path], check=True, capture_output=True)
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            return True
+        except (subprocess.CalledProcessError, OSError, json.JSONDecodeError) as e:
+            print(f"Warning: could not merge batch usage into metrics file: {e}", file=sys.stderr)
+            return False
+    else:
+        try:
+            with open(metrics_file_path) as f:
+                data = json.load(f)
+            data["dataproc_batch"] = payload
+            with open(metrics_file_path, "w") as f:
+                json.dump(data, f, indent=2)
+            return True
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"Warning: could not merge batch usage into metrics file: {e}", file=sys.stderr)
+            return False
 
 # Example configuration for Dataproc
 if __name__ == "__main__":
@@ -92,6 +173,8 @@ if __name__ == "__main__":
                        help="Number of worker instances for metrics. If omitted, auto-detected from Spark executors.")
     parser.add_argument("--cluster-master-type",
                        help="Master/driver instance type for metrics (optional).")
+    parser.add_argument("--dataproc-batch-id",
+                       help="Dataproc serverless batch ID (for post-run usage fetch). If set, fetches batch usage and merges into metrics JSON. Also check env DATAPROC_BATCH_ID or BATCH_ID.")
 
     args = parser.parse_args()
 
@@ -137,6 +220,17 @@ if __name__ == "__main__":
     )
     
     result = run_benchmark(config)
+
+    # Optional: fetch Dataproc batch usage and merge into metrics (for cost calculation).
+    # Batch ID can come from --dataproc-batch-id or env DATAPROC_BATCH_ID / BATCH_ID (if set by launcher).
+    # Note: runtimeInfo.approximateUsage may not be final until after the batch process exits; if empty, run the post script fetch_dataproc_batch_usage.py after the batch succeeds.
+    batch_id_for_usage = getattr(args, "dataproc_batch_id", None) or os.environ.get("DATAPROC_BATCH_ID") or os.environ.get("BATCH_ID")
+    metrics_saved_path = result.get("metrics", {}).get("metrics_saved_path") if result else None
+    if batch_id_for_usage and metrics_saved_path and config.region and config.project_id:
+        if _fetch_and_merge_dataproc_batch_usage(batch_id_for_usage, config.region, config.project_id, metrics_saved_path):
+            print("\nMerged Dataproc batch usage into metrics file.")
+        else:
+            print("\n(Batch usage fetch/merge skipped or failed; run fetch_dataproc_batch_usage.py after the batch succeeds for full usage.)")
 
     # Same summary format as Databricks (benchmark_databricks_notebook.py)
     print("\n" + "=" * 80)

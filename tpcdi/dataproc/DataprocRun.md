@@ -483,6 +483,19 @@ gcloud dataproc batches submit pyspark run_benchmark_dataproc.py \
    gcloud dataproc batches describe <BATCH_ID> --region=us-central1
    ```
 
+8. **Post-run: fetch batch usage and merge into metrics** — After the batch has **succeeded**, run the post script from your machine (or CI) to get `runtimeInfo.approximateUsage` (milliDcuSeconds, shuffleStorageGbSeconds) for cost calculation and merge it into your metrics JSON:
+
+   ```bash
+   # After: gcloud dataproc batches wait <BATCH_ID> --region=us-central1
+   python tpcdi/dataproc/fetch_dataproc_batch_usage.py \
+     --batch-id <BATCH_ID> \
+     --region us-central1 \
+     --project <your-project> \
+     --metrics-output gs://<your-bucket>/tpcdi/metrics
+   ```
+
+   This writes a standalone `dataproc_batch_<id>_usage.json` and, when `--metrics-output` is a directory, merges a `dataproc_batch` block into the latest `metrics_*.json` in that directory. Requires `gcloud` and `gsutil` in PATH.
+
 **Notes**
 
 - **No `--cluster`** — Serverless batches do not use a cluster; only `--region` and `--deps-bucket` are required (plus your project).
