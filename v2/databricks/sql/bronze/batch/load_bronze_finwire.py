@@ -9,16 +9,17 @@ batch_id = int(dbutils.widgets.get("batch_id"))
 full_raw_data_path = f"{raw_data_path}/sf={sf}"
 batch1_path = f"{full_raw_data_path}/Batch1"
 
-from pyspark.sql.functions import lit, current_timestamp, col, length
+from pyspark.sql.functions import lit, current_timestamp, col, length, input_file_name, lower
 
-# Try Spark glob first (works with UC external locations / volumes on serverless); fall back to dbutils.fs.ls.
+# Try Spark glob FINWIRE* first (then filter out .csv); works with UC Volume/external location on serverless.
+# Fall back to dbutils.fs.ls (which also excludes .csv).
 df_finwire = None
-for glob_pattern in [f"{batch1_path}/FINWIRE*.txt", f"{batch1_path}/FINWIRE*"]:
-    try:
-        df_finwire = spark.read.format("text").load(glob_pattern)
-        break
-    except Exception:
-        pass
+try:
+    df_finwire = spark.read.format("text").load(f"{batch1_path}/FINWIRE*")
+    # Exclude rows from .csv files (glob may match FINWIRE*.csv)
+    df_finwire = df_finwire.withColumn("_path", input_file_name()).filter(~lower(col("_path")).like("%.csv")).drop("_path")
+except Exception:
+    pass
 if df_finwire is None:
     try:
         batch1_files = dbutils.fs.ls(batch1_path)
