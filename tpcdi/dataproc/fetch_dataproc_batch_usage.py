@@ -21,7 +21,6 @@ Requires: gcloud in PATH (for batches describe and, when using GCS, gsutil for r
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile

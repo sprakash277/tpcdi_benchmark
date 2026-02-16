@@ -65,8 +65,9 @@ DATABRICKS_DEFAULT_USD_PER_NODE_HOUR = 0.50
 # --- Dataproc: GCP list prices (USD)
 # Dataproc fee: $0.01 per vCPU per hour (in addition to Compute Engine)
 DATAPROC_FEE_PER_VCPU_HOUR = 0.01
-# Compute Engine: approximate $/hour per vCPU and per GB for n2d (e.g. us-central1)
-# Used when instance type is known; otherwise we use a default vCPU/GB estimate.
+# Compute: flat VM price per node-hour for a quick estimate (e.g. n2d-standard-16 ~$0.67/hr in us-central1)
+DATAPROC_FLAT_VM_USD_PER_HOUR = 0.67
+# vCPU/GB per instance (used for software fee and optional detailed compute; kept for compatibility)
 DATAPROC_VCPU_HOUR: Dict[str, float] = {
     "n2d-standard-4": 4,
     "n2d-standard-8": 8,
@@ -180,34 +181,25 @@ def estimate_dataproc_cost(
 ) -> Dict[str, Any]:
     """
     Estimate Dataproc job cost from duration and cluster metadata.
+    Compute = flat VM price per node-hour × (1 + workers) × duration.
+    Software = Dataproc fee per vCPU-hour (from instance-type vCPU lookup).
     Returns dict with keys: compute_usd, software_usd, total_usd, duration_hours.
     """
     duration_hours = _hours(total_duration_seconds)
     workers = cluster_worker_count if cluster_worker_count is not None and cluster_worker_count >= 0 else 0
-    # 1 driver + N workers
+    num_nodes = 1 + workers
+    # Compute: flat VM price per node-hour (quick estimate)
+    compute_usd = round(duration_hours * num_nodes * DATAPROC_FLAT_VM_USD_PER_HOUR, 4)
+    # Software: Dataproc fee per vCPU-hour (still uses instance-type for vCPU count)
     driver_vcpu = DATAPROC_VCPU_HOUR.get(
         (cluster_master_type or cluster_instance_type or "").strip(),
         DATAPROC_DEFAULT_VCPU_PER_NODE,
-    )
-    driver_gb = DATAPROC_GB_PER_INSTANCE.get(
-        (cluster_master_type or cluster_instance_type or "").strip(),
-        DATAPROC_DEFAULT_GB_PER_NODE,
     )
     worker_vcpu = DATAPROC_VCPU_HOUR.get(
         (cluster_instance_type or "").strip(),
         DATAPROC_DEFAULT_VCPU_PER_NODE,
     )
-    worker_gb = DATAPROC_GB_PER_INSTANCE.get(
-        (cluster_instance_type or "").strip(),
-        DATAPROC_DEFAULT_GB_PER_NODE,
-    )
     total_vcpu_hours = duration_hours * (driver_vcpu + workers * worker_vcpu)
-    total_gb_hours = duration_hours * (driver_gb + workers * worker_gb)
-    compute_usd = round(
-        total_vcpu_hours * DATAPROC_USD_PER_VCPU_HOUR
-        + total_gb_hours * DATAPROC_USD_PER_GB_HOUR,
-        4,
-    )
     software_usd = round(total_vcpu_hours * DATAPROC_FEE_PER_VCPU_HOUR, 4)
     total_usd = round(compute_usd + software_usd, 4)
     return {
