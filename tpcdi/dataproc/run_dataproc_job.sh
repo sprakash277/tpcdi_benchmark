@@ -44,8 +44,16 @@ Conditional:
   batch-id                 Required when load-type=incremental
 
 Optional:
-  deps-bucket              For serverless; defaults to gcs-bucket
+  deps-bucket              For serverless; defaults to gcs-bucket (add gs:// if missing)
   metastore-service        Dataproc Metastore, e.g. projects/PROJECT/locations/REGION/services/SERVICE
+  subnet                   Serverless: VPC subnet (e.g. projects/PROJECT/regions/REGION/subnetworks/NAME)
+  version                  Serverless: runtime version (e.g. 2.3)
+  jars                     Serverless: comma-separated JARs (e.g. gs://bucket/tpcdi/libs/spark-xml_2.13-0.18.0.jar,gs://...)
+  properties               Serverless: Spark/Dataproc properties (e.g. dataproc.tier=premium)
+  target-database          Target database name (default tpcdi_warehouse)
+  target-schema            Target schema name (default dw)
+  log-detailed-stats       Set to 1/true to enable per-table timing logs
+  spark-master             Spark master URL (default yarn; use empty for serverless)
   batch-wait-log-file      Path to file to save gcloud dataproc batches wait output (serverless only)
   use-serverless           Set to 1 for serverless batch + wait + fetch usage
 
@@ -94,6 +102,8 @@ validate_required_args() {
 # -----------------------------------------------------------------------------
 build_benchmark_script_args() {
   local include_sa="${1:-0}"
+  local target_db="${TARGET_DATABASE:-tpcdi_warehouse}"
+  local target_schema="${TARGET_SCHEMA:-dw}"
   SCRIPT_ARGS=(
     --load-type "${LOAD_TYPE}"
     --scale-factor "${SCALE_FACTOR}"
@@ -102,12 +112,14 @@ build_benchmark_script_args() {
     --project-id="${PROJECT}"
     --region="${REGION}"
     --raw-data-path="${RAW_DATA_PATH}"
-    --target-database=tpcdi_warehouse
-    --target-schema=dw
+    --target-database="${target_db}"
+    --target-schema="${target_schema}"
     --save-metrics
     --metrics-output="${METRICS_OUTPUT}"
   )
   [ -n "${BATCH_ID_ARG}" ] && SCRIPT_ARGS+=(--batch-id "${BATCH_ID_ARG}")
+  [ "${LOG_DETAILED_STATS}" = "1" ] || [ "${LOG_DETAILED_STATS}" = "true" ] || [ "${LOG_DETAILED_STATS}" = "yes" ] && SCRIPT_ARGS+=(--log-detailed-stats)
+  [ -n "${SPARK_MASTER+x}" ] && SCRIPT_ARGS+=(--spark-master="${SPARK_MASTER:-}")
   if [ "${include_sa}" = "1" ]; then
     SCRIPT_ARGS+=(--service-account-email="${SERVICE_ACCOUNT_EMAIL}")
     SCRIPT_ARGS+=(--service-account-key-file="${SERVICE_ACCOUNT_KEY_FILE}")
@@ -143,15 +155,24 @@ run_serverless() {
   echo "Submitting serverless batch..."
   build_benchmark_script_args 0
   local submit_output
+  local deps_bucket="${DEPS_BUCKET}"
+  [[ "${deps_bucket}" != gs://* ]] && deps_bucket="gs://${deps_bucket}"
   _batch_opts=(
     --region="${REGION}"
     --project="${PROJECT}"
-    --deps-bucket="${DEPS_BUCKET}"
+    --deps-bucket="${deps_bucket}"
     --py-files=benchmark.zip
-    --jars=dataproc/libs/spark-xml_2.12-0.18.0.jar
-    --service-account="${SERVICE_ACCOUNT_EMAIL}"
   )
+  if [ -n "${SERVERLESS_JARS:-${JARS}}" ]; then
+    _batch_opts+=(--jars="${SERVERLESS_JARS:-${JARS}}")
+  else
+    _batch_opts+=(--jars=dataproc/libs/spark-xml_2.12-0.18.0.jar)
+  fi
+  [ -n "${SUBNET}" ] && _batch_opts+=(--subnet="${SUBNET}")
+  [ -n "${VERSION}" ] && _batch_opts+=(--version="${VERSION}")
   [ -n "${METASTORE_SERVICE}" ] && _batch_opts+=(--metastore-service="${METASTORE_SERVICE}")
+  [ -n "${PROPERTIES}" ] && _batch_opts+=(--properties="${PROPERTIES}")
+  [ -n "${SERVICE_ACCOUNT_EMAIL}" ] && _batch_opts+=(--service-account="${SERVICE_ACCOUNT_EMAIL}")
   local tmpfile
   tmpfile=$(mktemp) || { echo "mktemp failed" 1>&2; return 1; }
   trap "rm -f '${tmpfile}'" EXIT
@@ -228,7 +249,7 @@ parse_key_value_args() {
         key="${arg%%=*}"
         val="${arg#*=}"
         key_upper=$(echo "${key}" | sed 's/-/_/g' | tr 'a-z' 'A-Z')
-        [ -n "${key_upper}" ] && [ -n "${val}" ] && export "${key_upper}=${val}"
+        [ -n "${key_upper}" ] && export "${key_upper}=${val}"
         ;;
     esac
   done
@@ -257,6 +278,15 @@ SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_EMAIL:-}"
 SERVICE_ACCOUNT_KEY_FILE="${SERVICE_ACCOUNT_KEY_FILE:-}"
 DEPS_BUCKET="${DEPS_BUCKET:-$GCS_BUCKET}"
 METASTORE_SERVICE="${METASTORE_SERVICE:-}"
+SUBNET="${SUBNET:-}"
+VERSION="${VERSION:-}"
+JARS="${JARS:-}"
+SERVERLESS_JARS="${SERVERLESS_JARS:-}"
+PROPERTIES="${PROPERTIES:-}"
+TARGET_DATABASE="${TARGET_DATABASE:-tpcdi_warehouse}"
+TARGET_SCHEMA="${TARGET_SCHEMA:-dw}"
+LOG_DETAILED_STATS="${LOG_DETAILED_STATS:-}"
+SPARK_MASTER="${SPARK_MASTER:-}"
 BATCH_WAIT_LOG_FILE="${BATCH_WAIT_LOG_FILE:-}"
 
 validate_required_args || exit 1
