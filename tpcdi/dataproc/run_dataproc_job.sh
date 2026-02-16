@@ -48,7 +48,7 @@ Conditional:
 Optional:
   deps-bucket              For serverless; defaults to gcs-bucket (add gs:// if missing)
   metastore-service        Dataproc Metastore, e.g. projects/PROJECT/locations/REGION/services/SERVICE
-  version                  Serverless: image version (default 2.3-debian12; optional override, e.g. 2.2-debian12)
+  version                  Serverless: runtime version (e.g. 2.3)
   jars                     Serverless: comma-separated JARs (e.g. gs://bucket/tpcdi/libs/spark-xml_2.13-0.18.0.jar,gs://...)
   properties               Serverless: Spark/Dataproc properties (e.g. dataproc.tier=premium)
   target-database          Target database name (default tpcdi_warehouse)
@@ -156,7 +156,6 @@ ensure_benchmark_zip() {
 # -----------------------------------------------------------------------------
 run_serverless() {
   local project_root="${1:?PROJECT_ROOT required}"
-  echo "Submitting serverless batch..."
   build_benchmark_script_args 0
   local submit_output
   local deps_bucket="${DEPS_BUCKET}"
@@ -173,10 +172,17 @@ run_serverless() {
     _batch_opts+=(--jars=dataproc/libs/spark-xml_2.12-0.18.0.jar)
   fi
   _batch_opts+=(--subnet="${SUBNET}")
-  _batch_opts+=(--version="${VERSION:-2.3-debian12}")
+  [ -n "${VERSION}" ] && _batch_opts+=(--version="${VERSION}")
   [ -n "${METASTORE_SERVICE}" ] && _batch_opts+=(--metastore-service="${METASTORE_SERVICE}")
   [ -n "${PROPERTIES}" ] && _batch_opts+=(--properties="${PROPERTIES}")
   [ -n "${SERVICE_ACCOUNT_EMAIL}" ] && _batch_opts+=(--service-account="${SERVICE_ACCOUNT_EMAIL}")
+  echo "Submitting serverless batch..."
+  echo "Command (from ${project_root}):"
+  echo "  gcloud dataproc batches submit pyspark run_benchmark_dataproc.py \\"
+  printf '    %s \\\n' "${_batch_opts[@]}"
+  echo "    -- \\"
+  printf '    %s\n' "${SCRIPT_ARGS[@]}"
+  echo ""
   local tmpfile
   tmpfile=$(mktemp) || { echo "mktemp failed" 1>&2; return 1; }
   trap "rm -f '${tmpfile}'" EXIT
