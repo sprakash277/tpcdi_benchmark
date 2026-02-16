@@ -1,5 +1,6 @@
 # Databricks notebook source
 # Load bronze_finwire from Batch1 FINWIRE*.txt (widgets set by orchestrator)
+# On serverless, gs:// paths require Unity Catalog external location or use a UC Volume path for raw_data_path.
 catalog = dbutils.widgets.get("catalog")
 schema_name = dbutils.widgets.get("schema_name")
 raw_data_path = dbutils.widgets.get("raw_data_path")
@@ -10,19 +11,39 @@ batch1_path = f"{full_raw_data_path}/Batch1"
 
 from pyspark.sql.functions import lit, current_timestamp, col, length
 
-batch1_files = dbutils.fs.ls(batch1_path)
-finwire_files = [
-    f.path for f in batch1_files
-    if "FINWIRE" in f.name.upper()
-    and not f.name.lower().endswith(".csv")
-    and (f.name.lower().endswith(".txt") or "." not in f.name)
-]
-if not finwire_files:
-    raise FileNotFoundError(
-        f"No FINWIRE files (excluding *.csv) found under {batch1_path}. "
-        f"Listed: {[f.name for f in batch1_files][:30]}"
-    )
-df_finwire = spark.read.format("text").load(finwire_files)
+# Try Spark glob first (works with UC external locations / volumes on serverless); fall back to dbutils.fs.ls.
+df_finwire = None
+for glob_pattern in [f"{batch1_path}/FINWIRE*.txt", f"{batch1_path}/FINWIRE*"]:
+    try:
+        df_finwire = spark.read.format("text").load(glob_pattern)
+        break
+    except Exception:
+        pass
+if df_finwire is None:
+    try:
+        batch1_files = dbutils.fs.ls(batch1_path)
+        finwire_files = [
+            f.path for f in batch1_files
+            if "FINWIRE" in f.name.upper()
+            and not f.name.lower().endswith(".csv")
+            and (f.name.lower().endswith(".txt") or "." not in f.name)
+        ]
+        if not finwire_files:
+            raise FileNotFoundError(
+                f"No FINWIRE files (excluding *.csv) found under {batch1_path}. "
+                f"Listed: {[f.name for f in batch1_files][:30]}"
+            )
+        df_finwire = spark.read.format("text").load(finwire_files)
+    except FileNotFoundError:
+        raise
+    except Exception as e2:
+        raise FileNotFoundError(
+            f"Cannot read FINWIRE from {batch1_path}. "
+            "On Databricks serverless, gs:// paths require a Unity Catalog external location for the bucket, "
+            "or use a UC Volume for raw data and set raw_data_path to the volume path (e.g. /Volumes/catalog/schema/volume/tpcdi)."
+        ) from e2
+if df_finwire.isEmpty():
+    raise FileNotFoundError(f"No FINWIRE data under {batch1_path} (glob matched but no rows).")
 df_finwire_bronze = df_finwire.withColumnRenamed("value", "raw_line") \
     .withColumn("_batch_id", lit(batch_id)) \
     .withColumn("_load_timestamp", current_timestamp()) \
