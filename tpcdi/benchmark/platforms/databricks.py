@@ -30,6 +30,46 @@ class DatabricksPlatform:
             full = "gs://" + full[4:]
         return full
 
+    def _get_dbutils(self):
+        """Return dbutils when on Databricks; None otherwise. Used for serverless (Spark Connect) file listing."""
+        # Spark Connect / serverless: no sparkContext; try session-attached or caller-injected dbutils
+        dbutils = getattr(self.spark, "dbutils", None)
+        if dbutils is not None:
+            return dbutils
+        try:
+            import inspect
+            for frame in inspect.stack():
+                dbutils = frame.frame.f_globals.get("dbutils")
+                if dbutils is not None:
+                    return dbutils
+        except Exception:
+            pass
+        # Non-Connect: use JVM-backed DBUtils
+        try:
+            from pyspark.dbutils import DBUtils
+            return DBUtils(self.spark.sparkContext())
+        except Exception:
+            return None
+
+    def _sum_path_size_bytes_dbutils(self, path: str) -> int:
+        """Recursively sum file sizes under path using dbutils.fs (no JVM). For Spark Connect / serverless."""
+        dbutils = self._get_dbutils()
+        if dbutils is None:
+            return 0
+        total = 0
+        try:
+            for f in dbutils.fs.ls(path):
+                is_dir = getattr(f, "isDir", None)
+                if callable(is_dir):
+                    is_dir = is_dir()
+                if is_dir or getattr(f, "is_directory", False):
+                    total += self._sum_path_size_bytes_dbutils(f.path)
+                else:
+                    total += int(getattr(f, "size", 0) or 0)
+        except Exception as e:
+            logger.debug("dbutils.fs.ls(%s): %s", path, e)
+        return total
+
     def read_raw_file(self, file_path: str, schema: Optional[StructType] = None,
                       format: str = "csv", **options) -> DataFrame:
         full_path = self._resolve_path(file_path)
@@ -301,7 +341,9 @@ class DatabricksPlatform:
             return 0.0
     
     def _sum_path_size_bytes(self, path: str) -> int:
-        """Recursively sum file sizes under path via Hadoop FS."""
+        """Recursively sum file sizes under path. On Spark Connect uses dbutils.fs; else Hadoop FS (JVM)."""
+        if getattr(self.spark, "client", None) is not None:
+            return self._sum_path_size_bytes_dbutils(path)
         try:
             jvm = self.spark.sparkContext._jvm
             hadoop_path = jvm.org.apache.hadoop.fs.Path(path)
@@ -317,9 +359,16 @@ class DatabricksPlatform:
             return 0
 
     def get_raw_input_size_bytes(self, batch_id: int) -> int:
-        """Sum file sizes under raw_data_path/Batch{batch_id}/ for throughput metrics."""
+        """Sum file sizes under raw_data_path/Batch{batch_id}/ for throughput metrics.
+        On Spark Connect (serverless) uses dbutils.fs; otherwise uses Hadoop FS (JVM)."""
+        batch_path = f"{self.raw_data_path}/Batch{batch_id}"
+        # Spark Connect (e.g. Databricks serverless): use dbutils.fs (no JVM)
+        if getattr(self.spark, "client", None) is not None:
+            total = self._sum_path_size_bytes_dbutils(batch_path)
+            if total > 0:
+                logger.debug("Raw input size Batch%d (dbutils): %d bytes", batch_id, total)
+            return total
         try:
-            batch_path = f"{self.raw_data_path}/Batch{batch_id}"
             jvm = self.spark.sparkContext._jvm
             path = jvm.org.apache.hadoop.fs.Path(batch_path)
             fs = path.getFileSystem(self.spark.sparkContext._jsc.hadoopConfiguration())
