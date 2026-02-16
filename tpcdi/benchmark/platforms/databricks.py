@@ -2,7 +2,6 @@
 Databricks platform adapter for TPC-DI benchmark.
 """
 
-import fnmatch
 import logging
 from typing import Optional, List, Tuple
 from pyspark.sql import SparkSession, DataFrame
@@ -60,24 +59,27 @@ class DatabricksPlatform:
             reader = reader.option(key, value)
 
         # Serverless (and some runtimes) do not expand globs on gs:// — they treat path literally → PATH_NOT_FOUND.
-        # When path contains *, list parent and load explicit paths so we never pass the glob to Spark.
+        # When path contains *, list parent and load explicit paths (Databricks-only; same as working serverless snippet).
         if "*" in file_path:
-            parent_path, pattern = full_path.rsplit("/", 1)
-            listed = self._list_dir(parent_path)
+            parent_path = full_path.rsplit("/", 1)[0].rstrip("/")
+            list_path = parent_path + "/"
+            listed = self._list_dir(list_path)
             if not listed:
                 raise FileNotFoundError(
-                    f"Cannot list directory {parent_path} for pattern {pattern}. "
+                    f"Cannot list directory {list_path} for pattern {file_path.split('/')[-1]}. "
                     "On serverless with gs://, use a Unity Catalog external location or UC Volume for raw data."
                 )
+            # Path-based filter: startswith parent/FINWIRE, exclude .csv (matches working serverless code)
+            prefix = parent_path + "/FINWIRE"
             matched = [
-                path for name, path in listed
-                if fnmatch.fnmatch(name, pattern) and not name.lower().endswith(".csv")
+                path for _name, path in listed
+                if path.startswith(prefix) and not path.lower().endswith(".csv")
             ]
             if not matched:
                 raise FileNotFoundError(
-                    f"No files matching {pattern} (excluding .csv) in {parent_path}. Listed: {[n for n, _ in listed][:30]}"
+                    f"No FINWIRE files (excluding .csv) in {list_path}. Listed: {[n for n, _ in listed][:30]}"
                 )
-            print(f"Reading files: {parent_path}/{pattern} ({len(matched)} files)")
+            logger.info("Reading %d FINWIRE files (excluding CSV) from %s", len(matched), list_path)
             return reader.load(matched)
 
         print(f"Reading file: {full_path}")
