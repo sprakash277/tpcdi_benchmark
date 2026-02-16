@@ -11,7 +11,7 @@ Usage:
   python fetch_dataproc_batch_usage.py --batch-id BATCH_ID --region REGION --project PROJECT [--metrics-output PATH]
 
   --metrics-output: Directory (gs://bucket/path or local) or path to a specific metrics JSON.
-                    If directory: writes standalone usage JSON and merges into the latest metrics_*.json.
+                    If directory: writes standalone usage JSON and merges into the latest metrics_dataproc_serverless_*.json.
                     If file: merges into that file.
                     If omitted: only writes standalone usage JSON to current directory.
 
@@ -135,12 +135,16 @@ def gcs_write_json(gcs_path: str, data: dict) -> bool:
             pass
 
 
+# Merge only into serverless metrics files (this script runs after a serverless batch).
+METRICS_SERVERLESS_PREFIX = "metrics_dataproc_serverless_"
+
+
 def local_latest_metrics_file(local_dir: str) -> str | None:
-    """Return path to the latest metrics_*.json in directory (by mtime)."""
+    """Return path to the latest metrics_dataproc_serverless_*.json in directory (by mtime)."""
     p = Path(local_dir)
     if not p.is_dir():
         return None
-    files = list(p.glob("metrics_*.json"))
+    files = list(p.glob(f"{METRICS_SERVERLESS_PREFIX}*.json"))
     if not files:
         return None
     latest = max(files, key=lambda f: f.stat().st_mtime)
@@ -148,9 +152,9 @@ def local_latest_metrics_file(local_dir: str) -> str | None:
 
 
 def gcs_latest_metrics_file(gcs_dir: str) -> str | None:
-    """Return gs:// path to the latest metrics_*.json (by name sort; filename has timestamp)."""
+    """Return gs:// path to the latest metrics_dataproc_serverless_*.json (by name sort; filename has timestamp)."""
     files = gcs_list_json_files(gcs_dir)
-    metrics_files = [f for f in files if "/metrics_" in f and f.endswith(".json")]
+    metrics_files = [f for f in files if f"/{METRICS_SERVERLESS_PREFIX}" in f and f.endswith(".json")]
     if not metrics_files:
         return None
     # Sort by name descending (timestamp in filename) and take first
@@ -192,7 +196,7 @@ def main() -> int:
     parser.add_argument("--project", required=True, help="GCP project ID")
     parser.add_argument(
         "--metrics-output",
-        help="Metrics output directory (gs:// or local) or path to a specific metrics JSON file. If directory, merges into latest metrics_*.json.",
+        help="Metrics output directory (gs:// or local) or path to a specific metrics JSON file. If directory, merges into latest metrics_dataproc_serverless_*.json only.",
     )
     args = parser.parse_args()
 
@@ -247,7 +251,7 @@ def main() -> int:
             else:
                 print(f"Could not merge into {metrics_file}", file=sys.stderr)
         else:
-            print(f"No metrics_*.json found in {base}; standalone file only.")
+            print(f"No {METRICS_SERVERLESS_PREFIX}*.json found in {base}; standalone file only.")
 
     return 0
 

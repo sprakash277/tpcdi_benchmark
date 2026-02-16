@@ -230,9 +230,11 @@ class BenchmarkMetrics:
         - service_account_key_file (local path): gsutil uses that SA (GOOGLE_APPLICATION_CREDENTIALS).
         """
         timestamp = datetime.fromtimestamp(self.start_time).strftime("%Y%m%d_%H%M%S")
-        filename = f"metrics_{self.platform}_{self.load_type}_sf{self.scale_factor}_{timestamp}.json"
+        # Use platform_type in filename when set (e.g. dataproc_serverless) so serverless has distinct file pattern
+        platform_for_name = self.platform_type if self.platform_type is not None else self.platform
+        filename = f"metrics_{platform_for_name}_{self.load_type}_sf{self.scale_factor}_{timestamp}.json"
         if self.batch_id is not None:
-            filename = f"metrics_{self.platform}_{self.load_type}_sf{self.scale_factor}_batch{self.batch_id}_{timestamp}.json"
+            filename = f"metrics_{platform_for_name}_{self.load_type}_sf{self.scale_factor}_batch{self.batch_id}_{timestamp}.json"
 
         json_content = json.dumps(self.to_dict(), indent=2)
 
