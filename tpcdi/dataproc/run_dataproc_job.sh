@@ -29,7 +29,7 @@ keys: load-type, scale-factor, gcs-bucket, raw-data-path, metrics-output,
 service-account-email, service-account-key-file, batch-id, metastore-service, deps-bucket, use-serverless.
 
 Required:
-  cluster                  Dataproc cluster name (for cluster mode)
+  cluster                  Dataproc cluster name (required for cluster mode; omit when use-serverless=1)
   region                   GCP region (e.g. us-central1)
   project                  GCP project ID
   load-type                batch | incremental
@@ -65,7 +65,8 @@ EOF
 # -----------------------------------------------------------------------------
 validate_required_args() {
   local missing=""
-  [ -z "${CLUSTER}" ] && missing="${missing} cluster"
+  # Cluster required only for cluster mode; not for serverless
+  [ "${USE_SERVERLESS}" != "1" ] && [ -z "${CLUSTER}" ] && missing="${missing} cluster"
   [ -z "${REGION}" ] && missing="${missing} region"
   [ -z "${PROJECT}" ] && missing="${missing} project"
   [ -z "${LOAD_TYPE}" ] && missing="${missing} load-type"
