@@ -2,10 +2,11 @@
 # Run TPC-DI benchmark on Dataproc. No spaces after backslashes (line continuation).
 # For batch load, omit --batch-id (it's only for incremental).
 #
-# Required env (or pass as VAR=value before the script): cluster, region, project,
-# load-type, scale-factor, gcs-bucket, raw-data-path, metrics-output,
-# service-account-email, service-account-key-file. If load-type is incremental,
-# batch-id is also required.
+# Required env (or pass as VAR=value): cluster (cluster mode), region, project,
+# load-type, scale-factor, gcs-bucket, raw-data-path, metrics-output.
+# Cluster mode also requires: service-account-email, service-account-key-file.
+# Serverless (USE_SERVERLESS=1) requires: subnet; service-account-* are optional.
+# If load-type is incremental, batch-id is also required.
 #
 # Set USE_SERVERLESS=1 to submit a serverless batch, wait for it, then run
 # fetch_dataproc_batch_usage.py in sequence to merge usage into metrics.
@@ -37,16 +38,16 @@ Required:
   gcs-bucket               GCS bucket name
   raw-data-path            Base path to raw data (e.g. gs://bucket/tpcdi)
   metrics-output           Path to write metrics (e.g. gs://bucket/tpcdi/metrics)
-  service-account-email   Service account email for GCS/job execution
-  service-account-key-file Path to SA key JSON (local or gs://)
+  service-account-email   Service account email (required for cluster mode; optional for serverless)
+  service-account-key-file Path to SA key JSON (required for cluster mode; optional for serverless)
 
 Conditional:
   batch-id                 Required when load-type=incremental
+  subnet                   Required when use-serverless=1 (e.g. projects/PROJECT/regions/REGION/subnetworks/NAME)
 
 Optional:
   deps-bucket              For serverless; defaults to gcs-bucket (add gs:// if missing)
   metastore-service        Dataproc Metastore, e.g. projects/PROJECT/locations/REGION/services/SERVICE
-  subnet                   Serverless: VPC subnet (e.g. projects/PROJECT/regions/REGION/subnetworks/NAME)
   version                  Serverless: runtime version (e.g. 2.3)
   jars                     Serverless: comma-separated JARs (e.g. gs://bucket/tpcdi/libs/spark-xml_2.13-0.18.0.jar,gs://...)
   properties               Serverless: Spark/Dataproc properties (e.g. dataproc.tier=premium)
@@ -83,8 +84,11 @@ validate_required_args() {
   [ -z "${GCS_BUCKET}" ] && missing="${missing} gcs-bucket"
   [ -z "${RAW_DATA_PATH}" ] && missing="${missing} raw-data-path"
   [ -z "${METRICS_OUTPUT}" ] && missing="${missing} metrics-output"
-  [ -z "${SERVICE_ACCOUNT_EMAIL}" ] && missing="${missing} service-account-email"
-  [ -z "${SERVICE_ACCOUNT_KEY_FILE}" ] && missing="${missing} service-account-key-file"
+  # Service account required only for cluster mode; optional for serverless
+  [ "${USE_SERVERLESS}" != "1" ] && [ -z "${SERVICE_ACCOUNT_EMAIL}" ] && missing="${missing} service-account-email"
+  [ "${USE_SERVERLESS}" != "1" ] && [ -z "${SERVICE_ACCOUNT_KEY_FILE}" ] && missing="${missing} service-account-key-file"
+  # Subnet required for serverless
+  [ "${USE_SERVERLESS}" = "1" ] && [ -z "${SUBNET}" ] && missing="${missing} subnet (required when use-serverless=1)"
   if [ "${LOAD_TYPE}" = "incremental" ] && [ -z "${BATCH_ID_ARG}" ]; then
     missing="${missing} batch-id (required when load-type is incremental)"
   fi
@@ -168,7 +172,7 @@ run_serverless() {
   else
     _batch_opts+=(--jars=dataproc/libs/spark-xml_2.12-0.18.0.jar)
   fi
-  [ -n "${SUBNET}" ] && _batch_opts+=(--subnet="${SUBNET}")
+  _batch_opts+=(--subnet="${SUBNET}")
   [ -n "${VERSION}" ] && _batch_opts+=(--version="${VERSION}")
   [ -n "${METASTORE_SERVICE}" ] && _batch_opts+=(--metastore-service="${METASTORE_SERVICE}")
   [ -n "${PROPERTIES}" ] && _batch_opts+=(--properties="${PROPERTIES}")
