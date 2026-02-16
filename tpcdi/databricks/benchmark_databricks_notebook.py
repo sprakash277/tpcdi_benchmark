@@ -174,8 +174,8 @@ config = BenchmarkConfig(
     customer_mgmt_xml_format=customer_mgmt_xml_format,
     cloud=cloud,
 )
-
-result = run_benchmark(config)
+# dbutils only for metrics path: UC credentials when saving to gs:// or /Volumes/
+result = run_benchmark(config, dbutils_for_metrics=dbutils)
 
 # COMMAND ----------
 

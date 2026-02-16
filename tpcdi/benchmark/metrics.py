@@ -20,25 +20,41 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _write_string_to_gcs_via_spark(spark: "SparkSession", gcs_path: str, content: str) -> bool:
-    """Write a string to a GCS path using Spark's Hadoop FileSystem (e.g. on Databricks with GCS connector)."""
+def _write_string_via_hadoop_fs(spark: "SparkSession", path: str, content: str) -> bool:
+    """Write a string to path using Spark's Hadoop FileSystem.
+
+    Uses whatever credentials are in hadoopConfiguration():
+    - For gs://: typically cluster GCS connector (not Unity Catalog credentials).
+    - For /Volumes/ or dbfs:/Volumes/: on Databricks this uses UC credentials for the volume.
+    To use UC credentials for a GCS location registered in UC, use a UC Volume path or
+    pass dbutils to save() and use a gs:// path (dbutils.fs.put uses UC when path is UC-managed).
+    """
     try:
         sc = spark.sparkContext
         jvm = sc._jvm
         hadoop_conf = sc._jsc.hadoopConfiguration()
-        uri = jvm.java.net.URI.create(gcs_path)
+        uri = jvm.java.net.URI.create(path)
         fs = jvm.org.apache.hadoop.fs.FileSystem.get(uri, hadoop_conf)
-        path = jvm.org.apache.hadoop.fs.Path(gcs_path)
-        out = fs.create(path, True)
+        hadoop_path = jvm.org.apache.hadoop.fs.Path(path)
+        out = fs.create(hadoop_path, True)
         content_bytes = content.encode("utf-8")
-        # OutputStream.write(byte[] b) - Py4j typically accepts Python bytes as byte[]
         out.write(content_bytes)
         out.close()
         fs.close()
         return True
     except Exception as e:
-        logger.debug("Spark GCS write failed: %s", e)
+        logger.debug("Spark FS write failed for %s: %s", path[:80], e)
         return False
+
+
+def _write_string_to_gcs_via_spark(spark: "SparkSession", gcs_path: str, content: str) -> bool:
+    """Write a string to a GCS path using Spark's Hadoop FileSystem.
+
+    Uses cluster hadoopConfiguration() (GCS connector), not Unity Catalog credentials.
+    For GCS locations registered in UC, use a UC Volume path (e.g. /Volumes/cat/schema/vol/metrics)
+    or pass dbutils to save() so dbutils.fs.put can use UC credentials.
+    """
+    return _write_string_via_hadoop_fs(spark, gcs_path, content)
 
 
 @dataclass
@@ -196,25 +212,66 @@ class BenchmarkMetrics:
         output_path: str,
         service_account_key_file: Optional[str] = None,
         spark: Optional["SparkSession"] = None,
+        dbutils: Optional[Any] = None,
     ):
-        """Save metrics to file (JSON). Local paths use pathlib/open; gs:// paths write to temp then upload via gsutil
-        or, when gsutil is not available, via Spark's Hadoop FileSystem if spark is provided (e.g. on Databricks).
-        If service_account_key_file is a local path, gsutil uses that SA for the upload (GOOGLE_APPLICATION_CREDENTIALS).
+        """Save metrics to file (JSON).
+
+        - Local paths: pathlib/open.
+        - gs:// paths: gsutil if available; else Spark Hadoop FileSystem (cluster credentials, not UC),
+          or dbutils.fs.put when dbutils is provided (uses UC credentials when path is UC external location).
+        - /Volumes/ or dbfs:/Volumes/: Spark Hadoop FileSystem (on Databricks uses UC) or dbutils.fs.put when provided.
+        - service_account_key_file (local path): gsutil uses that SA (GOOGLE_APPLICATION_CREDENTIALS).
         """
         timestamp = datetime.fromtimestamp(self.start_time).strftime("%Y%m%d_%H%M%S")
         filename = f"metrics_{self.platform}_{self.load_type}_sf{self.scale_factor}_{timestamp}.json"
         if self.batch_id is not None:
             filename = f"metrics_{self.platform}_{self.load_type}_sf{self.scale_factor}_batch{self.batch_id}_{timestamp}.json"
 
+        json_content = json.dumps(self.to_dict(), indent=2)
+
+        def try_dbutils_put(full_path: str) -> bool:
+            """Use UC credentials when path is UC-managed (external location or volume)."""
+            if dbutils is None:
+                return False
+            try:
+                dbutils.fs.put(full_path, json_content, overwrite=True)
+                return True
+            except Exception as e:
+                logger.debug("dbutils.fs.put failed for %s: %s", full_path[:80], e)
+                return False
+
+        # UC Volume paths: /Volumes/... or dbfs:/Volumes/...
+        if output_path.startswith("/Volumes/") or output_path.startswith("dbfs:/Volumes/"):
+            base = output_path.rstrip("/")
+            full_path = f"{base}/{filename}"
+            self.metrics_saved_path = full_path
+            if try_dbutils_put(full_path):
+                logger.info(f"Metrics saved to {full_path} (via dbutils / UC)")
+                return full_path
+            if spark is not None and _write_string_via_hadoop_fs(spark, full_path, json_content):
+                logger.info(f"Metrics saved to {full_path} (via Spark FS)")
+                return full_path
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+                f.write(json_content)
+                tmp_path = f.name
+            logger.warning(
+                "Could not write to UC Volume %s. Metrics JSON written to %s.",
+                full_path, tmp_path,
+            )
+            return tmp_path
+
         if output_path.startswith("gs://"):
             # pathlib.Path("gs://bucket/path") turns gs:// into gs:/ (one slash). Build path as string and upload.
             base = output_path.rstrip("/")
             full_gcs_path = f"{base}/{filename}"
             self.metrics_saved_path = full_gcs_path
-            json_content = json.dumps(self.to_dict(), indent=2)
+            # Prefer dbutils so GCS locations registered in UC use UC credentials
+            if try_dbutils_put(full_gcs_path):
+                logger.info(f"Metrics saved to {full_gcs_path} (via dbutils / UC)")
+                return full_gcs_path
             gsutil_cmd = shutil.which("gsutil")
             if not gsutil_cmd:
-                # Try Spark Hadoop FileSystem (e.g. Databricks with GCS connector)
+                # Spark Hadoop FileSystem uses cluster GCS config, not UC credentials
                 if spark is not None and _write_string_to_gcs_via_spark(spark, full_gcs_path, json_content):
                     logger.info(f"Metrics saved to {full_gcs_path} (via Spark GCS)")
                     return full_gcs_path
@@ -223,7 +280,7 @@ class BenchmarkMetrics:
                     tmp_path = f.name
                 logger.warning(
                     "gsutil not found; could not upload metrics to GCS. "
-                    "Metrics JSON written to %s. On Databricks, ensure GCS connector is configured or use dbfs:/ /Volumes/ for metrics_output_path.",
+                    "Metrics JSON written to %s. On Databricks, use /Volumes/... or pass dbutils for UC credentials.",
                     tmp_path,
                 )
                 return tmp_path
@@ -256,7 +313,7 @@ class BenchmarkMetrics:
             except (subprocess.CalledProcessError, FileNotFoundError) as e:
                 logger.warning(
                     "Failed to upload metrics to GCS (%s): %s. Metrics JSON kept at %s. "
-                    "On Databricks, use dbfs:/ or /Volumes/ for metrics_output_path.",
+                    "On Databricks, use /Volumes/... or pass dbutils for UC credentials.",
                     full_gcs_path, e, tmp_path,
                 )
                 return tmp_path
@@ -274,9 +331,10 @@ class BenchmarkMetrics:
 
 class MetricsCollector:
     """Context manager for collecting benchmark metrics."""
-    
-    def __init__(self, config):
+
+    def __init__(self, config, dbutils_for_metrics=None):
         self.config = config
+        self.dbutils_for_metrics = dbutils_for_metrics  # only used when saving metrics to gs:// or /Volumes/
         self.metrics = BenchmarkMetrics(
             platform=config.platform.value,
             load_type=config.load_type.value,
@@ -345,6 +403,7 @@ class MetricsCollector:
                         self.config, "service_account_key_file", None
                     ),
                     spark=getattr(self, "spark", None),
+                    dbutils=getattr(self, "dbutils_for_metrics", None),
                 )
             except Exception as e:
                 logger.error(f"Failed to save metrics: {e}")
