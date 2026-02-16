@@ -3,7 +3,7 @@ Databricks platform adapter for TPC-DI benchmark.
 """
 
 import logging
-from typing import Optional, List, Tuple
+from typing import Optional, List
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import StructType
 
@@ -30,25 +30,6 @@ class DatabricksPlatform:
             full = "gs://" + full[4:]
         return full
 
-    def _get_dbutils(self):
-        """Return dbutils when running on Databricks; None otherwise."""
-        try:
-            from pyspark.dbutils import DBUtils
-            return DBUtils(self.spark.sparkContext())
-        except Exception:
-            return None
-
-    def _list_dir(self, full_path: str) -> List[Tuple[str, str]]:
-        """List directory; return [(name, path), ...]. Empty if not available (e.g. no dbutils)."""
-        dbutils = self._get_dbutils()
-        if dbutils is None:
-            return []
-        try:
-            return [(f.name, f.path) for f in dbutils.fs.ls(full_path)]
-        except Exception as e:
-            logger.debug("Could not list %s: %s", full_path, e)
-            return []
-
     def read_raw_file(self, file_path: str, schema: Optional[StructType] = None,
                       format: str = "csv", **options) -> DataFrame:
         full_path = self._resolve_path(file_path)
@@ -57,33 +38,6 @@ class DatabricksPlatform:
             reader = reader.schema(schema)
         for key, value in options.items():
             reader = reader.option(key, value)
-
-        # Serverless: do not pass glob to Spark. List Batch1 and load explicit paths (same as working snippet).
-        if "*" in file_path:
-            parent_path = full_path.rsplit("/", 1)[0].rstrip("/")
-            list_path = parent_path + "/"
-            listed = self._list_dir(list_path)
-            if not listed:
-                raise FileNotFoundError(
-                    f"Cannot list directory {list_path}. "
-                    "On serverless with gs://, use a Unity Catalog external location or UC Volume for raw data."
-                )
-            # Exactly: finwire_files = [f.path for f in all_files if path.startswith(.../FINWIRE) and not path.endswith(".csv")]
-            prefix = parent_path + "/FINWIRE"
-            finwire_files = [
-                path for _name, path in listed
-                if path.startswith(prefix) and not path.endswith(".csv")
-            ]
-            if not finwire_files:
-                raise FileNotFoundError(
-                    f"No FINWIRE files (excluding .csv) in {list_path}. Listed: {[n for n, _ in listed][:30]}"
-                )
-            print(f"Found {len(finwire_files)} FINWIRE files (excluding CSV):")
-            for file_path in finwire_files:
-                print(file_path)
-            # Load all non-CSV FINWIRE files
-            return self.spark.read.text(finwire_files)
-
         print(f"Reading file: {full_path}")
         return reader.load(full_path)
 
