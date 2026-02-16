@@ -144,6 +144,9 @@ class BronzeETL:
                 batch_id, f"{prefix}.bronze_customer_mgmt",
                 xml_format=xml_fmt,
             )
+            # FINWIRE (Batch1 only) — run early so timing is visible and silver has table
+            table_timing_start(f"{prefix}.bronze_finwire")
+            self.finwire.load(batch_id, f"{prefix}.bronze_finwire")
         else:
             # Incremental batches: pipe-delimited flat files
             table_timing_start(f"{prefix}.bronze_customer")
@@ -164,10 +167,5 @@ class BronzeETL:
         self.holding_history.load(batch_id, f"{prefix}.bronze_holding_history")
         table_timing_start(f"{prefix}.bronze_watch_history")
         self.watch_history.load(batch_id, f"{prefix}.bronze_watch_history")
-        
-        # FINWIRE (Batch1 only per TPC-DI spec)
-        if batch_id == 1:
-            table_timing_start(f"{prefix}.bronze_finwire")
-            self.finwire.load(batch_id, f"{prefix}.bronze_finwire")
         
         logger.info(f"Bronze layer load completed for Batch{batch_id}")

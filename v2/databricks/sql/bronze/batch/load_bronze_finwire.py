@@ -11,14 +11,15 @@ batch1_path = f"{full_raw_data_path}/Batch1"
 from pyspark.sql.functions import lit, current_timestamp, col, length
 
 batch1_files = dbutils.fs.ls(batch1_path)
-# Match FINWIRE* (any extension), exclude .csv
 finwire_files = [
     f.path for f in batch1_files
-    if f.name.upper().startswith("FINWIRE") and not f.name.lower().endswith(".csv")
+    if "FINWIRE" in f.name.upper()
+    and not f.name.lower().endswith(".csv")
+    and (f.name.lower().endswith(".txt") or "." not in f.name)
 ]
 if not finwire_files:
     raise FileNotFoundError(
-        f"No FINWIRE* files (excluding *.csv) found under {batch1_path}. "
+        f"No FINWIRE files (excluding *.csv) found under {batch1_path}. "
         f"Listed: {[f.name for f in batch1_files][:30]}"
     )
 df_finwire = spark.read.format("text").load(finwire_files)
