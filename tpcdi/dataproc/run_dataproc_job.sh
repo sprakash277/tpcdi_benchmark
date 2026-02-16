@@ -169,7 +169,7 @@ run_serverless() {
   if [ -n "${SERVERLESS_JARS:-${JARS}}" ]; then
     _batch_opts+=(--jars="${SERVERLESS_JARS:-${JARS}}")
   else
-    _batch_opts+=(--jars=dataproc/libs/spark-xml_2.12-0.18.0.jar)
+    _batch_opts+=(--jars=gs://sumit_prakash_gcs/tpcdi/libs/spark-xml_2.13-0.18.0.jar,gs://sumit_prakash_gcs/tpcdi/libs/delta-spark_2.13-3.0.0.jar,gs://sumit_prakash_gcs/tpcdi/libs/delta-storage-3.0.0.jar)
   fi
   _batch_opts+=(--subnet="${SUBNET}")
   _batch_opts+=(--version="${VERSION:-2.3}")
