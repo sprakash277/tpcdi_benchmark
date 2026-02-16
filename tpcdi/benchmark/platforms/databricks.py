@@ -58,29 +58,31 @@ class DatabricksPlatform:
         for key, value in options.items():
             reader = reader.option(key, value)
 
-        # Serverless (and some runtimes) do not expand globs on gs:// — they treat path literally → PATH_NOT_FOUND.
-        # When path contains *, list parent and load explicit paths (Databricks-only; same as working serverless snippet).
+        # Serverless: do not pass glob to Spark. List Batch1 and load explicit paths (same as working snippet).
         if "*" in file_path:
             parent_path = full_path.rsplit("/", 1)[0].rstrip("/")
             list_path = parent_path + "/"
             listed = self._list_dir(list_path)
             if not listed:
                 raise FileNotFoundError(
-                    f"Cannot list directory {list_path} for pattern {file_path.split('/')[-1]}. "
+                    f"Cannot list directory {list_path}. "
                     "On serverless with gs://, use a Unity Catalog external location or UC Volume for raw data."
                 )
-            # Path-based filter: startswith parent/FINWIRE, exclude .csv (matches working serverless code)
+            # Exactly: finwire_files = [f.path for f in all_files if path.startswith(.../FINWIRE) and not path.endswith(".csv")]
             prefix = parent_path + "/FINWIRE"
-            matched = [
+            finwire_files = [
                 path for _name, path in listed
-                if path.startswith(prefix) and not path.lower().endswith(".csv")
+                if path.startswith(prefix) and not path.endswith(".csv")
             ]
-            if not matched:
+            if not finwire_files:
                 raise FileNotFoundError(
                     f"No FINWIRE files (excluding .csv) in {list_path}. Listed: {[n for n, _ in listed][:30]}"
                 )
-            logger.info("Reading %d FINWIRE files (excluding CSV) from %s", len(matched), list_path)
-            return reader.load(matched)
+            print(f"Found {len(finwire_files)} FINWIRE files (excluding CSV):")
+            for file_path in finwire_files:
+                print(file_path)
+            # Load all non-CSV FINWIRE files
+            return self.spark.read.text(finwire_files)
 
         print(f"Reading file: {full_path}")
         return reader.load(full_path)
