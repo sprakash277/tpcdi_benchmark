@@ -157,12 +157,20 @@ run_serverless() {
     -- \
     "${SCRIPT_ARGS[@]}" \
     2>&1)
+  local submit_rc=$?
   echo "${submit_output}"
+  [ -n "${BATCH_WAIT_LOG_FILE}" ] && printf '%s\n' "=== gcloud dataproc batches submit output ===" "${submit_output}" >> "${BATCH_WAIT_LOG_FILE}"
+
+  if [ ${submit_rc} -ne 0 ]; then
+    echo "gcloud dataproc batches submit failed (exit code ${submit_rc}). Check output above." 1>&2
+    return 1
+  fi
 
   local batch_id
   batch_id=$(parse_batch_id_from_output "${submit_output}")
   if [ -z "${batch_id}" ]; then
     echo "Could not parse batch ID from submit output. Cannot run fetch step." 1>&2
+    echo "Submit output was printed above; if using batch-wait-log-file, see that file for full log." 1>&2
     return 1
   fi
   echo "Batch ID: ${batch_id}"
@@ -170,7 +178,7 @@ run_serverless() {
   echo "Waiting for batch to complete..."
   if [ -n "${BATCH_WAIT_LOG_FILE}" ]; then
     echo "Sending batches wait output to ${BATCH_WAIT_LOG_FILE}"
-    gcloud dataproc batches wait "${batch_id}" --region="${REGION}" --project="${PROJECT}" 2>&1 | tee "${BATCH_WAIT_LOG_FILE}"
+    gcloud dataproc batches wait "${batch_id}" --region="${REGION}" --project="${PROJECT}" 2>&1 | tee -a "${BATCH_WAIT_LOG_FILE}"
   else
     gcloud dataproc batches wait "${batch_id}" --region="${REGION}" --project="${PROJECT}"
   fi
