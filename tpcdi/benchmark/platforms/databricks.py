@@ -2,8 +2,9 @@
 Databricks platform adapter for TPC-DI benchmark.
 """
 
+import fnmatch
 import logging
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import StructType
 
@@ -30,6 +31,25 @@ class DatabricksPlatform:
             full = "gs://" + full[4:]
         return full
 
+    def _get_dbutils(self):
+        """Return dbutils when running on Databricks; None otherwise."""
+        try:
+            from pyspark.dbutils import DBUtils
+            return DBUtils(self.spark.sparkContext())
+        except Exception:
+            return None
+
+    def _list_dir(self, full_path: str) -> List[Tuple[str, str]]:
+        """List directory; return [(name, path), ...]. Empty if not available (e.g. no dbutils)."""
+        dbutils = self._get_dbutils()
+        if dbutils is None:
+            return []
+        try:
+            return [(f.name, f.path) for f in dbutils.fs.ls(full_path)]
+        except Exception as e:
+            logger.debug("Could not list %s: %s", full_path, e)
+            return []
+
     def read_raw_file(self, file_path: str, schema: Optional[StructType] = None,
                       format: str = "csv", **options) -> DataFrame:
         full_path = self._resolve_path(file_path)
@@ -38,6 +58,21 @@ class DatabricksPlatform:
             reader = reader.schema(schema)
         for key, value in options.items():
             reader = reader.option(key, value)
+
+        # When path contains a glob (e.g. Batch1/FINWIRE*.txt), list parent and load explicit paths
+        # so Spark does not treat the glob as a literal path (avoids PATH_NOT_FOUND on serverless).
+        if "*" in file_path:
+            parent_path, pattern = full_path.rsplit("/", 1)
+            listed = self._list_dir(parent_path)
+            if listed:
+                matched = [
+                    path for name, path in listed
+                    if fnmatch.fnmatch(name, pattern) and not name.lower().endswith(".csv")
+                ]
+                if matched:
+                    print(f"Reading files: {parent_path}/{pattern} ({len(matched)} files)")
+                    return reader.load(matched)
+            # Fallback: try load with glob (works when filesystem expands it)
         print(f"Reading file: {full_path}")
         return reader.load(full_path)
 
