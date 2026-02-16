@@ -10,6 +10,10 @@ Generate data separately (e.g. TPC-DI DIGen + upload to GCS, or a separate data-
 When submitting via gcloud, you must provide the benchmark package with --py-files:
   zip -r benchmark.zip benchmark
   gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py --py-files=benchmark.zip ...
+
+For Dataproc serverless (or cluster) with a Dataproc Metastore, pass --metastore-service to the
+gcloud command (not to this script), e.g.:
+  gcloud dataproc batches submit pyspark ... --metastore-service=projects/PROJECT/locations/REGION/services/SERVICE
 """
 
 import json

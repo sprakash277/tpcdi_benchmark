@@ -23,35 +23,40 @@ print_usage() {
   cat <<'EOF'
 Run TPC-DI benchmark on Dataproc (cluster or serverless).
 
-Required environment variables:
-  CLUSTER                  Dataproc cluster name (for cluster mode)
-  REGION                   GCP region (e.g. us-central1)
-  PROJECT                  GCP project ID
-  LOAD_TYPE                batch | incremental
-  SCALE_FACTOR             Scale factor (e.g. 10, 100, 1000)
-  GCS_BUCKET               GCS bucket name
-  RAW_DATA_PATH            Base path to raw data (e.g. gs://bucket/tpcdi)
-  METRICS_OUTPUT           Path to write metrics (e.g. gs://bucket/tpcdi/metrics)
-  SERVICE_ACCOUNT_EMAIL    Service account email for GCS/job execution
-  SERVICE_ACCOUNT_KEY_FILE Path to SA key JSON (local or gs://)
+Arguments can be passed as environment variables or as key=value on the command line
+(e.g. cluster=my-cluster region=us-central1 project=my-proj ...). Use hyphens in
+keys: load-type, scale-factor, gcs-bucket, raw-data-path, metrics-output,
+service-account-email, service-account-key-file, batch-id, metastore-service, deps-bucket, use-serverless.
+
+Required:
+  cluster                  Dataproc cluster name (for cluster mode)
+  region                   GCP region (e.g. us-central1)
+  project                  GCP project ID
+  load-type                batch | incremental
+  scale-factor             Scale factor (e.g. 10, 100, 1000)
+  gcs-bucket               GCS bucket name
+  raw-data-path            Base path to raw data (e.g. gs://bucket/tpcdi)
+  metrics-output           Path to write metrics (e.g. gs://bucket/tpcdi/metrics)
+  service-account-email   Service account email for GCS/job execution
+  service-account-key-file Path to SA key JSON (local or gs://)
 
 Conditional:
-  BATCH_ID                 Required when LOAD_TYPE=incremental
+  batch-id                 Required when load-type=incremental
 
 Optional:
-  DEPS_BUCKET              For serverless; defaults to GCS_BUCKET
-  USE_SERVERLESS           Set to 1 for serverless batch + wait + fetch usage
+  deps-bucket              For serverless; defaults to gcs-bucket
+  metastore-service        Dataproc Metastore, e.g. projects/PROJECT/locations/REGION/services/SERVICE
+  use-serverless           Set to 1 for serverless batch + wait + fetch usage
 
-Example (cluster):
-  CLUSTER=my-cluster REGION=us-central1 PROJECT=my-proj LOAD_TYPE=batch \
-  SCALE_FACTOR=10 GCS_BUCKET=my-bucket RAW_DATA_PATH=gs://my-bucket/tpcdi \
-  METRICS_OUTPUT=gs://my-bucket/metrics \
-  SERVICE_ACCOUNT_EMAIL=sa@proj.iam.gserviceaccount.com \
-  SERVICE_ACCOUNT_KEY_FILE=gs://my-bucket/key.json \
-  ./run_dataproc_job.sh
+Example (cluster, key=value):
+  ./run_dataproc_job.sh cluster=my-cluster region=us-central1 project=my-proj \
+    load-type=batch scale-factor=10 gcs-bucket=my-bucket raw-data-path=gs://my-bucket/tpcdi \
+    metrics-output=gs://my-bucket/metrics \
+    service-account-email=sa@proj.iam.gserviceaccount.com \
+    service-account-key-file=gs://my-bucket/key.json
 
-Example (serverless, then fetch usage):
-  USE_SERVERLESS=1 CLUSTER=dummy REGION=us-central1 ... ./run_dataproc_job.sh
+Example (env vars):
+  CLUSTER=my-cluster REGION=us-central1 ... ./run_dataproc_job.sh
 EOF
 }
 
@@ -136,13 +141,17 @@ run_serverless() {
   echo "Submitting serverless batch..."
   build_benchmark_script_args 0
   local submit_output
+  _batch_opts=(
+    --region="${REGION}"
+    --project="${PROJECT}"
+    --deps-bucket="${DEPS_BUCKET}"
+    --py-files=benchmark.zip
+    --jars=dataproc/libs/spark-xml_2.12-0.18.0.jar
+    --service-account="${SERVICE_ACCOUNT_EMAIL}"
+  )
+  [ -n "${METASTORE_SERVICE}" ] && _batch_opts+=(--metastore-service="${METASTORE_SERVICE}")
   submit_output=$(cd "${project_root}" && gcloud dataproc batches submit pyspark run_benchmark_dataproc.py \
-    --region="${REGION}" \
-    --project="${PROJECT}" \
-    --deps-bucket="${DEPS_BUCKET}" \
-    --py-files=benchmark.zip \
-    --jars=dataproc/libs/spark-xml_2.12-0.18.0.jar \
-    --service-account="${SERVICE_ACCOUNT_EMAIL}" \
+    "${_batch_opts[@]}" \
     -- \
     "${SCRIPT_ARGS[@]}" \
     2>&1)
@@ -174,20 +183,44 @@ run_serverless() {
 run_cluster_job() {
   local project_root="${1:?PROJECT_ROOT required}"
   build_benchmark_script_args 1
+  _job_opts=(
+    --cluster="${CLUSTER}"
+    --region="${REGION}"
+    --project="${PROJECT}"
+    --py-files=benchmark.zip
+    --jars=dataproc/libs/spark-xml_2.12-0.18.0.jar
+  )
+  [ -n "${METASTORE_SERVICE}" ] && _job_opts+=(--metastore-service="${METASTORE_SERVICE}")
   (cd "${project_root}" && gcloud dataproc jobs submit pyspark run_benchmark_dataproc.py \
-    --cluster="${CLUSTER}" \
-    --region="${REGION}" \
-    --project="${PROJECT}" \
-    --py-files=benchmark.zip \
-    --jars=dataproc/libs/spark-xml_2.12-0.18.0.jar \
+    "${_job_opts[@]}" \
     -- \
     "${SCRIPT_ARGS[@]}")
+}
+
+# -----------------------------------------------------------------------------
+# Helper: parse key=value arguments and export as ENV_VAR (key with - -> _ and upper)
+# -----------------------------------------------------------------------------
+parse_key_value_args() {
+  local arg key key_upper val
+  for arg in "$@"; do
+    case "${arg}" in
+      *"="*)
+        key="${arg%%=*}"
+        val="${arg#*=}"
+        key_upper=$(echo "${key}" | sed 's/-/_/g' | tr 'a-z' 'A-Z')
+        [ -n "${key_upper}" ] && [ -n "${val}" ] && export "${key_upper}=${val}"
+        ;;
+    esac
+  done
 }
 
 # -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
 [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ] && { print_usage; exit 0; }
+
+# Allow key=value on the command line (e.g. cluster=my-cluster region=us-central1)
+parse_key_value_args "$@"
 
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
@@ -203,6 +236,7 @@ METRICS_OUTPUT="${METRICS_OUTPUT:-}"
 SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_EMAIL:-}"
 SERVICE_ACCOUNT_KEY_FILE="${SERVICE_ACCOUNT_KEY_FILE:-}"
 DEPS_BUCKET="${DEPS_BUCKET:-$GCS_BUCKET}"
+METASTORE_SERVICE="${METASTORE_SERVICE:-}"
 
 validate_required_args || exit 1
 
