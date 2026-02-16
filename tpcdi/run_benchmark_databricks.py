@@ -36,8 +36,10 @@ if __name__ == "__main__":
                        help="Batch ID for incremental loads (required for incremental)")
     parser.add_argument("--metrics-output", default="dbfs:/mnt/tpcdi/metrics",
                        help="Path to save metrics JSON (default: dbfs:/mnt/tpcdi/metrics)")
-    parser.add_argument("--log-detailed-stats", action="store_true",
-                       help="Log per-table timing and records; default is only job start/end/total duration")
+    parser.add_argument("--log-detailed-stats", action="store_true", default=True,
+                       help="Log per-table timing and records (default: True)")
+    parser.add_argument("--no-log-detailed-stats", dest="log_detailed_stats", action="store_false",
+                       help="Disable per-table timing; only job start/end/total duration")
     parser.add_argument("--cluster-instance-type",
                        help="Worker node type for metrics (e.g. i3.xlarge). If omitted, auto-detected from cluster tags when available.")
     parser.add_argument("--cluster-worker-count", type=int,

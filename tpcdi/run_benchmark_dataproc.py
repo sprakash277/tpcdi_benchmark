@@ -167,8 +167,10 @@ if __name__ == "__main__":
                        help="Do not save benchmark metrics to GCS")
     parser.add_argument("--metrics-output",
                        help="Path to save metrics JSON when --save-metrics (default: gs://<bucket>/tpcdi/metrics)")
-    parser.add_argument("--log-detailed-stats", nargs="?", default=False, const=True, metavar="true|false",
-                       help="Log per-table timing, bytes, and throughput (default: false). Use --log-detailed-stats or --log-detailed-stats true to enable.")
+    parser.add_argument("--log-detailed-stats", nargs="?", default=True, const=True, metavar="true|false",
+                       help="Log per-table timing, bytes, and throughput (default: true). Use --no-log-detailed-stats or --log-detailed-stats false to disable.")
+    parser.add_argument("--no-log-detailed-stats", dest="log_detailed_stats", action="store_false",
+                       help="Disable per-table timing; only job start/end/total duration")
     parser.add_argument("--format", choices=["delta", "parquet"], default="parquet",
                        help="Table format for warehouse tables (default: parquet). Use delta only if Delta package is on cluster (e.g. --packages io.delta:delta-spark_2.12:3.0.0).")
     parser.add_argument("--cluster-instance-type",
@@ -182,9 +184,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # Normalize --log-detailed-stats (accepts no value, true, or false)
+    # Normalize --log-detailed-stats (accepts no value, true, or false; default True)
     if args.log_detailed_stats is True:
-        pass  # flag given with no value -> True
+        pass  # flag given with no value or default -> True
+    elif args.log_detailed_stats is False:
+        pass  # --no-log-detailed-stats or explicit False
     elif isinstance(args.log_detailed_stats, str):
         args.log_detailed_stats = args.log_detailed_stats.strip().lower() in ("true", "yes", "1")
 

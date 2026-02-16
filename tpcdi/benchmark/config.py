@@ -41,7 +41,7 @@ class BenchmarkConfig:
     table_format: Optional[str] = None  # For Dataproc: table format (delta or parquet); default parquet
     enable_metrics: bool = True
     metrics_output_path: Optional[str] = None
-    log_detailed_stats: bool = False  # If True, log per-table timing and records; else only job start/end/total duration
+    log_detailed_stats: bool = True  # If True, log per-table timing and records; else only job start/end/total duration
     customer_mgmt_xml_format: Optional[str] = None  # "org.apache.spark.sql.execution.datasources.xml" (Databricks native), "xml"/"com.databricks.spark.xml" (spark-xml JAR); None = "xml"
     # Optional cluster metadata for metrics (logged in metrics JSON and aggregate CSV)
     cluster_instance_type: Optional[str] = None  # Worker node type (e.g. n2d-standard-16, i3.xlarge)

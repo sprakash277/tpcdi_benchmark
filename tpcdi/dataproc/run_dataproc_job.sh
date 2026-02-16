@@ -53,7 +53,7 @@ Optional:
   properties               Serverless: Spark/Dataproc properties (e.g. dataproc.tier=premium)
   target-database          Target database name (default tpcdi_warehouse)
   target-schema            Target schema name (default dw)
-  log-detailed-stats       Set to 1/true to enable per-table timing logs
+  log-detailed-stats       Set to 1/true to enable (default), 0/false/no to disable per-table timing logs
   spark-master             Spark master URL (default yarn; use empty for serverless)
   batch-wait-log-file      Path to file to save gcloud dataproc batches wait output (serverless only)
   use-serverless           Set to 1 for serverless batch + wait + fetch usage
@@ -122,7 +122,12 @@ build_benchmark_script_args() {
     --metrics-output="${METRICS_OUTPUT}"
   )
   [ -n "${BATCH_ID_ARG}" ] && SCRIPT_ARGS+=(--batch-id "${BATCH_ID_ARG}")
-  [ "${LOG_DETAILED_STATS}" = "1" ] || [ "${LOG_DETAILED_STATS}" = "true" ] || [ "${LOG_DETAILED_STATS}" = "yes" ] && SCRIPT_ARGS+=(--log-detailed-stats)
+  # log-detailed-stats: default on (True); pass --no-log-detailed-stats only when explicitly disabled
+  if [ "${LOG_DETAILED_STATS}" = "0" ] || [ "${LOG_DETAILED_STATS}" = "false" ] || [ "${LOG_DETAILED_STATS}" = "no" ]; then
+    SCRIPT_ARGS+=(--no-log-detailed-stats)
+  elif [ "${LOG_DETAILED_STATS}" = "1" ] || [ "${LOG_DETAILED_STATS}" = "true" ] || [ "${LOG_DETAILED_STATS}" = "yes" ]; then
+    SCRIPT_ARGS+=(--log-detailed-stats)
+  fi
   # Cluster mode (include_sa=1): always pass --spark-master so metrics get platform_type=dataproc (default yarn).
   # Serverless (include_sa=0): only pass if set (e.g. empty for serverless); else Python default is yarn.
   if [ "${include_sa}" = "1" ]; then
