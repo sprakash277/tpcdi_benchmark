@@ -59,20 +59,28 @@ class DatabricksPlatform:
         for key, value in options.items():
             reader = reader.option(key, value)
 
-        # When path contains a glob (e.g. Batch1/FINWIRE*.txt), list parent and load explicit paths
+        # When path contains a glob (e.g. Batch1/FINWIRE*), list parent and load explicit paths
         # so Spark does not treat the glob as a literal path (avoids PATH_NOT_FOUND on serverless).
         if "*" in file_path:
             parent_path, pattern = full_path.rsplit("/", 1)
             listed = self._list_dir(parent_path)
-            if listed:
-                matched = [
-                    path for name, path in listed
-                    if fnmatch.fnmatch(name, pattern) and not name.lower().endswith(".csv")
-                ]
-                if matched:
-                    print(f"Reading files: {parent_path}/{pattern} ({len(matched)} files)")
-                    return reader.load(matched)
-            # Fallback: try load with glob (works when filesystem expands it)
+            if not listed:
+                raise FileNotFoundError(
+                    f"Cannot list directory {parent_path} for glob {pattern}. "
+                    "On Databricks serverless with gs://, use a Unity Catalog external location for the bucket "
+                    "or put raw data in a UC Volume and set raw_data_path to the volume path."
+                )
+            matched = [
+                path for name, path in listed
+                if fnmatch.fnmatch(name, pattern) and not name.lower().endswith(".csv")
+            ]
+            if not matched:
+                raise FileNotFoundError(
+                    f"No files matching {pattern} (excluding .csv) in {parent_path}. "
+                    f"Listed: {[n for n, _ in listed][:30]}"
+                )
+            print(f"Reading files: {parent_path}/{pattern} ({len(matched)} files)")
+            return reader.load(matched)
         print(f"Reading file: {full_path}")
         return reader.load(full_path)
 
