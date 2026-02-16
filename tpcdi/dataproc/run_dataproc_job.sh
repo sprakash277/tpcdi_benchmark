@@ -46,6 +46,7 @@ Conditional:
 Optional:
   deps-bucket              For serverless; defaults to gcs-bucket
   metastore-service        Dataproc Metastore, e.g. projects/PROJECT/locations/REGION/services/SERVICE
+  batch-wait-log-file      Path to file to save gcloud dataproc batches wait output (serverless only)
   use-serverless           Set to 1 for serverless batch + wait + fetch usage
 
 Example (cluster, key=value):
@@ -167,7 +168,12 @@ run_serverless() {
   echo "Batch ID: ${batch_id}"
 
   echo "Waiting for batch to complete..."
-  gcloud dataproc batches wait "${batch_id}" --region="${REGION}" --project="${PROJECT}"
+  if [ -n "${BATCH_WAIT_LOG_FILE}" ]; then
+    echo "Sending batches wait output to ${BATCH_WAIT_LOG_FILE}"
+    gcloud dataproc batches wait "${batch_id}" --region="${REGION}" --project="${PROJECT}" 2>&1 | tee "${BATCH_WAIT_LOG_FILE}"
+  else
+    gcloud dataproc batches wait "${batch_id}" --region="${REGION}" --project="${PROJECT}"
+  fi
 
   echo "Fetching batch usage and merging into metrics..."
   python "${SCRIPT_DIR}/fetch_dataproc_batch_usage.py" \
@@ -238,6 +244,7 @@ SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_EMAIL:-}"
 SERVICE_ACCOUNT_KEY_FILE="${SERVICE_ACCOUNT_KEY_FILE:-}"
 DEPS_BUCKET="${DEPS_BUCKET:-$GCS_BUCKET}"
 METASTORE_SERVICE="${METASTORE_SERVICE:-}"
+BATCH_WAIT_LOG_FILE="${BATCH_WAIT_LOG_FILE:-}"
 
 validate_required_args || exit 1
 
