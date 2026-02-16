@@ -152,14 +152,19 @@ run_serverless() {
     --service-account="${SERVICE_ACCOUNT_EMAIL}"
   )
   [ -n "${METASTORE_SERVICE}" ] && _batch_opts+=(--metastore-service="${METASTORE_SERVICE}")
-  submit_output=$(cd "${project_root}" && gcloud dataproc batches submit pyspark run_benchmark_dataproc.py \
+  local tmpfile
+  tmpfile=$(mktemp) || { echo "mktemp failed" 1>&2; return 1; }
+  trap "rm -f '${tmpfile}'" EXIT
+  (cd "${project_root}" && gcloud dataproc batches submit pyspark run_benchmark_dataproc.py \
     "${_batch_opts[@]}" \
     -- \
     "${SCRIPT_ARGS[@]}" \
-    2>&1)
-  local submit_rc=$?
-  echo "${submit_output}"
-  [ -n "${BATCH_WAIT_LOG_FILE}" ] && printf '%s\n' "=== gcloud dataproc batches submit output ===" "${submit_output}" >> "${BATCH_WAIT_LOG_FILE}"
+    2>&1) | tee "${tmpfile}"
+  local submit_rc=${PIPESTATUS[0]}
+  submit_output=$(cat "${tmpfile}")
+  [ -n "${BATCH_WAIT_LOG_FILE}" ] && { echo "=== gcloud dataproc batches submit output ==="; cat "${tmpfile}"; } >> "${BATCH_WAIT_LOG_FILE}"
+  rm -f "${tmpfile}"
+  trap - EXIT
 
   if [ ${submit_rc} -ne 0 ]; then
     echo "gcloud dataproc batches submit failed (exit code ${submit_rc}). Check output above." 1>&2
