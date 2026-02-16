@@ -120,6 +120,9 @@ class BenchmarkMetrics:
     platform_type: Optional[str] = None
     # Databricks only: "serverless" or "classic" (provisioned) compute
     databricks_compute_type: Optional[str] = None
+    # Databricks only: job ID and run ID when running as a job (from clusterUsageTags or notebook context)
+    databricks_job_id: Optional[str] = None
+    databricks_run_id: Optional[str] = None
     # Path where metrics JSON was saved (set in save() before writing)
     metrics_saved_path: Optional[str] = None
     # DQ time per silver table: [{"table": str, "duration_seconds": float}, ...]
@@ -204,6 +207,10 @@ class BenchmarkMetrics:
             d["metrics_saved_path"] = self.metrics_saved_path
         if self.databricks_compute_type is not None:
             d["databricks_compute_type"] = self.databricks_compute_type
+        if self.databricks_job_id is not None:
+            d["databricks_job_id"] = self.databricks_job_id
+        if self.databricks_run_id is not None:
+            d["databricks_run_id"] = self.databricks_run_id
         if self.dq_table_timings is not None:
             d["dq_table_timings"] = self.dq_table_timings
         if self.cost_breakdown is not None:

@@ -231,6 +231,57 @@ def is_databricks_serverless(spark: SparkSession) -> bool:
         return True  # Config not available -> likely serverless
 
 
+def _get_databricks_job_run_ids(spark: SparkSession) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Get (job_id, run_id) from Databricks runtime when running as a job.
+    Tries spark.conf (clusterUsageTags.JobId, JobRunId) and clusterAllTags; then dbutils notebook context.
+    Returns (None, None) when not on a job or not available (e.g. interactive run).
+    """
+    import json
+    job_id, run_id = None, None
+    for key in ("spark.databricks.clusterUsageTags.jobId", "spark.databricks.clusterUsageTags.JobId"):
+        try:
+            v = spark.conf.get(key)
+            if v:
+                job_id = v
+                break
+        except Exception:
+            pass
+    for key in ("spark.databricks.clusterUsageTags.jobRunId", "spark.databricks.clusterUsageTags.JobRunId"):
+        try:
+            v = spark.conf.get(key)
+            if v:
+                run_id = v
+                break
+        except Exception:
+            pass
+    if job_id is None or run_id is None:
+        try:
+            import json
+            tags_json = spark.conf.get("spark.databricks.clusterUsageTags.clusterAllTags")
+            tags = json.loads(tags_json) if tags_json else []
+            tag_map = {t.get("key"): t.get("value") for t in tags if isinstance(t, dict)}
+            if job_id is None:
+                job_id = tag_map.get("JobId") or tag_map.get("jobId")
+            if run_id is None:
+                run_id = tag_map.get("JobRunId") or tag_map.get("jobRunId") or tag_map.get("RunId") or tag_map.get("runId")
+        except Exception:
+            pass
+    if (job_id is None or run_id is None):
+        try:
+            from pyspark.dbutils import DBUtils
+            dbutils = DBUtils(spark)
+            ctx_str = dbutils.notebook.entry_point.getDbutils().notebook().getContext().toJson()
+            ctx = json.loads(ctx_str) if isinstance(ctx_str, str) else {}
+            if run_id is None:
+                run_id = (ctx.get("currentRunId") or {}).get("id") if isinstance(ctx.get("currentRunId"), dict) else None
+            if job_id is None:
+                job_id = (ctx.get("tags") or {}).get("jobId") if isinstance(ctx.get("tags"), dict) else None
+        except Exception:
+            pass
+    return (job_id, run_id)
+
+
 def _get_databricks_node_types(spark: SparkSession) -> Tuple[Optional[str], Optional[str]]:
     """
     Get (worker_node_type, driver_node_type) from Databricks Spark conf when available.
@@ -317,6 +368,11 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             compute_type = "serverless" if serverless else "classic"
             metrics.metrics.databricks_compute_type = compute_type
             logger.info(f"Databricks compute: {compute_type}" + ("" if serverless else " (provisioned)"))
+            job_id, run_id = _get_databricks_job_run_ids(spark)
+            if job_id is not None or run_id is not None:
+                metrics.metrics.databricks_job_id = job_id
+                metrics.metrics.databricks_run_id = run_id
+                logger.info(f"Databricks job_id={job_id} run_id={run_id}")
         
         # Create platform adapter
         metrics.start_step("platform_adapter_creation")
