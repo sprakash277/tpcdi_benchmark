@@ -48,7 +48,7 @@ Conditional:
 Optional:
   deps-bucket              For serverless; defaults to gcs-bucket (add gs:// if missing)
   metastore-service        Dataproc Metastore, e.g. projects/PROJECT/locations/REGION/services/SERVICE
-  version                  Serverless: runtime version (e.g. 2.3)
+  version                  Serverless: runtime version (default 2.3; optional override)
   jars                     Serverless: comma-separated JARs (e.g. gs://bucket/tpcdi/libs/spark-xml_2.13-0.18.0.jar,gs://...)
   properties               Serverless: Spark/Dataproc properties (e.g. dataproc.tier=premium)
   target-database          Target database name (default tpcdi_warehouse)
@@ -172,7 +172,7 @@ run_serverless() {
     _batch_opts+=(--jars=dataproc/libs/spark-xml_2.12-0.18.0.jar)
   fi
   _batch_opts+=(--subnet="${SUBNET}")
-  [ -n "${VERSION}" ] && _batch_opts+=(--version="${VERSION}")
+  _batch_opts+=(--version="${VERSION:-2.3}")
   [ -n "${METASTORE_SERVICE}" ] && _batch_opts+=(--metastore-service="${METASTORE_SERVICE}")
   [ -n "${PROPERTIES}" ] && _batch_opts+=(--properties="${PROPERTIES}")
   [ -n "${SERVICE_ACCOUNT_EMAIL}" ] && _batch_opts+=(--service-account="${SERVICE_ACCOUNT_EMAIL}")
