@@ -24,6 +24,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -67,23 +68,55 @@ def describe_batch(project: str, region: str, batch_id: str) -> dict | None:
         return None
 
 
+def _parse_rfc3339(s: str | None) -> datetime | None:
+    """Parse RFC3339 timestamp; return naive UTC datetime or None."""
+    if not s:
+        return None
+    try:
+        # Handle optional fractional seconds and Z
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
+    except (ValueError, TypeError):
+        return None
+
+
 def build_usage_payload(full_batch: dict) -> dict:
-    """Extract cost/usage and config for metrics merge."""
+    """Extract cost/usage and config for metrics merge (aligned with batch UI fields)."""
+    create_time = full_batch.get("createTime")
+    state_time = full_batch.get("stateTime")
     payload = {
         "batch_name": full_batch.get("name"),
         "batch_uuid": full_batch.get("uuid"),
         "state": full_batch.get("state"),
-        "create_time": full_batch.get("createTime"),
-        "state_time": full_batch.get("stateTime"),
+        "create_time": create_time,
+        "state_time": state_time,
         "labels": full_batch.get("labels"),
+        "creator": full_batch.get("creator"),
     }
-    if "runtimeInfo" in full_batch and "approximateUsage" in full_batch["runtimeInfo"]:
-        payload["approximate_usage"] = full_batch["runtimeInfo"]["approximateUsage"]
-    if "runtimeConfig" in full_batch:
-        payload["runtime_config"] = {
-            "version": full_batch["runtimeConfig"].get("version"),
-            "properties": full_batch["runtimeConfig"].get("properties"),
-        }
+    # Elapsed time (create -> state) in seconds
+    t0, t1 = _parse_rfc3339(create_time), _parse_rfc3339(state_time)
+    if t0 is not None and t1 is not None:
+        payload["elapsed_seconds"] = max(0, (t1 - t0).total_seconds())
+
+    usage = (full_batch.get("runtimeInfo") or {}).get("approximateUsage") or {}
+    if usage:
+        payload["approximate_usage"] = usage
+        milli_dcu = usage.get("milliDcuSeconds") or 0
+        shuffle_gb_sec = usage.get("shuffleStorageGbSeconds") or 0
+        payload["approximate_dcu_hours"] = round(milli_dcu / 1_000_000 * (1 / 3600), 6)
+        # GB-months: 1 GB-month ≈ 30 * 24 * 3600 GB-seconds
+        payload["approximate_shuffle_storage_gb_months"] = round(
+            shuffle_gb_sec / (30 * 24 * 3600), 6
+        )
+
+    rc = full_batch.get("runtimeConfig") or {}
+    payload["runtime_config"] = {
+        "version": rc.get("version"),
+        "properties": rc.get("properties"),
+    }
+    if rc.get("acceleratorType") is not None:
+        payload["runtime_config"]["accelerator_type"] = rc.get("acceleratorType")
+
     return payload
 
 
