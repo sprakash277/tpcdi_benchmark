@@ -123,7 +123,13 @@ build_benchmark_script_args() {
   )
   [ -n "${BATCH_ID_ARG}" ] && SCRIPT_ARGS+=(--batch-id "${BATCH_ID_ARG}")
   [ "${LOG_DETAILED_STATS}" = "1" ] || [ "${LOG_DETAILED_STATS}" = "true" ] || [ "${LOG_DETAILED_STATS}" = "yes" ] && SCRIPT_ARGS+=(--log-detailed-stats)
-  [ -n "${SPARK_MASTER+x}" ] && SCRIPT_ARGS+=(--spark-master="${SPARK_MASTER:-}")
+  # Cluster mode (include_sa=1): always pass --spark-master so metrics get platform_type=dataproc (default yarn).
+  # Serverless (include_sa=0): only pass if set (e.g. empty for serverless); else Python default is yarn.
+  if [ "${include_sa}" = "1" ]; then
+    SCRIPT_ARGS+=(--spark-master="${SPARK_MASTER:-yarn}")
+  else
+    [ -n "${SPARK_MASTER+x}" ] && SCRIPT_ARGS+=(--spark-master="${SPARK_MASTER:-}")
+  fi
   if [ "${include_sa}" = "1" ]; then
     SCRIPT_ARGS+=(--service-account-email="${SERVICE_ACCOUNT_EMAIL}")
     SCRIPT_ARGS+=(--service-account-key-file="${SERVICE_ACCOUNT_KEY_FILE}")
@@ -259,7 +265,7 @@ parse_key_value_args() {
         key="${arg%%=*}"
         val="${arg#*=}"
         key_upper=$(echo "${key}" | sed 's/-/_/g' | tr 'a-z' 'A-Z')
-        [ -n "${key_upper}" ] && export "${key_upper}=${val}"
+        [ -n "${key_upper}" ] && [ -n "${val}" ] && export "${key_upper}=${val}"
         ;;
     esac
   done
