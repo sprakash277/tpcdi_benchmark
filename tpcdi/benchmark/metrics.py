@@ -26,8 +26,7 @@ def _write_string_via_hadoop_fs(spark: "SparkSession", path: str, content: str) 
     Uses whatever credentials are in hadoopConfiguration():
     - For gs://: typically cluster GCS connector (not Unity Catalog credentials).
     - For /Volumes/ or dbfs:/Volumes/: on Databricks this uses UC credentials for the volume.
-    To use UC credentials for a GCS location registered in UC, use a UC Volume path or
-    pass dbutils to save() and use a gs:// path (dbutils.fs.put uses UC when path is UC-managed).
+    On Databricks, save() tries dbutils first for gs:// or /Volumes/ so UC credentials are used when path is UC-managed.
     """
     try:
         sc = spark.sparkContext
@@ -51,10 +50,20 @@ def _write_string_to_gcs_via_spark(spark: "SparkSession", gcs_path: str, content
     """Write a string to a GCS path using Spark's Hadoop FileSystem.
 
     Uses cluster hadoopConfiguration() (GCS connector), not Unity Catalog credentials.
-    For GCS locations registered in UC, use a UC Volume path (e.g. /Volumes/cat/schema/vol/metrics)
-    or pass dbutils to save() so dbutils.fs.put can use UC credentials.
+    For GCS locations registered in UC, use a UC Volume path or dbutils (auto-resolved on Databricks).
     """
     return _write_string_via_hadoop_fs(spark, gcs_path, content)
+
+
+def _get_dbutils_if_databricks(spark: Optional["SparkSession"], platform: str):
+    """Return dbutils when on Databricks and spark is available; else None. Used only for metrics path."""
+    if spark is None or platform != "databricks":
+        return None
+    try:
+        from pyspark.dbutils import DBUtils
+        return DBUtils(spark)
+    except Exception:
+        return None
 
 
 @dataclass
@@ -217,9 +226,7 @@ class BenchmarkMetrics:
         """Save metrics to file (JSON).
 
         - Local paths: pathlib/open.
-        - gs:// paths: gsutil if available; else Spark Hadoop FileSystem (cluster credentials, not UC),
-          or dbutils.fs.put when dbutils is provided (uses UC credentials when path is UC external location).
-        - /Volumes/ or dbfs:/Volumes/: Spark Hadoop FileSystem (on Databricks uses UC) or dbutils.fs.put when provided.
+        - gs:// or /Volumes/ (or dbfs:/Volumes/): try dbutils first on Databricks (UC credentials), then gsutil or Spark FS.
         - service_account_key_file (local path): gsutil uses that SA (GOOGLE_APPLICATION_CREDENTIALS).
         """
         timestamp = datetime.fromtimestamp(self.start_time).strftime("%Y%m%d_%H%M%S")
@@ -228,6 +235,10 @@ class BenchmarkMetrics:
             filename = f"metrics_{self.platform}_{self.load_type}_sf{self.scale_factor}_batch{self.batch_id}_{timestamp}.json"
 
         json_content = json.dumps(self.to_dict(), indent=2)
+
+        # On Databricks, try dbutils for gs:// or /Volumes/ so UC credentials are used when path is UC-managed
+        if dbutils is None and (output_path.startswith("gs://") or output_path.startswith("/Volumes/") or output_path.startswith("dbfs:/Volumes/")):
+            dbutils = _get_dbutils_if_databricks(spark, self.platform)
 
         def try_dbutils_put(full_path: str) -> bool:
             """Use UC credentials when path is UC-managed (external location or volume)."""
@@ -332,9 +343,8 @@ class BenchmarkMetrics:
 class MetricsCollector:
     """Context manager for collecting benchmark metrics."""
 
-    def __init__(self, config, dbutils_for_metrics=None):
+    def __init__(self, config):
         self.config = config
-        self.dbutils_for_metrics = dbutils_for_metrics  # only used when saving metrics to gs:// or /Volumes/
         self.metrics = BenchmarkMetrics(
             platform=config.platform.value,
             load_type=config.load_type.value,
@@ -403,7 +413,6 @@ class MetricsCollector:
                         self.config, "service_account_key_file", None
                     ),
                     spark=getattr(self, "spark", None),
-                    dbutils=getattr(self, "dbutils_for_metrics", None),
                 )
             except Exception as e:
                 logger.error(f"Failed to save metrics: {e}")

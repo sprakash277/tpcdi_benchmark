@@ -292,14 +292,12 @@ def get_cluster_info(config: BenchmarkConfig, spark: SparkSession) -> Tuple[Opti
     return (instance_type, worker_count, master_type)
 
 
-def run_benchmark(config: BenchmarkConfig, dbutils_for_metrics=None) -> dict:
+def run_benchmark(config: BenchmarkConfig) -> dict:
     """
     Run TPC-DI benchmark with the given configuration.
 
     Args:
         config: Benchmark configuration
-        dbutils_for_metrics: Optional dbutils (Databricks only). When set, used only when
-            saving metrics to gs:// or /Volumes/ so UC credentials are used for that path.
 
     Returns:
         Dictionary with benchmark results and metrics
@@ -308,7 +306,7 @@ def run_benchmark(config: BenchmarkConfig, dbutils_for_metrics=None) -> dict:
                f"{config.load_type.value}, SF={config.scale_factor}")
 
     # Create SparkSession
-    with MetricsCollector(config, dbutils_for_metrics=dbutils_for_metrics) as metrics:
+    with MetricsCollector(config) as metrics:
         metrics.start_step("spark_session_creation")
         spark = create_spark_session(config)
         metrics.finish_step()
