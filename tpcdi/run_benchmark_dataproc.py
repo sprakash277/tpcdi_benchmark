@@ -310,8 +310,8 @@ if __name__ == "__main__":
             result["metrics"]["metrics_saved_path"] = save_path
 
     # Optional: fetch Dataproc batch usage and merge into metrics (for cost calculation).
-    # Batch ID can come from --dataproc-batch-id or env DATAPROC_BATCH_ID / BATCH_ID (if set by launcher).
-    # Note: runtimeInfo.approximateUsage may not be final until after the batch process exits; if empty, run the post script fetch_dataproc_batch_usage.py after the batch succeeds for full usage.
+    # When running inside a serverless batch, the batch ID is not available in-process; the post script
+    # (fetch_dataproc_batch_usage.py) must be run after the batch succeeds to add approximate DCU and shuffle storage.
     batch_id_for_usage = getattr(args, "dataproc_batch_id", None) or os.environ.get("DATAPROC_BATCH_ID") or os.environ.get("BATCH_ID")
     metrics_saved_path = result.get("metrics", {}).get("metrics_saved_path") if result else None
     if batch_id_for_usage and metrics_saved_path and config.region and config.project_id:
@@ -319,6 +319,13 @@ if __name__ == "__main__":
             print("\nMerged Dataproc batch usage into metrics file.")
         else:
             print("\n(Batch usage fetch/merge skipped or failed; run fetch_dataproc_batch_usage.py after the batch succeeds for full usage.)")
+
+    # For serverless: approximate DCU and shuffle storage appear only after the post script runs (API fills them after batch exits).
+    if result.get("metrics", {}).get("platform_type") == "dataproc_serverless":
+        metrics_dir = (config.metrics_output_path or "").rstrip("/")
+        print("\nTo add Approximate DCU usage and shuffle storage to the metrics file, run after this batch succeeds:")
+        print(f"  python tpcdi/dataproc/fetch_dataproc_batch_usage.py --batch-id <BATCH_ID> --region {config.region or '<REGION>'} --project {config.project_id or '<PROJECT>'} --metrics-output {metrics_dir or '<METRICS_DIR>'}")
+        print("  (When using run_dataproc_job.sh with use-serverless=1, this is done automatically.)")
 
     # Table-level stats in Result summary only when --log-detailed-stats is true (same as Databricks)
     if args.log_detailed_stats:

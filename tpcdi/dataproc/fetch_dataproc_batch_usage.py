@@ -24,6 +24,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -235,6 +236,15 @@ def main() -> int:
     full = describe_batch(args.project, args.region, args.batch_id)
     if full is None:
         return 1
+
+    # approximateUsage is often empty right after the batch exits; retry once after a short delay
+    usage = (full.get("runtimeInfo") or {}).get("approximateUsage") or {}
+    if not usage and (full.get("state") or "").upper() == "SUCCEEDED":
+        print("approximateUsage empty; retrying in 15s (API may lag)...", file=sys.stderr)
+        time.sleep(15)
+        full_retry = describe_batch(args.project, args.region, args.batch_id)
+        if full_retry is not None and (full_retry.get("runtimeInfo") or {}).get("approximateUsage"):
+            full = full_retry
 
     payload = build_usage_payload(full)
     short_id = (args.batch_id.split("/")[-1] if "/" in args.batch_id else args.batch_id)[:16]
