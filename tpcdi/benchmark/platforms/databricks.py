@@ -340,9 +340,16 @@ class DatabricksPlatform:
             logger.warning(f"Could not get table size for {table_name}: {e}", exc_info=True)
             return 0.0
     
+    def _is_spark_connect(self) -> bool:
+        """True if session uses Spark Connect (e.g. serverless). On classic, accessing spark.client can raise."""
+        try:
+            return getattr(self.spark, "client", None) is not None
+        except Exception:
+            return False
+
     def _sum_path_size_bytes(self, path: str) -> int:
         """Recursively sum file sizes under path. On Spark Connect uses dbutils.fs; else Hadoop FS (JVM)."""
-        if getattr(self.spark, "client", None) is not None:
+        if self._is_spark_connect():
             return self._sum_path_size_bytes_dbutils(path)
         try:
             jvm = self.spark.sparkContext._jvm
@@ -363,7 +370,7 @@ class DatabricksPlatform:
         On Spark Connect (serverless) uses dbutils.fs; otherwise uses Hadoop FS (JVM)."""
         batch_path = f"{self.raw_data_path}/Batch{batch_id}"
         # Spark Connect (e.g. Databricks serverless): use dbutils.fs (no JVM)
-        if getattr(self.spark, "client", None) is not None:
+        if self._is_spark_connect():
             total = self._sum_path_size_bytes_dbutils(batch_path)
             if total > 0:
                 logger.debug("Raw input size Batch%d (dbutils): %d bytes", batch_id, total)
