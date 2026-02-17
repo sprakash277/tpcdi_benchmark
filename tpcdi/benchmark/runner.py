@@ -3,6 +3,7 @@ Main benchmark runner for TPC-DI benchmark.
 Orchestrates ETL execution on Databricks or Dataproc platforms.
 """
 
+import io
 import logging
 import re
 import urllib.request
@@ -343,6 +344,78 @@ def get_cluster_info(config: BenchmarkConfig, spark: SparkSession) -> Tuple[Opti
     return (instance_type, worker_count, master_type)
 
 
+def _format_benchmark_results_summary(config: BenchmarkConfig, result: dict) -> str:
+    """Build human-readable 'TPC-DI BENCHMARK RESULTS - DATABRICKS/DATAPROC' text for inclusion in saved metrics JSON."""
+    out = io.StringIO()
+    platform_label = "DATABRICKS" if config.platform == Platform.DATABRICKS else "DATAPROC"
+    out.write("\n" + "=" * 80 + "\n")
+    out.write(f"TPC-DI BENCHMARK RESULTS - {platform_label}\n")
+    out.write("=" * 80 + "\n")
+    out.write(f"Platform: {result['config']['platform']}\n")
+    metrics_dict = result.get("metrics") or {}
+    if metrics_dict.get("databricks_compute_type"):
+        out.write(f"Compute: {metrics_dict['databricks_compute_type']}\n")
+    out.write(f"Load Type: {result['config']['load_type']}\n")
+    out.write(f"Scale Factor: {result['config']['scale_factor']}\n")
+    if result["config"].get("batch_id"):
+        out.write(f"Batch ID: {result['config']['batch_id']}\n")
+    if metrics_dict.get("cluster_instance_type") or metrics_dict.get("cluster_worker_count") is not None or metrics_dict.get("cluster_master_type"):
+        out.write("\nCluster Configuration:\n")
+        if metrics_dict.get("cluster_instance_type"):
+            out.write(f"  Worker Node Type: {metrics_dict['cluster_instance_type']}\n")
+        if metrics_dict.get("cluster_master_type"):
+            out.write(f"  Driver Node Type: {metrics_dict['cluster_master_type']}\n")
+        if metrics_dict.get("cluster_worker_count") is not None:
+            out.write(f"  Number of Worker Nodes: {metrics_dict['cluster_worker_count']}\n")
+    if metrics_dict.get("table_override") is not None:
+        out.write(f"\nTable Override: {metrics_dict['table_override']}\n")
+    total_dur = metrics_dict.get("total_duration_seconds")
+    out.write(f"\nTotal Duration: {total_dur:.2f} seconds\n" if total_dur is not None else "\nTotal Duration: N/A\n")
+    summary = metrics_dict.get("summary") or {}
+    if summary:
+        out.write("\nSummary:\n")
+        out.write(f"  Total Steps: {summary.get('total_steps', 0)}\n")
+        out.write(f"  Completed Steps: {summary.get('completed_steps', 0)}\n")
+        out.write(f"  Failed Steps: {summary.get('failed_steps', 0)}\n")
+        out.write(f"  Total Rows Processed: {summary.get('total_rows_processed', 0):,}\n")
+        total_bytes = summary.get("total_bytes_processed") or 0
+        out.write(f"  Total Data Size: {total_bytes / (1024 * 1024):.2f} MB\n")
+        out.write(f"  Throughput: {summary.get('throughput_rows_per_second', 0):.2f} rows/sec\n")
+        out.write(f"  Data Throughput: {summary.get('throughput_mb_per_second', 0):.2f} MB/sec\n")
+    dq_timings = metrics_dict.get("dq_table_timings")
+    if dq_timings:
+        n_tables = len(dq_timings)
+        out.write(f"\nDQ time per table ({n_tables} tables):\n")
+        for t in dq_timings:
+            out.write(f"  {t.get('table', '?')}: {t.get('duration_seconds', 0):.2f}s\n")
+        total_dq = sum(t.get("duration_seconds", 0) for t in dq_timings)
+        out.write(f"  Total DQ: {total_dq:.2f}s\n")
+    cb = metrics_dict.get("cost_breakdown")
+    total_cost = metrics_dict.get("total_cost_usd")
+    if cb is not None or total_cost is not None:
+        out.write("\nCost (estimated):\n")
+        if cb:
+            if (cb.get("compute_usd") or 0) > 0:
+                out.write(f"  Compute: ${cb.get('compute_usd', 0):.2f}\n")
+            if cb.get("software_usd") is not None:
+                out.write(f"  Software: ${cb.get('software_usd', 0):.2f}\n")
+        if total_cost is not None:
+            out.write(f"  Total cost: ${total_cost:.2f}\n")
+    out.write("\nStep Details:\n")
+    for step in metrics_dict.get("steps") or []:
+        status_icon = "✓" if step.get("status") == "completed" else "✗" if step.get("status") == "failed" else "○"
+        dur = step.get("duration_seconds")
+        dur_str = f"{dur:.2f}s" if dur is not None else "N/A"
+        out.write(f"  {status_icon} {step.get('step_name', '?')}: {dur_str}")
+        if step.get("rows_processed") is not None:
+            out.write(f" ({step['rows_processed']:,} rows)")
+        if step.get("status") == "failed" and step.get("error_message"):
+            out.write(f" - ERROR: {step['error_message']}")
+        out.write("\n")
+    out.write("=" * 80 + "\n")
+    return out.getvalue()
+
+
 def run_benchmark(config: BenchmarkConfig) -> dict:
     """
     Run TPC-DI benchmark with the given configuration.
@@ -641,7 +714,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             m.cluster_master_type or "N/A",
             m.cluster_worker_count if m.cluster_worker_count is not None else "N/A",
         )
-    return {
+    result = {
         "status": "success",
         "platform_type": m.platform_type,
         "cluster_configuration": cluster_config,
@@ -653,6 +726,9 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             "batch_id": config.batch_id,
         }
     }
+    # Capture "TPC-DI BENCHMARK RESULTS - DATABRICKS/DATAPROC" text for inclusion in saved metrics JSON
+    metrics.metrics.benchmark_results_summary = _format_benchmark_results_summary(config, result)
+    return result
 
 
 if __name__ == "__main__":

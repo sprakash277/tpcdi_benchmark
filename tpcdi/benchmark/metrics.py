@@ -133,6 +133,8 @@ class BenchmarkMetrics:
     dbu_cost_usd: Optional[float] = None  # Databricks only
     # Table override flag: True if tables/paths existed before loading (overridden), False otherwise
     table_override: Optional[bool] = None
+    # Human-readable "TPC-DI BENCHMARK RESULTS - DATABRICKS/DATAPROC" summary (captured in saved JSON)
+    benchmark_results_summary: Optional[str] = None
 
     def __post_init__(self):
         if self.steps is None:
@@ -221,6 +223,8 @@ class BenchmarkMetrics:
             d["dbu_cost_usd"] = self.dbu_cost_usd
         if self.table_override is not None:
             d["table_override"] = self.table_override
+        if self.benchmark_results_summary is not None:
+            d["benchmark_results_summary"] = self.benchmark_results_summary
         return d
     
     def save(
