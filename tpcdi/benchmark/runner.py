@@ -412,6 +412,41 @@ def _format_benchmark_results_summary(config: BenchmarkConfig, result: dict) -> 
         if step.get("status") == "failed" and step.get("error_message"):
             out.write(f" - ERROR: {step['error_message']}")
         out.write("\n")
+    # Per-table: table name, then inside element duration, rows, size, throughput (same as Results Summary)
+    try:
+        from benchmark.etl.table_timing import get_summary as get_table_summary
+        tsum = get_table_summary()
+        details = tsum.get("table_details") or []
+        if details:
+            total_rows = tsum.get("total_records_loaded") or 0
+            total_bytes = tsum.get("total_bytes_processed") or 0
+            total_dur = tsum.get("total_duration_seconds") or 0
+            total_mb = total_bytes / (1024 * 1024)
+            rows_per_sec = total_rows / total_dur if total_dur > 0 else 0
+            mb_per_sec = total_mb / total_dur if total_dur > 0 and total_bytes else 0
+            out.write("\nTable-level stats:\n")
+            out.write(f"  Tables loaded:      {len(details)}\n")
+            out.write(f"  Total records:      {total_rows:,}\n")
+            out.write(f"  Total data size:    {total_mb:.2f} MB\n")
+            out.write(f"  Overall throughput: {rows_per_sec:,.1f} rows/s, {mb_per_sec:.2f} MB/s\n")
+            out.write("  Per-table (duration, rows, size, throughput):\n")
+            for d in details:
+                table_name = d.get("table", "?")
+                dur = d.get("duration_seconds") or 0
+                rows = d.get("row_count") or 0
+                b = d.get("bytes_processed")
+                row_s = rows / dur if dur > 0 else 0
+                mb_s = (b / (1024 * 1024)) / dur if b and dur > 0 else None
+                out.write(f"    {table_name}:\n")
+                out.write(f"      duration: {dur:.2f}s\n")
+                out.write(f"      rows: {rows:,}\n")
+                if b is not None:
+                    out.write(f"      size_mb: {b / (1024 * 1024):.2f}\n")
+                out.write(f"      throughput_rows_per_sec: {row_s:,.1f}\n")
+                if mb_s is not None:
+                    out.write(f"      throughput_mb_per_sec: {mb_s:.2f}\n")
+    except Exception as e:
+        out.write(f"\n(Table-level stats unavailable: {e})\n")
     out.write("=" * 80 + "\n")
     return out.getvalue()
 
@@ -726,6 +761,30 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             "batch_id": config.batch_id,
         }
     }
+    # Per-table details: table name -> { duration_seconds, row_count, bytes_processed, throughput_* } for metrics JSON
+    try:
+        from benchmark.etl.table_timing import get_summary as get_table_summary
+        tsum = get_table_summary()
+        details = tsum.get("table_details") or []
+        if details:
+            per_table = {}
+            for d in details:
+                table_name = d.get("table", "?")
+                dur = d.get("duration_seconds") or 0
+                rows = d.get("row_count") or 0
+                b = d.get("bytes_processed")
+                row_s = rows / dur if dur > 0 else 0
+                mb_s = (b / (1024 * 1024)) / dur if b and dur > 0 else None
+                per_table[table_name] = {
+                    "duration_seconds": round(dur, 2),
+                    "row_count": rows,
+                    "bytes_processed": b,
+                    "throughput_rows_per_sec": round(row_s, 2),
+                    "throughput_mb_per_sec": round(mb_s, 2) if mb_s is not None else None,
+                }
+            metrics.metrics.per_table_details = per_table
+    except Exception as e:
+        logger.debug("Could not build per_table_details for metrics: %s", e)
     # Capture "TPC-DI BENCHMARK RESULTS - DATABRICKS/DATAPROC" text for inclusion in saved metrics JSON
     metrics.metrics.benchmark_results_summary = _format_benchmark_results_summary(config, result)
     return result

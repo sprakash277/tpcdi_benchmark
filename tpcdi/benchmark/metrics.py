@@ -135,6 +135,8 @@ class BenchmarkMetrics:
     table_override: Optional[bool] = None
     # Human-readable "TPC-DI BENCHMARK RESULTS - DATABRICKS/DATAPROC" summary (captured in saved JSON)
     benchmark_results_summary: Optional[str] = None
+    # Per-table stats: table_name -> { duration_seconds, row_count, bytes_processed, throughput_rows_per_sec, throughput_mb_per_sec }
+    per_table_details: Optional[Dict[str, Dict[str, Any]]] = None
 
     def __post_init__(self):
         if self.steps is None:
@@ -225,6 +227,8 @@ class BenchmarkMetrics:
             d["table_override"] = self.table_override
         if self.benchmark_results_summary is not None:
             d["benchmark_results_summary"] = self.benchmark_results_summary
+        if self.per_table_details is not None:
+            d["per_table_details"] = self.per_table_details
         return d
     
     def save(
