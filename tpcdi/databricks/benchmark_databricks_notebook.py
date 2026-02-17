@@ -283,6 +283,11 @@ if log_detailed_stats:
     except Exception as e:
         print(f"\n  (Table-level stats unavailable: {e})")
 
+# Save metrics after result summary (so JSON is written after the summary is printed)
+save_fn = result.pop("_save_metrics", None)
+if save_fn:
+    save_fn()
+
 print("="*80)
 
 # COMMAND ----------

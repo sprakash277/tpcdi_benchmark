@@ -787,6 +787,21 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
         logger.debug("Could not build per_table_details for metrics: %s", e)
     # Capture "TPC-DI BENCHMARK RESULTS - DATABRICKS/DATAPROC" text for inclusion in saved metrics JSON
     metrics.metrics.benchmark_results_summary = _format_benchmark_results_summary(config, result)
+    # Defer save to caller so metrics are saved after the result summary block is printed
+    def _save_metrics_after_summary():
+        if not config.enable_metrics or not config.metrics_output_path:
+            return None
+        try:
+            return metrics.metrics.save(
+                config.metrics_output_path,
+                service_account_key_file=getattr(config, "service_account_key_file", None),
+                spark=getattr(metrics, "spark", None),
+            )
+        except Exception as e:
+            logger.error("Failed to save metrics: %s", e)
+            return None
+    result["_save_metrics"] = _save_metrics_after_summary
+    metrics._save_deferred = True
     return result
 
 

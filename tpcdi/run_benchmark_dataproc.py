@@ -229,17 +229,6 @@ if __name__ == "__main__":
     
     result = run_benchmark(config)
 
-    # Optional: fetch Dataproc batch usage and merge into metrics (for cost calculation).
-    # Batch ID can come from --dataproc-batch-id or env DATAPROC_BATCH_ID / BATCH_ID (if set by launcher).
-    # Note: runtimeInfo.approximateUsage may not be final until after the batch process exits; if empty, run the post script fetch_dataproc_batch_usage.py after the batch succeeds.
-    batch_id_for_usage = getattr(args, "dataproc_batch_id", None) or os.environ.get("DATAPROC_BATCH_ID") or os.environ.get("BATCH_ID")
-    metrics_saved_path = result.get("metrics", {}).get("metrics_saved_path") if result else None
-    if batch_id_for_usage and metrics_saved_path and config.region and config.project_id:
-        if _fetch_and_merge_dataproc_batch_usage(batch_id_for_usage, config.region, config.project_id, metrics_saved_path):
-            print("\nMerged Dataproc batch usage into metrics file.")
-        else:
-            print("\n(Batch usage fetch/merge skipped or failed; run fetch_dataproc_batch_usage.py after the batch succeeds for full usage.)")
-
     # Same summary format as Databricks (benchmark_databricks_notebook.py)
     print("\n" + "=" * 80)
     print("TPC-DI BENCHMARK RESULTS - DATAPROC")
@@ -312,6 +301,24 @@ if __name__ == "__main__":
         if step.get('status') == "failed" and step.get('error_message'):
             print(f" - ERROR: {step['error_message']}", end="")
         print()
+
+    # Save metrics after result summary (so JSON is written after the summary is printed)
+    save_fn = result.pop("_save_metrics", None)
+    if save_fn:
+        save_path = save_fn()
+        if save_path:
+            result["metrics"]["metrics_saved_path"] = save_path
+
+    # Optional: fetch Dataproc batch usage and merge into metrics (for cost calculation).
+    # Batch ID can come from --dataproc-batch-id or env DATAPROC_BATCH_ID / BATCH_ID (if set by launcher).
+    # Note: runtimeInfo.approximateUsage may not be final until after the batch process exits; if empty, run the post script fetch_dataproc_batch_usage.py after the batch succeeds for full usage.
+    batch_id_for_usage = getattr(args, "dataproc_batch_id", None) or os.environ.get("DATAPROC_BATCH_ID") or os.environ.get("BATCH_ID")
+    metrics_saved_path = result.get("metrics", {}).get("metrics_saved_path") if result else None
+    if batch_id_for_usage and metrics_saved_path and config.region and config.project_id:
+        if _fetch_and_merge_dataproc_batch_usage(batch_id_for_usage, config.region, config.project_id, metrics_saved_path):
+            print("\nMerged Dataproc batch usage into metrics file.")
+        else:
+            print("\n(Batch usage fetch/merge skipped or failed; run fetch_dataproc_batch_usage.py after the batch succeeds for full usage.)")
 
     # Table-level stats in Result summary only when --log-detailed-stats is true (same as Databricks)
     if args.log_detailed_stats:

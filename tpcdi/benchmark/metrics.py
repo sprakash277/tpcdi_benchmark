@@ -422,7 +422,8 @@ class MetricsCollector:
         
         self.metrics.finish()
         
-        if self.config.enable_metrics and self.config.metrics_output_path:
+        # Save only if not deferred to caller (caller saves after printing result summary)
+        if not getattr(self, "_save_deferred", False) and self.config.enable_metrics and self.config.metrics_output_path:
             try:
                 self.metrics.save(
                     self.config.metrics_output_path,

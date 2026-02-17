@@ -719,6 +719,10 @@ def run_local(args):
                 print(f"  Software: ${cb['software_usd']:.2f}")
         if total_cost is not None:
             print(f"  Total cost: ${total_cost:.2f}")
+    # Save metrics after result summary (so JSON is written after the summary is printed)
+    save_fn = result.pop("_save_metrics", None)
+    if save_fn:
+        save_fn()
 
 
 def main():
