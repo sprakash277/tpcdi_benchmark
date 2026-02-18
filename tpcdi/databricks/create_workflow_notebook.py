@@ -79,6 +79,7 @@ dbutils.widgets.dropdown(
 )
 dbutils.widgets.dropdown("cloud", "AWS", ["AWS", "GCP", "Azure"], "Cloud (pick first; then re-run next cell for instance types)")
 dbutils.widgets.dropdown("workflow_type", "benchmark", ["data_gen", "benchmark", "full"], "Workflow type: data_gen = data generation only; benchmark = benchmark ETL only; full = both tasks in one job")
+dbutils.widgets.dropdown("separate_customer_mgmt_bronze", "false", ["true", "false"], "Separate customer mgmt bronze task (benchmark/full): Task 01b loads only bronze_customer_mgmt; Task 02 depends on it and skips that load")
 dbutils.widgets.text("scale_factor", "10", "Scale Factor (SF=10→2 workers, SF=100→3 workers, SF=1000→5 workers)")
 dbutils.widgets.text("num_workers", "2", "Number of Workers (auto-set based on scale_factor if left blank)")
 dbutils.widgets.text("existing_cluster_id", "", "Existing Cluster ID (optional)")
@@ -115,6 +116,7 @@ from pathlib import Path
 
 job_name = dbutils.widgets.get("job_name")
 workflow_type = dbutils.widgets.get("workflow_type")
+separate_customer_mgmt_bronze = dbutils.widgets.get("separate_customer_mgmt_bronze") == "true"
 data_gen_notebook = dbutils.widgets.get("data_gen_notebook")
 benchmark_notebook = dbutils.widgets.get("benchmark_notebook")
 spark_version = dbutils.widgets.get("spark_version")
@@ -217,6 +219,48 @@ if workflow_type == "full":
     benchmark_task["depends_on"] = [{"task_key": "01_data_generation"}]
     benchmark_task["run_if"] = "ALL_SUCCESS"
 
+# Optional: separate task that only loads bronze_customer_mgmt; benchmark task then skips it and depends on this task
+if separate_customer_mgmt_bronze and workflow_type in ("benchmark", "full"):
+    benchmark_task["notebook_task"]["base_parameters"]["separate_customer_mgmt_bronze"] = "true"
+    benchmark_task["notebook_task"]["base_parameters"]["bronze_only_customer_mgmt"] = "false"
+    customer_mgmt_bronze_task = {
+        "task_key": "01b_customer_mgmt_bronze",
+        "description": "Load bronze_customer_mgmt only (CustomerMgmt.xml)",
+        "job_cluster_key": "01b_customer_mgmt_bronze_cluster",
+        "libraries": [{"maven": {"coordinates": "com.databricks:spark-xml_2.13:0.18.0"}}],
+        "notebook_task": {
+            "notebook_path": benchmark_notebook,
+            "base_parameters": {
+                "load_type": "batch",
+                "scale_factor": scale_factor_str,
+                "tpcdi_raw_data_path": "dbfs:/mnt/tpcdi",
+                "target_schema": "dw",
+                "target_catalog": benchmark_task["notebook_task"]["base_parameters"].get("target_catalog", ""),
+                "batch_id": "",
+                "metrics_output": "dbfs:/mnt/tpcdi/metrics",
+                "log_detailed_stats": "false",
+                "customer_mgmt_xml_format": "com.databricks.spark.xml",
+                "separate_customer_mgmt_bronze": "false",
+                "bronze_only_customer_mgmt": "true",
+            },
+            "source": "WORKSPACE"
+        },
+        "timeout_seconds": 0,
+        "email_notifications": {},
+        "webhook_notifications": {},
+        "retry_on_timeout": False,
+        "max_retries": 0,
+        "min_retry_interval_millis": 0,
+        "max_retry_interval_millis": 0,
+    }
+    if workflow_type == "full":
+        customer_mgmt_bronze_task["depends_on"] = [{"task_key": "01_data_generation"}]
+        customer_mgmt_bronze_task["run_if"] = "ALL_SUCCESS"
+        benchmark_task["depends_on"] = [{"task_key": "01b_customer_mgmt_bronze"}]
+    else:
+        benchmark_task["depends_on"] = [{"task_key": "01b_customer_mgmt_bronze"}]
+    benchmark_task["run_if"] = "ALL_SUCCESS"
+
 if workflow_type == "data_gen":
     tasks = [data_gen_task]
     job_clusters_def = [{"job_cluster_key": "01_data_generation_cluster", "new_cluster": cluster_config.copy()}]
@@ -227,8 +271,15 @@ if workflow_type == "data_gen":
         {"name": "tpcdi_local_gen_path", "default": "/local_disk0", "description": "Local path for datagen output (/local_disk0 on Databricks)"},
     ]
 elif workflow_type == "benchmark":
-    tasks = [benchmark_task]
-    job_clusters_def = [{"job_cluster_key": "02_benchmark_execution_cluster", "new_cluster": cluster_config.copy()}]
+    if separate_customer_mgmt_bronze:
+        tasks = [customer_mgmt_bronze_task, benchmark_task]
+        job_clusters_def = [
+            {"job_cluster_key": "01b_customer_mgmt_bronze_cluster", "new_cluster": cluster_config.copy()},
+            {"job_cluster_key": "02_benchmark_execution_cluster", "new_cluster": cluster_config.copy()},
+        ]
+    else:
+        tasks = [benchmark_task]
+        job_clusters_def = [{"job_cluster_key": "02_benchmark_execution_cluster", "new_cluster": cluster_config.copy()}]
     parameters = [
         {"name": "scale_factor", "default": "10", "description": "TPC-DI scale factor"},
         {"name": "tpcdi_raw_data_path", "default": "dbfs:/mnt/tpcdi", "description": "TPC-DI raw data path (dbfs:/..., /Volumes/..., gs://...)"},
@@ -242,11 +293,19 @@ elif workflow_type == "benchmark":
     ]
 else:
     # full
-    tasks = [data_gen_task, benchmark_task]
-    job_clusters_def = [
-        {"job_cluster_key": "01_data_generation_cluster", "new_cluster": cluster_config.copy()},
-        {"job_cluster_key": "02_benchmark_execution_cluster", "new_cluster": cluster_config.copy()},
-    ]
+    if separate_customer_mgmt_bronze:
+        tasks = [data_gen_task, customer_mgmt_bronze_task, benchmark_task]
+        job_clusters_def = [
+            {"job_cluster_key": "01_data_generation_cluster", "new_cluster": cluster_config.copy()},
+            {"job_cluster_key": "01b_customer_mgmt_bronze_cluster", "new_cluster": cluster_config.copy()},
+            {"job_cluster_key": "02_benchmark_execution_cluster", "new_cluster": cluster_config.copy()},
+        ]
+    else:
+        tasks = [data_gen_task, benchmark_task]
+        job_clusters_def = [
+            {"job_cluster_key": "01_data_generation_cluster", "new_cluster": cluster_config.copy()},
+            {"job_cluster_key": "02_benchmark_execution_cluster", "new_cluster": cluster_config.copy()},
+        ]
     parameters = [
         {"name": "scale_factor", "default": "10", "description": "TPC-DI scale factor (e.g., 10, 100, 1000)"},
         {"name": "tpcdi_raw_data_path", "default": "dbfs:/mnt/tpcdi", "description": "TPC-DI raw data path (used by both tasks); dbfs:/..., /Volumes/..., or gs://..."},
