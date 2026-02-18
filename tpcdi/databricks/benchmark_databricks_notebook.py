@@ -223,9 +223,10 @@ if metrics_dict.get('cluster_instance_type') or metrics_dict.get('cluster_worker
 if metrics_dict.get('table_override') is not None:
     print(f"\nTable Override: {metrics_dict['table_override']}")
 
-print(f"\nTotal Duration: {result['metrics']['total_duration_seconds']:.2f} seconds")
-if result['metrics']['summary']:
-    summary = result['metrics']['summary']
+total_dur = result['metrics'].get('total_duration_seconds')
+print(f"\nTotal Duration: {total_dur:.2f} seconds" if total_dur is not None else "\nTotal Duration: N/A")
+summary = result['metrics'].get('summary')
+if summary:
     print(f"\nSummary:")
     print(f"  Total Steps: {summary['total_steps']}")
     print(f"  Completed Steps: {summary['completed_steps']}")
@@ -258,12 +259,14 @@ if cb is not None or total_cost is not None:
         print(f"  Total cost: ${total_cost:.2f}")
 
 print("\nStep Details:")
-for step in result['metrics']['steps']:
-    status_icon = "✓" if step['status'] == "completed" else "✗" if step['status'] == "failed" else "○"
-    print(f"  {status_icon} {step['step_name']}: {step['duration_seconds']:.2f}s", end="")
-    if step['rows_processed']:
+for step in result['metrics'].get('steps', []):
+    status_icon = "✓" if step.get('status') == "completed" else "✗" if step.get('status') == "failed" else "○"
+    dur = step.get('duration_seconds')
+    dur_str = f"{dur:.2f}s" if dur is not None else "N/A"
+    print(f"  {status_icon} {step.get('step_name', '?')}: {dur_str}", end="")
+    if step.get('rows_processed') is not None:
         print(f" ({step['rows_processed']:,} rows)", end="")
-    if step['status'] == "failed":
+    if step.get('status') == "failed" and step.get('error_message'):
         print(f" - ERROR: {step['error_message']}", end="")
     print()
 
