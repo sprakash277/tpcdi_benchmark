@@ -102,6 +102,8 @@ class BronzeETL:
         target_database: str,
         target_schema: str,
         customer_mgmt_xml_format: Optional[str] = None,
+        skip_bronze_customer_mgmt: bool = False,
+        only_bronze_customer_mgmt: bool = False,
     ):
         """
         Run full Bronze layer load for a batch.
@@ -111,10 +113,12 @@ class BronzeETL:
             target_database: Target database/catalog name
             target_schema: Target schema name
             customer_mgmt_xml_format: Spark XML format: "org.apache.spark.sql.execution.datasources.xml" (Databricks native), or "xml"/"com.databricks.spark.xml" (spark-xml JAR). None = "xml".
+            skip_bronze_customer_mgmt: If True, do not load bronze_customer_mgmt (table already created by a prior task).
+            only_bronze_customer_mgmt: If True, run only reference tables (batch 1) + bronze_customer_mgmt then return (for Databricks workflow Task 1).
         """
         prefix = ".".join(p for p in (target_database, target_schema) if p)
 
-        logger.info(f"Starting Bronze layer load for Batch{batch_id}")
+        logger.info(f"Starting Bronze layer load for Batch{batch_id} (skip_customer_mgmt={skip_bronze_customer_mgmt}, only_customer_mgmt={only_bronze_customer_mgmt})")
 
         # Reference data (Batch1 only)
         if batch_id == 1:
@@ -136,20 +140,24 @@ class BronzeETL:
         # Customer/Account data: Different formats for Batch 1 vs Batch 2+
         # Batch 1: CustomerMgmt.xml (XML event log)
         # Batch 2+: Customer.txt and Account.txt (pipe-delimited state snapshots)
-        if batch_id == 1:
+        if batch_id == 1 and not skip_bronze_customer_mgmt:
             table_timing_start(f"{prefix}.bronze_customer_mgmt")
             xml_fmt = (customer_mgmt_xml_format or "xml").strip() or "xml"
             self.customer_mgmt.load(
                 batch_id, f"{prefix}.bronze_customer_mgmt",
                 xml_format=xml_fmt,
             )
-        else:
+        elif batch_id != 1:
             # Incremental batches: pipe-delimited flat files
             table_timing_start(f"{prefix}.bronze_customer")
             self.customer.load(batch_id, f"{prefix}.bronze_customer")
             table_timing_start(f"{prefix}.bronze_account")
             self.account.load(batch_id, f"{prefix}.bronze_account")
-        
+
+        if only_bronze_customer_mgmt:
+            logger.info("Bronze layer load completed (only_customer_mgmt mode: stopping after bronze_customer_mgmt)")
+            return
+
         # Other data files (all batches)
         table_timing_start(f"{prefix}.bronze_trade")
         self.trade.load(batch_id, f"{prefix}.bronze_trade")

@@ -43,6 +43,10 @@ class BenchmarkConfig:
     metrics_output_path: Optional[str] = None
     log_detailed_stats: bool = True  # If True, log per-table timing and records; else only job start/end/total duration
     customer_mgmt_xml_format: Optional[str] = None  # "org.apache.spark.sql.execution.datasources.xml" (Databricks native), "xml"/"com.databricks.spark.xml" (spark-xml JAR); None = "xml"
+    # Databricks workflow only: when True, workflow has a task that only loads bronze_customer_mgmt; main benchmark task skips that load and depends on it
+    separate_customer_mgmt_bronze: bool = False
+    # When True, run only bronze customer management table load then exit (used by the dedicated workflow task)
+    bronze_only_customer_mgmt: bool = False
     # Optional cluster metadata for metrics (logged in metrics JSON and aggregate CSV)
     cluster_instance_type: Optional[str] = None  # Worker node type (e.g. n2d-standard-16, i3.xlarge)
     cluster_worker_count: Optional[int] = None   # Number of worker instances

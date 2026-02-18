@@ -24,6 +24,7 @@ def create_workflow_definition(
     default_customer_mgmt_xml_format: str = "com.databricks.spark.xml",
     cluster_config: Dict[str, Any] = None,
     workflow_type: str = "benchmark",
+    separate_customer_mgmt_bronze: bool = False,
 ) -> Dict[str, Any]:
     """
     Create Databricks workflow definition.
@@ -32,6 +33,8 @@ def create_workflow_definition(
                    "benchmark" = benchmark ETL only (single task);
                    "full" = both tasks in one job (data gen then benchmark);
                    "v2_batch" = single task running v2/databricks/run_tpcdi_batch (Bronze → Silver → Gold).
+    separate_customer_mgmt_bronze: If True (benchmark/full only), add task 01b that only loads bronze_customer_mgmt;
+                                   task 02 then depends on 01b and skips bronze_customer_mgmt load.
     """
     if cluster_config is None:
         cluster_config = {
@@ -99,6 +102,50 @@ def create_workflow_definition(
         benchmark_task["depends_on"] = [{"task_key": "01_data_generation"}]
         benchmark_task["run_if"] = "ALL_SUCCESS"
 
+    # Optional: separate task that only loads bronze_customer_mgmt; benchmark task then skips it and depends on this task
+    if separate_customer_mgmt_bronze and workflow_type in ("benchmark", "full"):
+        benchmark_task["base_parameters"]["separate_customer_mgmt_bronze"] = "true"
+        benchmark_task["base_parameters"]["bronze_only_customer_mgmt"] = "false"
+        customer_mgmt_bronze_task = {
+            "task_key": "01b_customer_mgmt_bronze",
+            "description": "Load bronze_customer_mgmt only (CustomerMgmt.xml)",
+            "job_cluster_key": "01b_customer_mgmt_bronze_cluster",
+            "libraries": [
+                {"maven": {"coordinates": "com.databricks:spark-xml_2.13:0.18.0"}}
+            ],
+            "notebook_task": {
+                "notebook_path": benchmark_notebook_path,
+                "base_parameters": {
+                    "load_type": default_load_type,
+                    "scale_factor": str(default_scale_factor),
+                    "tpcdi_raw_data_path": default_output_path,
+                    "target_schema": default_target_schema,
+                    "target_catalog": default_target_catalog,
+                    "batch_id": "",
+                    "metrics_output": default_metrics_output,
+                    "log_detailed_stats": "true" if default_log_detailed_stats else "false",
+                    "customer_mgmt_xml_format": default_customer_mgmt_xml_format or "com.databricks.spark.xml",
+                    "separate_customer_mgmt_bronze": "false",
+                    "bronze_only_customer_mgmt": "true",
+                },
+                "source": "WORKSPACE"
+            },
+            "timeout_seconds": 0,
+            "email_notifications": {},
+            "webhook_notifications": {},
+            "retry_on_timeout": False,
+            "max_retries": 0,
+            "min_retry_interval_millis": 0,
+            "max_retry_interval_millis": 0,
+        }
+        if workflow_type == "full":
+            customer_mgmt_bronze_task["depends_on"] = [{"task_key": "01_data_generation"}]
+            customer_mgmt_bronze_task["run_if"] = "ALL_SUCCESS"
+            benchmark_task["depends_on"] = [{"task_key": "01b_customer_mgmt_bronze"}]
+        else:
+            benchmark_task["depends_on"] = [{"task_key": "01b_customer_mgmt_bronze"}]
+        benchmark_task["run_if"] = "ALL_SUCCESS"
+
     if workflow_type == "v2_batch":
         v2_task = {
             "task_key": "run_tpcdi_batch",
@@ -153,10 +200,17 @@ def create_workflow_definition(
             {"name": "tpcdi_local_gen_path", "default": default_local_gen_path or "/local_disk0", "description": "Local path for datagen output (/local_disk0 on Databricks)"},
         ]
     elif workflow_type == "benchmark":
-        tasks = [benchmark_task]
-        job_clusters_def = [
-            {"job_cluster_key": "02_benchmark_execution_cluster", "new_cluster": cluster_config.copy()},
-        ]
+        if separate_customer_mgmt_bronze:
+            tasks = [customer_mgmt_bronze_task, benchmark_task]
+            job_clusters_def = [
+                {"job_cluster_key": "01b_customer_mgmt_bronze_cluster", "new_cluster": cluster_config.copy()},
+                {"job_cluster_key": "02_benchmark_execution_cluster", "new_cluster": cluster_config.copy()},
+            ]
+        else:
+            tasks = [benchmark_task]
+            job_clusters_def = [
+                {"job_cluster_key": "02_benchmark_execution_cluster", "new_cluster": cluster_config.copy()},
+            ]
         parameters = [
             {"name": "scale_factor", "default": str(default_scale_factor), "description": "TPC-DI scale factor"},
             {"name": "tpcdi_raw_data_path", "default": default_output_path, "description": "TPC-DI raw data path (dbfs:/..., /Volumes/..., gs://...)"},
@@ -170,11 +224,19 @@ def create_workflow_definition(
         ]
     else:
         # full
-        tasks = [data_gen_task, benchmark_task]
-        job_clusters_def = [
-            {"job_cluster_key": "01_data_generation_cluster", "new_cluster": cluster_config.copy()},
-            {"job_cluster_key": "02_benchmark_execution_cluster", "new_cluster": cluster_config.copy()},
-        ]
+        if separate_customer_mgmt_bronze:
+            tasks = [data_gen_task, customer_mgmt_bronze_task, benchmark_task]
+            job_clusters_def = [
+                {"job_cluster_key": "01_data_generation_cluster", "new_cluster": cluster_config.copy()},
+                {"job_cluster_key": "01b_customer_mgmt_bronze_cluster", "new_cluster": cluster_config.copy()},
+                {"job_cluster_key": "02_benchmark_execution_cluster", "new_cluster": cluster_config.copy()},
+            ]
+        else:
+            tasks = [data_gen_task, benchmark_task]
+            job_clusters_def = [
+                {"job_cluster_key": "01_data_generation_cluster", "new_cluster": cluster_config.copy()},
+                {"job_cluster_key": "02_benchmark_execution_cluster", "new_cluster": cluster_config.copy()},
+            ]
         parameters = [
             {"name": "scale_factor", "default": str(default_scale_factor), "description": "TPC-DI scale factor (e.g., 10, 100, 1000)"},
             {"name": "tpcdi_raw_data_path", "default": default_output_path, "description": "TPC-DI raw data path (used by both tasks); dbfs:/..., /Volumes/..., or gs://..."},
@@ -293,6 +355,8 @@ def main():
     parser.add_argument("--default-customer-mgmt-xml-format", default="xml",
                        choices=["xml", "com.databricks.spark.xml"],
                        help="CustomerMgmt.xml reader format: xml or com.databricks.spark.xml")
+    parser.add_argument("--separate-customer-mgmt-bronze", action="store_true",
+                       help="Add task 01b that only loads bronze_customer_mgmt; benchmark task depends on it and skips that load (benchmark/full only)")
     
     # Cluster configuration
     SPARK_VERSIONS = [
@@ -427,6 +491,7 @@ def main():
         default_customer_mgmt_xml_format=getattr(args, "default_customer_mgmt_xml_format", "com.databricks.spark.xml") or "com.databricks.spark.xml",
         cluster_config=cluster_config,
         workflow_type=args.workflow_type,
+        separate_customer_mgmt_bronze=getattr(args, "separate_customer_mgmt_bronze", False),
     )
     
     # Handle existing cluster: use existing_cluster_id on each task and clear job_clusters / job_cluster_key

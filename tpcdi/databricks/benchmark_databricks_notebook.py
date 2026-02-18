@@ -57,6 +57,14 @@ try:
     dbutils.widgets.drop("customer_mgmt_xml_format")
 except Exception:
     pass
+try:
+    dbutils.widgets.drop("separate_customer_mgmt_bronze")
+except Exception:
+    pass
+try:
+    dbutils.widgets.drop("bronze_only_customer_mgmt")
+except Exception:
+    pass
 
 dbutils.widgets.dropdown("load_type", "batch", ["batch", "incremental"], "Load Type")
 dbutils.widgets.text("scale_factor", "10", "Scale Factor")
@@ -68,6 +76,8 @@ dbutils.widgets.text("metrics_output", "dbfs:/mnt/tpcdi/metrics", "Metrics Outpu
 dbutils.widgets.dropdown("log_detailed_stats", "false", ["true", "false"], "Log detailed stats (per-table timing/records); false = only job start/end/total duration")
 dbutils.widgets.dropdown("customer_mgmt_xml_format", "com.databricks.spark.xml", ["org.apache.spark.sql.execution.datasources.xml", "xml", "com.databricks.spark.xml"], "CustomerMgmt.xml: org.apache.spark...=Databricks native; xml/com.databricks.spark.xml=custom JAR")
 dbutils.widgets.dropdown("cloud", "AWS", ["AWS", "Azure", "GCP"], "Cloud (for cost estimation: AWS, Azure, GCP)")
+dbutils.widgets.dropdown("separate_customer_mgmt_bronze", "false", ["true", "false"], "Separate customer mgmt bronze task (workflow: Task 2 skips bronze_customer_mgmt load)")
+dbutils.widgets.dropdown("bronze_only_customer_mgmt", "false", ["true", "false"], "Run only bronze_customer_mgmt then exit (workflow Task 1)")
 
 # COMMAND ----------
 
@@ -153,6 +163,8 @@ metrics_output = dbutils.widgets.get("metrics_output").strip()
 log_detailed_stats = dbutils.widgets.get("log_detailed_stats") == "true"
 customer_mgmt_xml_format = dbutils.widgets.get("customer_mgmt_xml_format").strip() or "com.databricks.spark.xml"
 cloud = dbutils.widgets.get("cloud").strip() or "AWS"
+separate_customer_mgmt_bronze = dbutils.widgets.get("separate_customer_mgmt_bronze") == "true"
+bronze_only_customer_mgmt = dbutils.widgets.get("bronze_only_customer_mgmt") == "true"
 
 # Parse batch_id for incremental loads
 batch_id = int(batch_id_str) if batch_id_str and load_type == "incremental" else None
@@ -173,6 +185,8 @@ config = BenchmarkConfig(
     log_detailed_stats=log_detailed_stats,
     customer_mgmt_xml_format=customer_mgmt_xml_format,
     cloud=cloud,
+    separate_customer_mgmt_bronze=separate_customer_mgmt_bronze,
+    bronze_only_customer_mgmt=bronze_only_customer_mgmt,
 )
 result = run_benchmark(config)
 

@@ -296,6 +296,41 @@ def _get_databricks_job_run_ids(spark: SparkSession) -> Tuple[Optional[str], Opt
     return (job_id, run_id)
 
 
+def _build_result_early(metrics, config: BenchmarkConfig) -> dict:
+    """Build a minimal result dict for early exit (e.g. bronze_only_customer_mgmt task)."""
+    m = metrics.metrics
+    cluster_config = None
+    if m.cluster_instance_type is not None or m.cluster_master_type is not None or m.cluster_worker_count is not None:
+        cluster_config = {
+            "worker_node_type": m.cluster_instance_type,
+            "driver_node_type": m.cluster_master_type,
+            "number_of_worker_nodes": m.cluster_worker_count,
+        }
+    result = {
+        "status": "success",
+        "platform_type": m.platform_type,
+        "cluster_configuration": cluster_config,
+        "metrics": m.to_dict(),
+        "config": {
+            "platform": config.platform.value,
+            "load_type": config.load_type.value,
+            "scale_factor": config.scale_factor,
+            "batch_id": config.batch_id,
+        },
+    }
+    result["_save_metrics"] = lambda: (
+        metrics.metrics.save(
+            config.metrics_output_path,
+            service_account_key_file=getattr(config, "service_account_key_file", None),
+            spark=getattr(metrics, "spark", None),
+        )
+        if config.enable_metrics and config.metrics_output_path
+        else None
+    )
+    metrics._save_deferred = True
+    return result
+
+
 def _get_databricks_node_types(spark: SparkSession) -> Tuple[Optional[str], Optional[str]]:
     """
     Get (worker_node_type, driver_node_type) from Databricks Spark conf when available.
@@ -574,8 +609,12 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
         table_timing_configure(log_detailed_stats=config.log_detailed_stats)
         table_timing_job_start()
 
+        skip_bronze_customer_mgmt = getattr(config, "separate_customer_mgmt_bronze", False) and not getattr(config, "bronze_only_customer_mgmt", False)
+        bronze_only_customer_mgmt = getattr(config, "bronze_only_customer_mgmt", False)
+
         if config.load_type == LoadType.BATCH:
-            # Drop all Bronze, Silver, and Gold tables so batch load starts clean
+            # When bronze_only_customer_mgmt (Task 1): do not drop tables; we only create ref + bronze_customer_mgmt
+            # When skip_bronze_customer_mgmt (Task 2): do not drop bronze_customer_mgmt (created by Task 1)
             batch_tables = [
                 "bronze_date", "bronze_time", "bronze_status_type", "bronze_tax_rate",
                 "bronze_trade_type", "bronze_industry", "bronze_hr", "bronze_customer_mgmt",
@@ -590,7 +629,9 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
                 "gold_financials", "gold_prospect", "gold_fact_trade", "gold_fact_market_history", "gold_dim_messages",
                 "gold_fact_cash_balances", "gold_fact_holdings", "gold_fact_watches",
             ]
-            if hasattr(platform, "drop_table_if_exists"):
+            if skip_bronze_customer_mgmt:
+                batch_tables = [t for t in batch_tables if t != "bronze_customer_mgmt"]
+            if hasattr(platform, "drop_table_if_exists") and not bronze_only_customer_mgmt:
                 prefix = ".".join(p for p in (db_or_catalog, effective_schema) if p)
                 for short_name in batch_tables:
                     full_name = f"{prefix}.{short_name}" if prefix else short_name
@@ -604,6 +645,8 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             bronze_etl.run_bronze_batch_load(
                 1, db_or_catalog, effective_schema,
                 customer_mgmt_xml_format=getattr(config, "customer_mgmt_xml_format", None),
+                skip_bronze_customer_mgmt=skip_bronze_customer_mgmt,
+                only_bronze_customer_mgmt=bronze_only_customer_mgmt,
             )
             
             bronze_tables = ["bronze_customer_mgmt", "bronze_trade", "bronze_daily_market", 
@@ -620,7 +663,13 @@ def run_benchmark(config: BenchmarkConfig) -> dict:
             metrics.finish_step(rows=sum(bronze_row_counts.values()),
                                bytes=bronze_bytes if bronze_bytes else None,
                                metadata={"table_counts": bronze_row_counts})
-            
+
+            if bronze_only_customer_mgmt:
+                table_timing_job_end()
+                table_timing_log_final()
+                logger.info("Exiting early (bronze_only_customer_mgmt): bronze_customer_mgmt task completed")
+                return _build_result_early(metrics, config)
+
             metrics.start_step("silver_etl")
             from benchmark.etl.silver import SilverETL
             silver_etl = SilverETL(platform)
