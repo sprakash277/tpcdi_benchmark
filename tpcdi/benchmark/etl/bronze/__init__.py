@@ -114,14 +114,14 @@ class BronzeETL:
             target_schema: Target schema name
             customer_mgmt_xml_format: Spark XML format: "org.apache.spark.sql.execution.datasources.xml" (Databricks native), or "xml"/"com.databricks.spark.xml" (spark-xml JAR). None = "xml".
             skip_bronze_customer_mgmt: If True, do not load bronze_customer_mgmt (table already created by a prior task).
-            only_bronze_customer_mgmt: If True, run only reference tables (batch 1) + bronze_customer_mgmt then return (for Databricks workflow Task 1).
+            only_bronze_customer_mgmt: If True, run only bronze_customer_mgmt (Batch 1) then return; no reference tables, no trade/daily_market/etc. (for Databricks workflow Task 1).
         """
         prefix = ".".join(p for p in (target_database, target_schema) if p)
 
         logger.info(f"Starting Bronze layer load for Batch{batch_id} (skip_customer_mgmt={skip_bronze_customer_mgmt}, only_customer_mgmt={only_bronze_customer_mgmt})")
 
-        # Reference data (Batch1 only)
-        if batch_id == 1:
+        # Reference data (Batch1 only) — skip when only_bronze_customer_mgmt (Task 1 creates only bronze_customer_mgmt)
+        if batch_id == 1 and not only_bronze_customer_mgmt:
             table_timing_start(f"{prefix}.bronze_date")
             self.date.load(f"{prefix}.bronze_date")
             table_timing_start(f"{prefix}.bronze_time")
