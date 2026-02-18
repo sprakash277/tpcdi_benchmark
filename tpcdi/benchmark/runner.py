@@ -234,8 +234,9 @@ def is_databricks_serverless(spark: SparkSession) -> bool:
 
 def _get_databricks_job_run_ids(spark: SparkSession) -> Tuple[Optional[str], Optional[str]]:
     """
-    Get (job_id, run_id) from Databricks runtime when running as a job.
-    Tries spark.conf (clusterUsageTags.JobId, JobRunId) and clusterAllTags; then dbutils notebook context.
+    Get (job_id, job_run_id) from Databricks runtime when running as a job.
+    We want the job run ID (the top-level run when you trigger the job), not the task run ID.
+    Tries spark.conf (clusterUsageTags); then dbutils notebook context, preferring rootRunId over currentRunId.
     Returns (None, None) when not on a job or not available (e.g. interactive run).
     """
     import json
@@ -248,6 +249,7 @@ def _get_databricks_job_run_ids(spark: SparkSession) -> Tuple[Optional[str], Opt
                 break
         except Exception:
             pass
+    # Job run ID (not task run): clusterUsageTags may expose job-level run id
     for key in ("spark.databricks.clusterUsageTags.jobRunId", "spark.databricks.clusterUsageTags.JobRunId"):
         try:
             v = spark.conf.get(key)
@@ -258,7 +260,6 @@ def _get_databricks_job_run_ids(spark: SparkSession) -> Tuple[Optional[str], Opt
             pass
     if job_id is None or run_id is None:
         try:
-            import json
             tags_json = spark.conf.get("spark.databricks.clusterUsageTags.clusterAllTags")
             tags = json.loads(tags_json) if tags_json else []
             tag_map = {t.get("key"): t.get("value") for t in tags if isinstance(t, dict)}
@@ -268,14 +269,26 @@ def _get_databricks_job_run_ids(spark: SparkSession) -> Tuple[Optional[str], Opt
                 run_id = tag_map.get("JobRunId") or tag_map.get("jobRunId") or tag_map.get("RunId") or tag_map.get("runId")
         except Exception:
             pass
-    if (job_id is None or run_id is None):
+    # Notebook context: rootRunId = job run ID, currentRunId = task run ID (we want job run)
+    if job_id is None or run_id is None:
         try:
             from pyspark.dbutils import DBUtils
             dbutils = DBUtils(spark)
             ctx_str = dbutils.notebook.entry_point.getDbutils().notebook().getContext().toJson()
             ctx = json.loads(ctx_str) if isinstance(ctx_str, str) else {}
             if run_id is None:
-                run_id = (ctx.get("currentRunId") or {}).get("id") if isinstance(ctx.get("currentRunId"), dict) else None
+                # Prefer rootRunId (job run); fall back to currentRunId (task run) for single-task jobs
+                root_run = ctx.get("rootRunId")
+                current_run = ctx.get("currentRunId")
+                run_id = None
+                if isinstance(root_run, dict) and isinstance(root_run.get("id"), (str, int)):
+                    run_id = str(root_run.get("id"))
+                elif isinstance(root_run, (str, int)) and root_run:
+                    run_id = str(root_run)
+                if run_id is None and isinstance(current_run, dict) and isinstance(current_run.get("id"), (str, int)):
+                    run_id = str(current_run.get("id"))
+                elif run_id is None and isinstance(current_run, (str, int)) and current_run:
+                    run_id = str(current_run)
             if job_id is None:
                 job_id = (ctx.get("tags") or {}).get("jobId") if isinstance(ctx.get("tags"), dict) else None
         except Exception:
