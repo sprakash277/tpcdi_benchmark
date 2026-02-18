@@ -93,15 +93,31 @@ from pathlib import Path
 try:
     notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
     workspace_path = Path(notebook_path).parent
-    project_root = workspace_path.parent if (workspace_path.parent / "benchmark").is_dir() else workspace_path
+    # Repo may be repo/tpcdi/databricks (then parent of databricks = tpcdi) or repo/databricks (then parent = repo)
+    parent = workspace_path.parent
+    if (parent / "tpcdi").is_dir():
+        project_root = parent  # repo root (has tpcdi/)
+    elif (parent / "benchmark").is_dir():
+        project_root = parent  # tpcdi dir (has benchmark/)
+    else:
+        project_root = workspace_path
 except Exception:
     project_root = Path(os.getcwd())
 sys.path.insert(0, str(project_root.resolve()))
+# When repo root is on path, add tpcdi dir so "import generate_tpcdi_data" finds tpcdi/generate_tpcdi_data.py
+_tpcdi_dir = project_root / "tpcdi" if (project_root / "tpcdi").is_dir() else project_root
+if str(_tpcdi_dir.resolve()) not in sys.path:
+    sys.path.insert(0, str(_tpcdi_dir.resolve()))
 
-# Import and reload to pick up any code changes
-import generate_tpcdi_data
-importlib.reload(generate_tpcdi_data)
-from generate_tpcdi_data import generate_tpcdi_data
+# Import and reload to pick up any code changes (works whether path has tpcdi/ or repo root)
+try:
+    import generate_tpcdi_data as _gen_mod
+    importlib.reload(_gen_mod)
+    from generate_tpcdi_data import generate_tpcdi_data
+except ModuleNotFoundError:
+    import tpcdi.generate_tpcdi_data as _gen_mod
+    importlib.reload(_gen_mod)
+    from tpcdi.generate_tpcdi_data import generate_tpcdi_data
 
 out = generate_tpcdi_data(
     scale_factor=scale_factor,
