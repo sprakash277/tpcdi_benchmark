@@ -109,11 +109,15 @@ class DatabricksPlatform:
             logger.warning(f"Could not check if table {table_name} exists: {e}")
         # For overwrite + Delta: drop first. Use path-based write only for 2-part names (Hive metastore).
         # Unity Catalog (3-part catalog.schema.table) does not allow CREATE TABLE with dbfs LOCATION.
+        # Spark Connect (serverless) does not expose spark.sql.warehouse.dir — use saveAsTable only.
         if mode == "overwrite" and format == "delta":
             self.drop_table_if_exists(table_name)
             parts = table_name.split(".")
-            if len(parts) == 2:
-                warehouse = self.spark.conf.get("spark.sql.warehouse.dir", "").rstrip("/")
+            if len(parts) == 2 and not self._is_spark_connect():
+                try:
+                    warehouse = self.spark.conf.get("spark.sql.warehouse.dir", "").rstrip("/")
+                except Exception:
+                    warehouse = ""
                 if warehouse and not warehouse.startswith("dbfs:"):
                     # Path-based write only when warehouse is not dbfs (UC uses dbfs and rejects it)
                     location = f"{warehouse}/{parts[0]}.db/{parts[1]}"

@@ -67,16 +67,26 @@ class GoldLoaderBase:
         If the target table is not in the catalog but its data exists under the Spark warehouse
         (e.g. GCS path from a previous run / different session), register it so MERGE can run.
         Returns True if the table is now in the catalog (was already there or we registered it).
+        On Spark Connect (Databricks serverless) warehouse config and JVM FS are not available — return False.
         """
         if self.spark.catalog.tableExists(target_table):
             return True
+        # Spark Connect (serverless): spark.sql.warehouse.dir and JVM FS are not available
+        try:
+            if getattr(self.spark, "client", None) is not None:
+                return False
+        except Exception:
+            pass
         # Parse database.table (or catalog.schema.table)
         parts = target_table.split(".")
         if len(parts) < 2:
             return False
         db, table_name = parts[-2], parts[-1]
-        # Warehouse path: spark.sql.warehouse.dir or gs://bucket/spark-warehouse
-        warehouse = self.spark.conf.get("spark.sql.warehouse.dir", "").rstrip("/")
+        # Warehouse path: spark.sql.warehouse.dir or gs://bucket/spark-warehouse (not available on Connect)
+        try:
+            warehouse = self.spark.conf.get("spark.sql.warehouse.dir", "").rstrip("/")
+        except Exception:
+            return False
         if not warehouse and getattr(self.platform, "gcs_bucket", None):
             warehouse = f"gs://{self.platform.gcs_bucket}/spark-warehouse"
         if not warehouse:

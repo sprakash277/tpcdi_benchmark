@@ -52,7 +52,11 @@ def ensure_bronze_table_exists(spark: SparkSession, platform: Any, table_name: s
     # use default catalog 'main' and fail with PERMISSION_DENIED.
     if len(parts) < 3:
         spark.sql(f"CREATE DATABASE IF NOT EXISTS `{db}`")
-    warehouse = spark.conf.get("spark.sql.warehouse.dir", "").rstrip("/")
+    # spark.sql.warehouse.dir is not available on Databricks serverless (Spark Connect); avoid reading it
+    try:
+        warehouse = spark.conf.get("spark.sql.warehouse.dir", "").rstrip("/")
+    except Exception:
+        warehouse = ""
     if not warehouse and getattr(platform, "gcs_bucket", None):
         warehouse = f"gs://{platform.gcs_bucket}/spark-warehouse"
     if not warehouse:
