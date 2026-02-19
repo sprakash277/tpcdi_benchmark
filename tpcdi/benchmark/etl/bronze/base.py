@@ -132,9 +132,11 @@ class BronzeLoaderBase:
         Returns:
             DataFrame with metadata columns added
         """
+        # Dataproc Delta append requires _batch_id as BIGINT to match table schema (INT vs BIGINT merge fails)
+        batch_id_col = lit(batch_id).cast(LongType()) if type(self.platform).__name__ == "DataprocPlatform" else lit(batch_id)
         return df.withColumn("_load_timestamp", current_timestamp()) \
                  .withColumn("_source_file", lit(source_file)) \
-                 .withColumn("_batch_id", lit(batch_id))
+                 .withColumn("_batch_id", batch_id_col)
     
     def _write_bronze_table(self, df: DataFrame, target_table: str, 
                             batch_id: int, source_file: str) -> DataFrame:
