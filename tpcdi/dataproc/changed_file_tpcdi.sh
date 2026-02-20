@@ -1,14 +1,11 @@
 #!/bin/bash
 
+
+# nohup ./sumit_tpcdi_benchmark.sh </dev/null > benchmark_full.log 2>&1 &
+
 # ==============================================================================
 # 1. GLOBAL CONFIGURATION
-
-# ./run_tpcdi_cycle_dataproc_classic.sh  </dev/null > /Users/sumit.prakash/Desktop/stuffs/WorkItems/dataproc_classic_benchmark_full.log 2>&1 &
 # ==============================================================================
-# Fix for Python metrics fetching crash
-export PYTHONUNBUFFERED=1
-alias python=python3
-
 PROJECT="gcp-sandbox-field-eng"
 REGION="us-central1"
 ZONE="us-central1-a"
@@ -17,20 +14,23 @@ SA_EMAIL="sumit-wmt-workspace-creator@gcp-sandbox-field-eng.iam.gserviceaccount.
 SA_KEY="gs://sumit_prakash_gcs/service_account_key_file/service_account.json"
 GCS_BUCKET="sumit_prakash_gcs"
 
-TARGET_DATABASE="tpcdi_warehouse_dataproc_bnchmark_final_2"
+# --- GLOBAL TARGET DATABASE ---
+TARGET_DATABASE="tpcdi_warehouse_dataproc_bnchmark_final"
 
+# Networking Configuration
 VNET_NAME="sumit-tpcdi-vnet"
 SUBNET_NAME="sumit-tpcdi-subnet"
 SUBNET_RANGE="10.10.0.0/24"
 ROUTER_NAME="sumit-tpcdi-router"
 NAT_NAME="sumit-tpcdi-nat"
 
+# Ensure we stop on any error
 set -e
 
 echo "=== [$(date)] STARTING TPC-DI ORCHESTRATION SCRIPT ==="
 
 # ==============================================================================
-# 2. NETWORKING SETUP
+# 2. NETWORKING SETUP (VNET, Subnet, Router, and NAT)
 # ==============================================================================
 
 if ! gcloud compute networks describe "${VNET_NAME}" --project="${PROJECT}" > /dev/null 2>&1; then
@@ -91,36 +91,41 @@ run_tpcdi_cycle() {
       --subnet="$SUBNET_NAME" --no-address \
       --optional-components=DELTA --enable-component-gateway --scopes=cloud-platform
 
-    # B. Job Submission (REPLACED eval WITH DIRECT CALL)
+    # B. Job Submission
+    local JOB_CMD="sh run_dataproc_job.sh \
+        cluster=\"$CLUSTER_NAME\" \
+        region=\"$REGION\" \
+        project=\"$PROJECT\" \
+        load-type=\"$LOAD_TYPE\" \
+        batch-id=\"$BATCH_ID\" \
+        scale-factor=\"$SF\" \
+        target-database=\"$TARGET_DATABASE\" \
+        gcs-bucket=\"$GCS_BUCKET\" \
+        raw-data-path=\"gs://${GCS_BUCKET}/tpcdi\" \
+        metrics-output=\"gs://${GCS_BUCKET}/tpcdi/metrics_new\" \
+        service-account-email=\"$SA_EMAIL\" \
+        service-account-key-file=\"$SA_KEY\""
+
     echo ">>> [$(date)] SUBMITTING JOB..."
-    sh run_dataproc_job.sh \
-      cluster="$CLUSTER_NAME" \
-      region="$REGION" \
-      project="$PROJECT" \
-      load-type="$LOAD_TYPE" \
-      batch-id="$BATCH_ID" \
-      scale-factor="$SF" \
-      target-database="$TARGET_DATABASE" \
-      gcs-bucket="$GCS_BUCKET" \
-      raw-data-path="gs://${GCS_BUCKET}/tpcdi" \
-      metrics-output="gs://${GCS_BUCKET}/tpcdi/metrics_new" \
-      service-account-email="$SA_EMAIL" \
-      service-account-key-file="$SA_KEY"
+    echo ">>> Executing: $JOB_CMD"
+    eval "$JOB_CMD"
 
     # C. Cluster Deletion
     echo "Cleanup: Deleting Cluster ${CLUSTER_NAME}..."
     gcloud dataproc clusters delete "$CLUSTER_NAME" --region="$REGION" --project="$PROJECT" --quiet
 }
+
 # ==============================================================================
 # 4. EXECUTION SEQUENCE
 # ==============================================================================
 
-# SF-10,000 WORKFLOW
+# --- SF-10,000 WORKFLOW ---
+# Format: name, master_type, num_workers, worker_type, ssd_count, load_type, sf, batch_id
 run_tpcdi_cycle "sumit-dataproc-10000" "n2d-standard-8" 6 "n2d-standard-16" 4 "batch" 10000 ""
 run_tpcdi_cycle "sumit-dataproc-inc-10000" "n2d-standard-8" 5 "n2d-standard-8" 2 "incremental" 10000 2
 run_tpcdi_cycle "sumit-dataproc-inc-10000-b3" "n2d-standard-8" 5 "n2d-standard-8" 2 "incremental" 10000 3
 
-# SF-1,000 WORKFLOW
+# --- SF-1,000 WORKFLOW ---
 run_tpcdi_cycle "sumit-dataproc-1000" "n2d-standard-8" 5 "n2d-standard-8" 2 "batch" 1000 ""
 run_tpcdi_cycle "sumit-dataproc-inc-1000" "n2d-standard-8" 3 "n2d-standard-8" 2 "incremental" 1000 2
 run_tpcdi_cycle "sumit-dataproc-inc-1000-b3" "n2d-standard-8" 3 "n2d-standard-8" 2 "incremental" 1000 3

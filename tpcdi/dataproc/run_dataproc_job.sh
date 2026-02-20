@@ -231,11 +231,13 @@ run_serverless() {
   fi
 
   echo "Fetching batch usage and merging into metrics..."
-  python "${SCRIPT_DIR}/fetch_dataproc_batch_usage.py" \
+  python3 "${SCRIPT_DIR}/fetch_dataproc_batch_usage.py" \
     --batch-id "${batch_id}" \
     --region "${REGION}" \
     --project "${PROJECT}" \
-    --metrics-output "${METRICS_OUTPUT}"
+    --metrics-output "${METRICS_OUTPUT}" \
+    --load-type "${LOAD_TYPE}" \
+    --scale-factor "${SCALE_FACTOR}"
   echo "Done (submit → wait → fetch)."
 }
 

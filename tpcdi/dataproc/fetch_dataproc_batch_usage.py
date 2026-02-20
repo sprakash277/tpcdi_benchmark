@@ -21,6 +21,7 @@ Requires: gcloud in PATH (for batches describe and, when using GCS, gsutil for r
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -102,8 +103,8 @@ def build_usage_payload(full_batch: dict) -> dict:
     usage = (full_batch.get("runtimeInfo") or {}).get("approximateUsage") or {}
     if usage:
         payload["approximate_usage"] = usage
-        milli_dcu = usage.get("milliDcuSeconds") or 0
-        shuffle_gb_sec = usage.get("shuffleStorageGbSeconds") or 0
+        milli_dcu = int(usage.get("milliDcuSeconds") or 0)
+        shuffle_gb_sec = int(usage.get("shuffleStorageGbSeconds") or 0)
         payload["approximate_dcu_hours"] = round(milli_dcu / 1_000_000 * (1 / 3600), 6)
         # GB-months: 1 GB-month ≈ 30 * 24 * 3600 GB-seconds
         payload["approximate_shuffle_storage_gb_months"] = round(
@@ -169,25 +170,37 @@ def gcs_write_json(gcs_path: str, data: dict) -> bool:
 
 
 # Merge only into serverless metrics files (this script runs after a serverless batch).
+# Filename pattern from benchmark: metrics_dataproc_serverless_{load_type}_sf{scale_factor}_{timestamp}.json
+# (or ..._batch{N}_{timestamp}.json for incremental). Use run-specific prefix when load_type+scale_factor given.
 METRICS_SERVERLESS_PREFIX = "metrics_dataproc_serverless_"
 
 
-def local_latest_metrics_file(local_dir: str) -> str | None:
-    """Return path to the latest metrics_dataproc_serverless_*.json in directory (by mtime)."""
+def _metrics_prefix(load_type: str | None, scale_factor: int | None) -> str:
+    """Prefix for metrics filename; e.g. metrics_dataproc_serverless_batch_sf1000_."""
+    if load_type is not None and scale_factor is not None:
+        return f"{METRICS_SERVERLESS_PREFIX}{load_type}_sf{scale_factor}_"
+    return METRICS_SERVERLESS_PREFIX
+
+
+def local_latest_metrics_file(local_dir: str, prefix: str | None = None) -> str | None:
+    """Return path to the latest metrics file in directory (by mtime). prefix defaults to METRICS_SERVERLESS_PREFIX."""
     p = Path(local_dir)
     if not p.is_dir():
         return None
-    files = list(p.glob(f"{METRICS_SERVERLESS_PREFIX}*.json"))
+    pfx = prefix or METRICS_SERVERLESS_PREFIX
+    files = list(p.glob(f"{pfx}*.json"))
     if not files:
         return None
     latest = max(files, key=lambda f: f.stat().st_mtime)
     return str(latest)
 
 
-def gcs_latest_metrics_file(gcs_dir: str) -> str | None:
-    """Return gs:// path to the latest metrics_dataproc_serverless_*.json (by name sort; filename has timestamp)."""
+def gcs_latest_metrics_file(gcs_dir: str, prefix: str | None = None) -> str | None:
+    """Return gs:// path to the latest metrics file (by name sort; filename has timestamp). prefix defaults to METRICS_SERVERLESS_PREFIX."""
     files = gcs_list_json_files(gcs_dir)
-    metrics_files = [f for f in files if f"/{METRICS_SERVERLESS_PREFIX}" in f and f.endswith(".json")]
+    pfx = prefix or METRICS_SERVERLESS_PREFIX
+    # Match files whose path contains the prefix (e.g. .../metrics_dataproc_serverless_batch_sf1000_....json)
+    metrics_files = [f for f in files if f"/{pfx}" in f and f.endswith(".json")]
     if not metrics_files:
         return None
     # Sort by name descending (timestamp in filename) and take first
@@ -229,7 +242,16 @@ def main() -> int:
     parser.add_argument("--project", required=True, help="GCP project ID")
     parser.add_argument(
         "--metrics-output",
-        help="Metrics output directory (gs:// or local) or path to a specific metrics JSON file. If directory, merges into latest metrics_dataproc_serverless_*.json only.",
+        help="Metrics output directory (gs:// or local) or path to a specific metrics JSON file. If directory, merges into latest metrics file (optionally scoped by --load-type and --scale-factor).",
+    )
+    parser.add_argument(
+        "--load-type",
+        help="Load type (e.g. batch, incremental). When set with --scale-factor, only latest metrics_dataproc_serverless_{load_type}_sf{scale_factor}_*.json is considered.",
+    )
+    parser.add_argument(
+        "--scale-factor",
+        type=int,
+        help="Scale factor (e.g. 1000). When set with --load-type, only latest metrics file for that run pattern is considered.",
     )
     args = parser.parse_args()
 
@@ -276,24 +298,26 @@ def main() -> int:
             json.dump(payload, f, indent=2)
     print(f"Wrote batch usage to {standalone_path}")
 
-    # Optionally merge into latest metrics file
+    # Optionally merge into latest metrics file (optionally scoped by load_type + scale_factor)
     if args.metrics_output:
         base = args.metrics_output.rstrip("/")
         is_file = base.endswith(".json")
+        prefix = _metrics_prefix(args.load_type, args.scale_factor) if (args.load_type and args.scale_factor is not None) else None
         if is_file:
             metrics_file = base
         else:
             if is_gcs(base):
-                metrics_file = gcs_latest_metrics_file(base)
+                metrics_file = gcs_latest_metrics_file(base, prefix)
             else:
-                metrics_file = local_latest_metrics_file(base)
+                metrics_file = local_latest_metrics_file(base, prefix)
         if metrics_file:
             if merge_into_metrics_file(metrics_file, payload, is_gcs(metrics_file)):
                 print(f"Merged dataproc_batch into {metrics_file}")
             else:
                 print(f"Could not merge into {metrics_file}", file=sys.stderr)
         else:
-            print(f"No {METRICS_SERVERLESS_PREFIX}*.json found in {base}; standalone file only.")
+            pattern = (prefix or METRICS_SERVERLESS_PREFIX) + "*.json"
+            print(f"No {pattern} found in {base}; standalone file only.")
 
     return 0
 
