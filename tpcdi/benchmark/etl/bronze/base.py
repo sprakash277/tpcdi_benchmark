@@ -59,7 +59,9 @@ def ensure_bronze_table_exists(spark: SparkSession, platform: Any, table_name: s
         warehouse = ""
     if not warehouse and getattr(platform, "gcs_bucket", None):
         warehouse = f"gs://{platform.gcs_bucket}/spark-warehouse"
-    if not warehouse:
+    # Unity Catalog (3-part name) and dbfs: warehouse do not support CREATE TABLE with LOCATION
+    use_path = warehouse and not warehouse.startswith("dbfs:") and len(parts) < 3
+    if not warehouse or not use_path:
         spark.sql(
             f"CREATE TABLE IF NOT EXISTS {table_name} "
             f"(raw_line STRING, _load_timestamp TIMESTAMP, _source_file STRING, _batch_id BIGINT) USING delta"
